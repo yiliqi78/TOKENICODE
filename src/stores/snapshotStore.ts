@@ -119,6 +119,10 @@ export const useSnapshotStore = create<SnapshotState>()((set, get) => ({
     if (!snap) return;
     if (snap.createdFiles.includes(filePath)) return;
 
+    // If the file was already in the snapshot's fileContents, it existed before
+    // this turn — it's being overwritten, not created. Don't mark it for deletion.
+    if (filePath in snap.fileContents) return;
+
     const next = new Map(snapshots);
     next.set(currentTurnId, {
       ...snap,
@@ -163,6 +167,11 @@ export const useSnapshotStore = create<SnapshotState>()((set, get) => ({
       if (s) {
         for (const f of s.createdFiles) allCreatedFiles.add(f);
       }
+    }
+
+    // Safety: never delete files that were in the original snapshot (they existed before)
+    for (const fp of Object.keys(snap.fileContents)) {
+      allCreatedFiles.delete(fp);
     }
 
     try {

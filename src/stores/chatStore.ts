@@ -242,13 +242,24 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   setInputDraft: (text) => set({ inputDraft: text }),
 
   rewindToTurn: (startMsgIdx) =>
-    set((state) => ({
-      messages: state.messages.slice(0, startMsgIdx),
-      isStreaming: false,
-      partialText: '',
-      // Keep sessionMeta (sessionId needed for resume), reset transient state
-      activityStatus: { phase: 'idle' },
-    })),
+    set((state) => {
+      // Guard against invalid index — if out of bounds, keep messages intact
+      if (startMsgIdx < 0 || startMsgIdx > state.messages.length) {
+        console.warn('[chatStore] rewindToTurn: invalid index', startMsgIdx, 'total:', state.messages.length);
+        return {
+          isStreaming: false,
+          partialText: '',
+          activityStatus: { phase: 'idle' as ActivityPhase },
+        };
+      }
+      return {
+        messages: state.messages.slice(0, startMsgIdx),
+        isStreaming: false,
+        partialText: '',
+        // Keep sessionMeta (sessionId needed for resume), reset transient state
+        activityStatus: { phase: 'idle' as ActivityPhase },
+      };
+    }),
 
   // --- Session cache operations ---
 
