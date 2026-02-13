@@ -122,6 +122,9 @@
 **流式对话** — 实时思考与输出
 ![流式对话](screenshots/streaming-chat.png)
 
+**会话管理** — 持久化会话，支持搜索与恢复
+![会话管理](screenshots/文件管理.png)
+
 **文件浏览器** — 语法高亮预览
 ![文件浏览器](screenshots/file-explorer.png)
 
@@ -131,8 +134,14 @@
 **斜杠命令** — 全命令自动补全
 ![斜杠命令](screenshots/slash-commands.png)
 
+**计划模式** — 结构化实施方案规划
+![计划模式](screenshots/plan-mode.png)
+
 **快照与回退** — 回退到任意对话轮次
 ![快照与回退](screenshots/rewind.png)
+
+**代理活动** — 实时监控子代理任务
+![代理活动](screenshots/Agents.png)
 
 **技能管理** — 创建、编辑和管理技能
 ![技能管理](screenshots/skills.png)

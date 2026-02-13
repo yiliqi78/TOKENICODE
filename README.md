@@ -122,6 +122,9 @@ Full Chinese and English support. All user-facing strings go through a centraliz
 **Streaming Chat** — Real-time thinking & writing
 ![Streaming Chat](screenshots/streaming-chat.png)
 
+**Session Management** — Persistent sessions with search & resume
+![Session Management](screenshots/文件管理.png)
+
 **File Explorer** — Browse & preview with syntax highlighting
 ![File Explorer](screenshots/file-explorer.png)
 
@@ -131,8 +134,14 @@ Full Chinese and English support. All user-facing strings go through a centraliz
 **Slash Commands** — Autocomplete for all commands
 ![Slash Commands](screenshots/slash-commands.png)
 
+**Plan Mode** — Structured implementation planning
+![Plan Mode](screenshots/plan-mode.png)
+
 **Snapshot & Rewind** — Roll back to any turn
 ![Rewind](screenshots/rewind.png)
+
+**Agent Activity** — Monitor sub-agent tasks in real-time
+![Agent Activity](screenshots/Agents.png)
 
 **Skills Management** — Create, edit & manage skills
 ![Skills](screenshots/skills.png)

@@ -122,6 +122,9 @@ Claude Code スキル（作成、編集、有効化/無効化）と MCP サー�
 **ストリーミングチャット** — リアルタイム思考＆出力
 ![ストリーミングチャット](screenshots/streaming-chat.png)
 
+**セッション管理** — 永続化されたセッション、検索＆再開
+![セッション管理](screenshots/文件管理.png)
+
 **ファイルエクスプローラー** — シンタックスハイライト付きプレビュー
 ![ファイルエクスプローラー](screenshots/file-explorer.png)
 
@@ -131,8 +134,14 @@ Claude Code スキル（作成、編集、有効化/無効化）と MCP サー�
 **スラッシュコマンド** — 全コマンドのオートコンプリート
 ![スラッシュコマンド](screenshots/slash-commands.png)
 
+**プランモード** — 構造化された実装計画
+![プランモード](screenshots/plan-mode.png)
+
 **スナップショット＆巻き戻し** — 任意のターンにロールバック
 ![巻き戻し](screenshots/rewind.png)
+
+**エージェント活動** — サブエージェントタスクをリアルタイムで監視
+![エージェント活動](screenshots/Agents.png)
 
 **スキル管理** — スキルの作成、編集、管理
 ![スキル管理](screenshots/skills.png)
