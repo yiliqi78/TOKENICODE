@@ -22,25 +22,6 @@
 
 </div>
 
-## Screenshots
-
-<div align="center">
-
-| | |
-|:---:|:---:|
-| ![Main Interface](screenshots/main-interface.png) | ![Streaming Chat](screenshots/streaming-chat.png) |
-| **Main Interface** — Three-panel layout | **Streaming Chat** — Real-time thinking & writing |
-| ![File Explorer](screenshots/file-explorer.png) | ![File Editing](screenshots/file-editing.png) |
-| **File Explorer** — Browse & preview with syntax highlighting | **File Editing** — Built-in CodeMirror editor for 12+ languages |
-| ![Slash Commands](screenshots/slash-commands.png) | ![Rewind](screenshots/rewind.png) |
-| **Slash Commands** — Autocomplete for all commands | **Snapshot & Rewind** — Roll back to any turn |
-| ![Skills](screenshots/skills.png) | ![HTML Preview](screenshots/html-preview.png) |
-| **Skills Management** — Create, edit & manage skills | **HTML Preview** — Live preview of HTML files |
-| ![Settings](screenshots/settings.png) | |
-| **Settings** — Themes, accent colors, i18n | |
-
-</div>
-
 ## Features at a Glance
 
 | | | | |
@@ -132,6 +113,35 @@ Full Chinese and English support. All user-facing strings go through a centraliz
 | `Cmd++` / `Cmd+-` | Adjust font size |
 | `Cmd+0` | Reset font size |
 | `Escape` | Close overlay / cancel |
+
+## Interface Preview
+
+**Main Interface** — Three-panel layout
+![Main Interface](screenshots/main-interface.png)
+
+**Streaming Chat** — Real-time thinking & writing
+![Streaming Chat](screenshots/streaming-chat.png)
+
+**File Explorer** — Browse & preview with syntax highlighting
+![File Explorer](screenshots/file-explorer.png)
+
+**File Editing** — Built-in CodeMirror editor for 12+ languages
+![File Editing](screenshots/file-editing.png)
+
+**Slash Commands** — Autocomplete for all commands
+![Slash Commands](screenshots/slash-commands.png)
+
+**Snapshot & Rewind** — Roll back to any turn
+![Rewind](screenshots/rewind.png)
+
+**Skills Management** — Create, edit & manage skills
+![Skills](screenshots/skills.png)
+
+**HTML Preview** — Live preview of HTML files
+![HTML Preview](screenshots/html-preview.png)
+
+**Settings** — Themes, accent colors, i18n
+![Settings](screenshots/settings.png)
 
 ## Contributing
 

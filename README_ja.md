@@ -22,25 +22,6 @@
 
 </div>
 
-## スクリーンショット
-
-<div align="center">
-
-| | |
-|:---:|:---:|
-| ![メインインターフェース](screenshots/main-interface.png) | ![ストリーミングチャット](screenshots/streaming-chat.png) |
-| **メインインターフェース** — 3カラムレイアウト | **ストリーミングチャット** — リアルタイム思考＆出力 |
-| ![ファイルエクスプローラー](screenshots/file-explorer.png) | ![ファイル編集](screenshots/file-editing.png) |
-| **ファイルエクスプローラー** — シンタックスハイライト付きプレビュー | **ファイル編集** — 内蔵 CodeMirror エディター、12以上の言語対応 |
-| ![スラッシュコマンド](screenshots/slash-commands.png) | ![巻き戻し](screenshots/rewind.png) |
-| **スラッシュコマンド** — 全コマンドのオートコンプリート | **スナップショット＆巻き戻し** — 任意のターンにロールバック |
-| ![スキル管理](screenshots/skills.png) | ![HTMLプレビュー](screenshots/html-preview.png) |
-| **スキル管理** — スキルの作成、編集、管理 | **HTMLプレビュー** — HTMLファイルのライブプレビュー |
-| ![設定](screenshots/settings.png) | |
-| **設定** — テーマ、アクセントカラー、i18n | |
-
-</div>
-
 ## 機能一覧
 
 | | | | |
@@ -132,6 +113,35 @@ Claude Code スキル（作成、編集、有効化/無効化）と MCP サー�
 | `Cmd++` / `Cmd+-` | フォントサイズを調整 |
 | `Cmd+0` | フォントサイズをリセット |
 | `Escape` | オーバーレイを閉じる / キャンセル |
+
+## インターフェースプレビュー
+
+**メインインターフェース** — 3カラムレイアウト
+![メインインターフェース](screenshots/main-interface.png)
+
+**ストリーミングチャット** — リアルタイム思考＆出力
+![ストリーミングチャット](screenshots/streaming-chat.png)
+
+**ファイルエクスプローラー** — シンタックスハイライト付きプレビュー
+![ファイルエクスプローラー](screenshots/file-explorer.png)
+
+**ファイル編集** — 内蔵 CodeMirror エディター、12以上の言語対応
+![ファイル編集](screenshots/file-editing.png)
+
+**スラッシュコマンド** — 全コマンドのオートコンプリート
+![スラッシュコマンド](screenshots/slash-commands.png)
+
+**スナップショット＆巻き戻し** — 任意のターンにロールバック
+![巻き戻し](screenshots/rewind.png)
+
+**スキル管理** — スキルの作成、編集、管理
+![スキル管理](screenshots/skills.png)
+
+**HTMLプレビュー** — HTMLファイルのライブプレビュー
+![HTMLプレビュー](screenshots/html-preview.png)
+
+**設定** — テーマ、アクセントカラー、i18n
+![設定](screenshots/settings.png)
 
 ## コントリビュート
 

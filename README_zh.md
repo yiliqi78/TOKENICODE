@@ -22,25 +22,6 @@
 
 </div>
 
-## 截图预览
-
-<div align="center">
-
-| | |
-|:---:|:---:|
-| ![主界面](screenshots/main-interface.png) | ![流式对话](screenshots/streaming-chat.png) |
-| **主界面** — 三栏布局 | **流式对话** — 实时思考与输出 |
-| ![文件浏览器](screenshots/file-explorer.png) | ![文件编辑](screenshots/file-editing.png) |
-| **文件浏览器** — 浏览与预览，支持语法高亮 | **文件编辑** — 内置 CodeMirror 编辑器，支持 12+ 语言 |
-| ![斜杠命令](screenshots/slash-commands.png) | ![快照回退](screenshots/rewind.png) |
-| **斜杠命令** — 全命令自动补全 | **快照与回退** — 回退到任意对话轮次 |
-| ![技能管理](screenshots/skills.png) | ![HTML 预览](screenshots/html-preview.png) |
-| **技能管理** — 创建、编辑与管理技能 | **HTML 预览** — 实时预览 HTML 文件 |
-| ![设置](screenshots/settings.png) | |
-| **设置** — 主题、强调色、国际化 | |
-
-</div>
-
 ## 功能一览
 
 | | | | |
@@ -132,6 +113,35 @@
 | `Cmd++` / `Cmd+-` | 调整字体大小 |
 | `Cmd+0` | 重置字体大小 |
 | `Escape` | 关闭弹出层 / 取消 |
+
+## 界面预览
+
+**主界面** — 三栏布局
+![主界面](screenshots/main-interface.png)
+
+**流式对话** — 实时思考与输出
+![流式对话](screenshots/streaming-chat.png)
+
+**文件浏览器** — 语法高亮预览
+![文件浏览器](screenshots/file-explorer.png)
+
+**文件编辑** — 内置 CodeMirror 编辑器，支持 12+ 种语言
+![文件编辑](screenshots/file-editing.png)
+
+**斜杠命令** — 全命令自动补全
+![斜杠命令](screenshots/slash-commands.png)
+
+**快照与回退** — 回退到任意对话轮次
+![快照与回退](screenshots/rewind.png)
+
+**技能管理** — 创建、编辑和管理技能
+![技能管理](screenshots/skills.png)
+
+**HTML 预览** — HTML 文件实时预览
+![HTML 预览](screenshots/html-preview.png)
+
+**设置** — 主题、强调色、国际化
+![设置](screenshots/settings.png)
 
 ## 参与贡献
 
