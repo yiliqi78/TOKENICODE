@@ -4,7 +4,7 @@
 
 # TOKENICODE
 
-### Claude Code のための美しいネイティブデスクトップ GUI
+### Claude Code のための美しいデスクトップクライアント
 
 [![Version](https://img.shields.io/badge/バージョン-0.1.1-blue?style=flat-square)](https://github.com/yiliqi78/TOKENICODE/releases)
 [![License](https://img.shields.io/badge/ライセンス-Apache%202.0-green?style=flat-square)](LICENSE)
@@ -12,7 +12,7 @@
 [![Tauri](https://img.shields.io/badge/Tauri-2.0-FFC131?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
 
-**TOKENICODE** は強力な [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) をリッチなネイティブデスクトップ体験で包みます — ファイルエクスプローラー、セッション管理、スナップショット/巻き戻し、スラッシュコマンドなどの機能を備えています。
+**TOKENICODE** は強力な [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) に美しいデスクトップインターフェースを提供します — ファイルエクスプローラー、セッション管理、スナップショット/巻き戻し、スラッシュコマンドなどの機能を備えています。
 
 [**ダウンロード**](#インストール) | [**機能詳細**](#機能の詳細)
 

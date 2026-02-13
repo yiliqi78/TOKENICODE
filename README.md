@@ -4,7 +4,7 @@
 
 # TOKENICODE
 
-### A Beautiful Native Desktop GUI for Claude Code
+### A Beautiful Desktop Client for Claude Code
 
 [![Version](https://img.shields.io/badge/version-0.1.1-blue?style=flat-square)](https://github.com/yiliqi78/TOKENICODE/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)](LICENSE)
@@ -12,7 +12,7 @@
 [![Tauri](https://img.shields.io/badge/Tauri-2.0-FFC131?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
 
-**TOKENICODE** wraps the powerful [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) in a rich, native desktop experience — with file exploration, session management, snapshot/rewind, slash commands, and more.
+**TOKENICODE** wraps the powerful [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) in a beautiful desktop interface — with file exploration, session management, snapshot/rewind, slash commands, and more.
 
 [**Download**](#installation) | [**Features**](#features-deep-dive)
 

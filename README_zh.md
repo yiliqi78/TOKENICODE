@@ -4,7 +4,7 @@
 
 # TOKENICODE
 
-### Claude Code 原生桌面客户端
+### Claude Code 桌面美化客户端
 
 [![Version](https://img.shields.io/badge/版本-0.1.1-blue?style=flat-square)](https://github.com/yiliqi78/TOKENICODE/releases)
 [![License](https://img.shields.io/badge/许可证-Apache%202.0-green?style=flat-square)](LICENSE)
@@ -12,7 +12,7 @@
 [![Tauri](https://img.shields.io/badge/Tauri-2.0-FFC131?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
 
-**TOKENICODE** 将强大的 [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) 封装在精美的原生桌面界面中 — 集成文件浏览、会话管理、快照回退、斜杠命令等丰富功能。
+**TOKENICODE** 为强大的 [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) 提供精美的桌面图形界面 — 集成文件浏览、会话管理、快照回退、斜杠命令等丰富功能。
 
 [**下载**](#安装) | [**功能详解**](#功能详解)
 
