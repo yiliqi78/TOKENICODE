@@ -1855,10 +1855,11 @@ end tell"#,
     #[cfg(target_os = "linux")]
     {
         // Try common terminal emulators in order of preference
+        let xterm_cmd = format!("{} login", claude_bin);
         let terminals = [
             ("gnome-terminal", vec!["--", &claude_bin, "login"]),
             ("konsole", vec!["-e", &claude_bin, "login"]),
-            ("xterm", vec!["-e", &format!("{} login", claude_bin)]),
+            ("xterm", vec!["-e", xterm_cmd.as_str()]),
         ];
         let mut opened = false;
         for (term, args) in &terminals {
