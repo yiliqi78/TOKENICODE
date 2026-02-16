@@ -6,7 +6,7 @@
 
 ### Claude Code のための美しいデスクトップクライアント
 
-[![Version](https://img.shields.io/badge/バージョン-0.1.1-blue?style=flat-square)](https://github.com/yiliqi78/TOKENICODE/releases)
+[![Version](https://img.shields.io/badge/バージョン-0.2.0-blue?style=flat-square)](https://github.com/yiliqi78/TOKENICODE/releases)
 [![License](https://img.shields.io/badge/ライセンス-Apache%202.0-green?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/プラットフォーム-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](#インストール)
 [![Tauri](https://img.shields.io/badge/Tauri-2.0-FFC131?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
@@ -35,8 +35,8 @@
 
 ### 前提条件
 
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) がインストール済みで認証されていること
 - macOS 12+、Windows 10+、または Linux（WebKit2GTK が必要）
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) — TOKENICODE は初回起動時に自動検出、インストール、認証をガイドします
 
 ### インストール
 
@@ -55,8 +55,9 @@
 ### 初回起動
 
 1. TOKENICODE を開きます
-2. ウェルカム画面または入力バーからプロジェクトフォルダを選択します
-3. チャットを開始 — Claude CLI セッションがバックグラウンドでシームレスに動作します
+2. Claude Code CLI がインストールされていない場合、セットアップウィザードがインストールとログインをガイドします — ターミナル不要
+3. ウェルカム画面または入力バーからプロジェクトフォルダを選択します
+4. チャットを開始 — Claude CLI セッションがバックグラウンドでシームレスに動作します
 
 ## 機能の詳細
 

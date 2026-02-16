@@ -20,20 +20,30 @@ interface CommandSection {
 function filterCommands(commands: UnifiedCommand[], query: string): UnifiedCommand[] {
   if (!commands.length) return [];
   const q = query.toLowerCase().trim();
+  if (!q) return commands.slice(0, 12); // empty query → show all
+
   const nameWithSlash = '/' + q;
-  return commands.filter((cmd) => {
-    if (cmd.name.toLowerCase().includes(nameWithSlash) ||
-        cmd.name.toLowerCase().includes(q) ||
-        cmd.description.toLowerCase().includes(q)) {
-      return true;
-    }
+
+  // First pass: commands whose name starts with the query (strongest match)
+  const startsWithMatches = commands.filter((cmd) =>
+    cmd.name.toLowerCase().startsWith(nameWithSlash)
+  );
+
+  // Second pass: commands whose name or description contains the query
+  const containsMatches = commands.filter((cmd) => {
+    // Skip already-matched commands
+    if (cmd.name.toLowerCase().startsWith(nameWithSlash)) return false;
+    // Match on description
+    if (cmd.description.toLowerCase().includes(q)) return true;
     // Also search translated descriptions for builtin commands
     if (cmd.category === 'builtin') {
       const localDesc = tStatic(`slash.desc.${cmd.name.slice(1)}`);
       if (localDesc && localDesc.toLowerCase().includes(q)) return true;
     }
     return false;
-  }).slice(0, 12);
+  });
+
+  return [...startsWithMatches, ...containsMatches].slice(0, 12);
 }
 
 function groupCommands(filtered: UnifiedCommand[]): CommandSection[] {
@@ -84,7 +94,7 @@ export function SlashCommandPopover({
     <div
       ref={listRef}
       className="absolute bottom-full left-0 right-0 mb-1
-        glass border border-border-subtle rounded-xl shadow-lg
+        bg-bg-card border border-border-subtle rounded-xl shadow-lg
         py-1 z-50 max-h-[380px] overflow-y-auto
         animate-in fade-in slide-in-from-bottom-2 duration-150"
     >
@@ -128,7 +138,17 @@ export function SlashCommandPopover({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-medium font-mono text-[12px]">{cmd.name}</span>
-                    {cmd.immediate && (
+                    {cmd.execution === 'cli' && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-500 font-medium">
+                        {t('slash.cli')}
+                      </span>
+                    )}
+                    {cmd.execution === 'session' && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-500 font-medium">
+                        {t('slash.session')}
+                      </span>
+                    )}
+                    {cmd.execution === 'ui' && cmd.immediate && (
                       <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-bg-tertiary text-text-tertiary font-medium">
                         {t('slash.immediate')}
                       </span>

@@ -52,8 +52,11 @@ export interface ChatMessage {
   // File attachments (user-sent images/files)
   attachments?: MessageAttachment[];
   // Command feedback fields (for system messages from slash commands)
-  commandType?: 'mode' | 'info' | 'help' | 'action' | 'error';
+  commandType?: 'mode' | 'info' | 'help' | 'action' | 'error' | 'processing';
   commandData?: Record<string, any>;
+  // Command processing card fields
+  commandStartTime?: number;
+  commandCompleted?: boolean;
 }
 
 export interface SessionMeta {
@@ -64,6 +67,8 @@ export interface SessionMeta {
   sessionId?: string;
   /** The desk-generated ID used as key in Rust StdinManager for sending follow-up messages */
   stdinId?: string;
+  /** Message ID of a pending processing card (for CLI slash commands) */
+  pendingCommandMsgId?: string;
   /** Accumulated input tokens from stream events (message_start) */
   inputTokens?: number;
   /** Accumulated output tokens from stream events (message_delta) */

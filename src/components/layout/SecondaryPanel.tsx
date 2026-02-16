@@ -3,7 +3,6 @@ import { useSettingsStore, SecondaryPanelTab } from '../../stores/settingsStore'
 import { FileExplorer } from '../files/FileExplorer';
 import { AgentPanel } from '../agents/AgentPanel';
 import { SkillsPanel } from '../skills/SkillsPanel';
-import { McpPanel } from '../mcp/McpPanel';
 import { useT } from '../../lib/i18n';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
@@ -11,7 +10,6 @@ const tabs: { id: SecondaryPanelTab; labelKey: string; icon: string }[] = [
   { id: 'files', labelKey: 'panel.files', icon: 'M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3z' },
   { id: 'agents', labelKey: 'panel.agents', icon: 'M8 2a3 3 0 100 6 3 3 0 000-6zM4 12a4 4 0 018 0' },
   { id: 'skills', labelKey: 'panel.skills', icon: 'M8 1L1 4.5l7 3.5 7-3.5L8 1zM1 11.5l7 3.5 7-3.5M1 8l7 3.5L15 8' },
-  { id: 'mcp', labelKey: 'panel.mcp', icon: 'M2 4a2 2 0 012-2h8a2 2 0 012 2v1H2V4zM2 7h12v5a2 2 0 01-2 2H4a2 2 0 01-2-2V7z' },
 ];
 
 export function SecondaryPanel() {
@@ -33,20 +31,20 @@ export function SecondaryPanel() {
       <div onMouseDown={handleDragStart}
         className="flex items-center justify-between px-2 pt-6 pb-2
         border-b border-border-subtle cursor-default">
-        <div className="flex gap-1">
+        <div className="flex gap-1 min-w-0 overflow-hidden">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setTab(tab.id)}
               className={`px-2.5 py-1.5 rounded-lg text-xs font-medium
-                transition-smooth flex items-center gap-1.5
+                transition-smooth flex items-center gap-1.5 whitespace-nowrap flex-shrink-0
                 ${activeTab === tab.id
                   ? 'bg-accent/10 text-accent'
                   : 'text-text-muted hover:bg-bg-secondary hover:text-text-primary'
                 }`}
             >
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
-                stroke="currentColor" strokeWidth="1.5">
+                stroke="currentColor" strokeWidth="1.5" className="flex-shrink-0">
                 <path d={tab.icon} />
               </svg>
               {t(tab.labelKey)}
@@ -68,7 +66,6 @@ export function SecondaryPanel() {
         {activeTab === 'files' && <FileExplorer />}
         {activeTab === 'agents' && <AgentPanel />}
         {activeTab === 'skills' && <SkillsPanel />}
-        {activeTab === 'mcp' && <McpPanel />}
       </div>
     </div>
   );

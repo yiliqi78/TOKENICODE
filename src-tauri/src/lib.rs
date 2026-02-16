@@ -957,6 +957,8 @@ struct UnifiedCommand {
     has_args: bool,
     path: Option<String>, // Only for skills, points to SKILL.md
     immediate: bool,      // true = execute immediately (no message sent)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    execution: Option<String>,  // "ui" | "cli" | "session" — how command is executed
 }
 
 /// Scan and return all available slash commands (built-in + custom .md files)
@@ -1305,38 +1307,39 @@ async fn delete_skill(path: String) -> Result<(), String> {
 async fn list_all_commands(cwd: Option<String>) -> Result<Vec<UnifiedCommand>, String> {
     let mut commands: Vec<UnifiedCommand> = vec![];
 
-    // 1. Built-in commands: (name, description, has_args)
-    let builtins: [(&str, &str, bool); 28] = [
-        ("/ask", "Ask a question without making changes", false),
-        ("/bug", "Report a bug with Claude Code", false),
-        ("/clear", "Clear conversation history", false),
-        ("/compact", "Compact conversation to reduce context", false),
-        ("/config", "Open settings panel", false),
-        ("/context", "Manage context files and directories", false),
-        ("/cost", "Show session cost and token usage", false),
-        ("/doctor", "Check Claude Code health status", false),
-        ("/exit", "Close the application", false),
-        ("/export", "Export conversation to markdown", true),
-        ("/help", "Show available commands", false),
-        ("/init", "Initialize project configuration", false),
-        ("/mcp", "Manage MCP server connections", false),
-        ("/memory", "View or edit MEMORY.md files", false),
-        ("/model", "Switch the AI model", false),
-        ("/permissions", "View and manage tool permissions", false),
-        ("/plan", "Enter plan mode for complex tasks", false),
-        ("/rename", "Rename the current session", true),
-        ("/resume", "Resume a previous session", true),
-        ("/rewind", "Rewind conversation to a previous turn", false),
-        ("/stats", "Show session statistics", false),
-        ("/status", "Show session status", false),
-        ("/statusline", "Configure status line display", false),
-        ("/tasks", "View running background tasks", false),
-        ("/teleport", "Teleport context to a new session", false),
-        ("/theme", "Toggle light/dark/system theme", false),
-        ("/todos", "View todo items from the session", false),
-        ("/usage", "Show detailed token usage breakdown", false),
+    // 1. Built-in commands: (name, description, has_args, execution)
+    // execution: "ui" = handled in frontend, "cli" = run as separate CLI process, "session" = needs active CLI session
+    let builtins: [(&str, &str, bool, &str); 28] = [
+        ("/ask", "Ask a question without making changes", false, "ui"),
+        ("/bug", "Report a bug with Claude Code", false, "ui"),
+        ("/clear", "Clear conversation history", false, "ui"),
+        ("/compact", "Compact conversation to reduce context", false, "session"),
+        ("/config", "Open settings panel", false, "ui"),
+        ("/context", "Manage context files and directories", false, "session"),
+        ("/cost", "Show session cost and token usage", false, "ui"),
+        ("/doctor", "Check Claude Code health status", false, "session"),
+        ("/exit", "Close the application", false, "ui"),
+        ("/export", "Export conversation to markdown", true, "ui"),
+        ("/help", "Show available commands", false, "ui"),
+        ("/init", "Initialize project configuration", false, "session"),
+        ("/mcp", "Manage MCP server connections", false, "session"),
+        ("/memory", "View or edit MEMORY.md files", false, "session"),
+        ("/model", "Switch the AI model", false, "ui"),
+        ("/permissions", "View and manage tool permissions", false, "session"),
+        ("/plan", "Enter plan mode for complex tasks", false, "ui"),
+        ("/rename", "Rename the current session", true, "ui"),
+        ("/resume", "Resume a previous session", true, "ui"),
+        ("/rewind", "Rewind conversation to a previous turn", false, "ui"),
+        ("/stats", "Show session statistics", false, "session"),
+        ("/status", "Show session status", false, "ui"),
+        ("/statusline", "Configure status line display", false, "session"),
+        ("/tasks", "View running background tasks", false, "session"),
+        ("/teleport", "Teleport context to a new session", false, "session"),
+        ("/theme", "Toggle light/dark/system theme", false, "ui"),
+        ("/todos", "View todo items from the session", false, "session"),
+        ("/usage", "Show detailed token usage breakdown", false, "session"),
     ];
-    for (name, desc, has_args) in &builtins {
+    for (name, desc, has_args, execution) in &builtins {
         commands.push(UnifiedCommand {
             name: name.to_string(),
             description: desc.to_string(),
@@ -1345,6 +1348,7 @@ async fn list_all_commands(cwd: Option<String>) -> Result<Vec<UnifiedCommand>, S
             has_args: *has_args,
             path: None,
             immediate: true,
+            execution: Some(execution.to_string()),
         });
     }
 
@@ -1379,6 +1383,7 @@ async fn list_all_commands(cwd: Option<String>) -> Result<Vec<UnifiedCommand>, S
                     has_args,
                     path: None,
                     immediate: false,
+                    execution: None,
                 });
             }
         }
@@ -1425,6 +1430,7 @@ async fn list_all_commands(cwd: Option<String>) -> Result<Vec<UnifiedCommand>, S
                         has_args,
                         path: Some(path),
                         immediate: false,
+                        execution: None,
                     });
                 }
             }
@@ -1547,6 +1553,340 @@ async fn restore_snapshot(
     Ok(())
 }
 
+// ── Setup: CLI Detection, Installation & Login ──────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+struct CliStatus {
+    installed: bool,
+    path: Option<String>,
+    version: Option<String>,
+}
+
+/// Run a Claude CLI subcommand (e.g. `claude doctor`) as a one-shot process
+/// and return its combined stdout/stderr output.
+#[tauri::command]
+async fn run_claude_command(subcommand: String, cwd: Option<String>) -> Result<String, String> {
+    let binary = find_claude_binary()
+        .ok_or_else(|| "Claude CLI not found".to_string())?;
+    let enriched_path = build_enriched_path();
+    let mut cmd = Command::new(&binary);
+    cmd.arg(&subcommand);
+    cmd.env("PATH", &enriched_path);
+    cmd.env_remove("CLAUDECODE");
+    cmd.stdin(Stdio::null());
+    if let Some(ref dir) = cwd {
+        cmd.current_dir(dir);
+    }
+    let future = cmd.output();
+    let output = tokio::time::timeout(std::time::Duration::from_secs(30), future)
+        .await
+        .map_err(|_| format!("claude {} timed out after 30s", subcommand))?
+        .map_err(|e| format!("Failed to run claude {}: {}", subcommand, e))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    if output.status.success() {
+        let combined = if stderr.is_empty() { stdout } else { format!("{}\n{}", stdout, stderr) };
+        Ok(combined.trim().to_string())
+    } else {
+        let combined = format!("{}\n{}", stdout, stderr);
+        Err(combined.trim().to_string())
+    }
+}
+
+/// Check whether the Claude CLI is installed and return its path and version.
+#[tauri::command]
+async fn check_claude_cli() -> Result<CliStatus, String> {
+    let binary = find_claude_binary();
+    match binary {
+        Some(path) => {
+            // Try to get the version
+            let enriched_path = build_enriched_path();
+            let version = match Command::new(&path)
+                .arg("--version")
+                .env("PATH", &enriched_path)
+                .output()
+                .await
+            {
+                Ok(output) if output.status.success() => {
+                    let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if raw.is_empty() { None } else { Some(raw) }
+                }
+                _ => None,
+            };
+            Ok(CliStatus { installed: true, path: Some(path), version })
+        }
+        None => Ok(CliStatus { installed: false, path: None, version: None }),
+    }
+}
+
+/// Run the Claude CLI install script and stream output to the frontend.
+#[tauri::command]
+async fn install_claude_cli(app: AppHandle) -> Result<(), String> {
+    fn emit_to_frontend(app: &AppHandle, event: &str, payload: Value) -> Result<(), String> {
+        if let Err(e1) = app.emit_to("main", event, payload.clone()) {
+            if let Err(e2) = app.emit(event, payload) {
+                return Err(format!("emit_to failed: {}, emit failed: {}", e1, e2));
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(target_os = "windows")]
+    let mut child = Command::new("powershell")
+        .args(["-Command", "irm https://claude.ai/install.ps1 | iex"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to start installer: {}", e))?;
+
+    #[cfg(not(target_os = "windows"))]
+    let mut child = Command::new("sh")
+        .args(["-c", "curl -fsSL https://claude.ai/install.sh | sh"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to start installer: {}", e))?;
+
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    // Stream stdout
+    let app1 = app.clone();
+    let stdout_handle = tokio::spawn(async move {
+        if let Some(out) = stdout {
+            let reader = BufReader::new(out);
+            let mut lines = reader.lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let _ = emit_to_frontend(
+                    &app1,
+                    "setup:install:output",
+                    serde_json::json!({ "stream": "stdout", "line": line }),
+                );
+            }
+        }
+    });
+
+    // Stream stderr
+    let app2 = app.clone();
+    let stderr_handle = tokio::spawn(async move {
+        if let Some(err) = stderr {
+            let reader = BufReader::new(err);
+            let mut lines = reader.lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let _ = emit_to_frontend(
+                    &app2,
+                    "setup:install:output",
+                    serde_json::json!({ "stream": "stderr", "line": line }),
+                );
+            }
+        }
+    });
+
+    // Wait for process to finish
+    let status = child.wait().await
+        .map_err(|e| format!("Installer process error: {}", e))?;
+
+    let _ = stdout_handle.await;
+    let _ = stderr_handle.await;
+
+    let code = status.code().unwrap_or(-1);
+    let _ = app.emit_to(
+        "main",
+        "setup:install:exit",
+        serde_json::json!({ "code": code }),
+    );
+
+    if code != 0 {
+        return Err(format!("Install script exited with code {}", code));
+    }
+    Ok(())
+}
+
+/// Start the Claude OAuth login flow by running `claude login`.
+#[tauri::command]
+async fn start_claude_login(app: AppHandle) -> Result<(), String> {
+    fn emit_to_frontend(app: &AppHandle, event: &str, payload: Value) -> Result<(), String> {
+        if let Err(e1) = app.emit_to("main", event, payload.clone()) {
+            if let Err(e2) = app.emit(event, payload) {
+                return Err(format!("emit_to failed: {}, emit failed: {}", e1, e2));
+            }
+        }
+        Ok(())
+    }
+
+    let claude_bin = find_claude_binary().unwrap_or_else(|| "claude".to_string());
+    let enriched_path = build_enriched_path();
+
+    let mut child = Command::new(&claude_bin)
+        .args(["login"])
+        .env("PATH", &enriched_path)
+        .env_remove("CLAUDECODE")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to start login: {}", e))?;
+
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    let app1 = app.clone();
+    let stdout_handle = tokio::spawn(async move {
+        if let Some(out) = stdout {
+            let reader = BufReader::new(out);
+            let mut lines = reader.lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let _ = emit_to_frontend(
+                    &app1,
+                    "setup:login:output",
+                    serde_json::json!({ "stream": "stdout", "line": line }),
+                );
+            }
+        }
+    });
+
+    let app2 = app.clone();
+    let stderr_handle = tokio::spawn(async move {
+        if let Some(err) = stderr {
+            let reader = BufReader::new(err);
+            let mut lines = reader.lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let _ = emit_to_frontend(
+                    &app2,
+                    "setup:login:output",
+                    serde_json::json!({ "stream": "stderr", "line": line }),
+                );
+            }
+        }
+    });
+
+    let status = child.wait().await
+        .map_err(|e| format!("Login process error: {}", e))?;
+
+    let _ = stdout_handle.await;
+    let _ = stderr_handle.await;
+
+    let code = status.code().unwrap_or(-1);
+    let _ = app.emit_to(
+        "main",
+        "setup:login:exit",
+        serde_json::json!({ "code": code }),
+    );
+
+    if code != 0 {
+        return Err(format!("Login exited with code {}", code));
+    }
+    Ok(())
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct AuthStatus {
+    authenticated: bool,
+}
+
+/// Check whether the Claude CLI is authenticated by running a lightweight check.
+#[tauri::command]
+async fn check_claude_auth() -> Result<AuthStatus, String> {
+    let claude_bin = find_claude_binary().unwrap_or_else(|| "claude".to_string());
+    let enriched_path = build_enriched_path();
+
+    // Run `claude auth status` (or `claude --version` as a lightweight probe).
+    // The most reliable approach: try `claude -p "hi" --output-format json` with a timeout.
+    // If it returns a valid response (exit 0), the user is authenticated.
+    // Simpler: run `claude doctor` and check exit code.
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        Command::new(&claude_bin)
+            .args(["doctor"])
+            .env("PATH", &enriched_path)
+            .env_remove("CLAUDECODE")
+            .output(),
+    )
+    .await;
+
+    match result {
+        Ok(Ok(output)) => {
+            // Check both exit code and output for authentication hints
+            let stdout = String::from_utf8_lossy(&output.stdout).to_lowercase();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
+            let combined = format!("{} {}", stdout, stderr);
+
+            // If doctor succeeds and doesn't mention auth issues, user is authenticated
+            let has_auth_issue = combined.contains("not authenticated")
+                || combined.contains("not logged in")
+                || combined.contains("login required")
+                || combined.contains("unauthorized")
+                || combined.contains("no api key");
+
+            Ok(AuthStatus {
+                authenticated: output.status.success() && !has_auth_issue,
+            })
+        }
+        Ok(Err(e)) => Err(format!("Failed to run auth check: {}", e)),
+        Err(_) => {
+            // Timeout — assume not authenticated
+            Ok(AuthStatus { authenticated: false })
+        }
+    }
+}
+
+/// Open a native terminal window to run `claude login`.
+/// On macOS: uses osascript to open Terminal.app.
+/// On Linux: tries common terminal emulators.
+/// On Windows: opens cmd.exe.
+#[tauri::command]
+async fn open_terminal_login() -> Result<(), String> {
+    let claude_bin = find_claude_binary().unwrap_or_else(|| "claude".to_string());
+
+    #[cfg(target_os = "macos")]
+    {
+        let script = format!(
+            r#"tell application "Terminal"
+    activate
+    do script "{} login"
+end tell"#,
+            claude_bin
+        );
+        std::process::Command::new("osascript")
+            .args(["-e", &script])
+            .spawn()
+            .map_err(|e| format!("Failed to open Terminal: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Try common terminal emulators in order of preference
+        let terminals = [
+            ("gnome-terminal", vec!["--", &claude_bin, "login"]),
+            ("konsole", vec!["-e", &claude_bin, "login"]),
+            ("xterm", vec!["-e", &format!("{} login", claude_bin)]),
+        ];
+        let mut opened = false;
+        for (term, args) in &terminals {
+            if std::process::Command::new(term)
+                .args(args.iter().map(|s| s.as_ref()))
+                .spawn()
+                .is_ok()
+            {
+                opened = true;
+                break;
+            }
+        }
+        if !opened {
+            return Err("No supported terminal emulator found".to_string());
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/c", "start", "cmd", "/k", &format!("{} login", claude_bin)])
+            .spawn()
+            .map_err(|e| format!("Failed to open terminal: {}", e))?;
+    }
+
+    Ok(())
+}
+
 /// Set the macOS dock icon dynamically from base64-encoded PNG data.
 #[tauri::command]
 async fn set_dock_icon(app: AppHandle, png_base64: String) -> Result<(), String> {
@@ -1657,6 +1997,12 @@ pub fn run() {
             snapshot_files,
             restore_snapshot,
             set_dock_icon,
+            run_claude_command,
+            check_claude_cli,
+            install_claude_cli,
+            start_claude_login,
+            check_claude_auth,
+            open_terminal_login,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

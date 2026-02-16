@@ -53,7 +53,7 @@ export function ModeSelector({ disabled = false }: { disabled?: boolean }) {
 
   return (
     <div className={`inline-flex items-center rounded-lg border border-border-subtle
-      overflow-hidden glass-tint bg-white/5 ${disabled ? 'opacity-40 pointer-events-none' : ''}`}>
+      overflow-hidden ${disabled ? 'opacity-40 pointer-events-none' : ''}`}>
       {MODES.map((mode) => (
         <button
           key={mode.id}
@@ -63,9 +63,9 @@ export function ModeSelector({ disabled = false }: { disabled?: boolean }) {
             transition-smooth border-r border-border-subtle last:border-r-0
             ${mode.id === sessionMode
               ? mode.id === 'bypass'
-                ? 'glass-tint bg-warning/10 text-warning font-medium'
-                : 'glass-tint bg-accent/10 text-accent font-medium'
-              : 'text-text-muted hover:text-text-primary glass-hover-tint'
+                ? 'bg-warning/10 text-warning font-medium'
+                : 'bg-accent/10 text-accent font-medium'
+              : 'text-text-muted hover:text-text-primary hover:bg-bg-secondary'
             }`}
         >
           {mode.icon}

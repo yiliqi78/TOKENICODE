@@ -165,16 +165,7 @@ export function InputBar() {
         window.dispatchEvent(new CustomEvent('tokenicode:rewind'));
         return;
 
-      case 'compact': {
-        const stdinId = useChatStore.getState().sessionMeta.stdinId;
-        if (stdinId) {
-          feedback('action', t('cmd.compacting'), { action: 'compact', loading: true });
-          await bridge.sendStdin(stdinId, '/compact');
-        } else {
-          feedback('error', t('cmd.noActiveSession'), { command: '/compact' });
-        }
-        return;
-      }
+      // /compact is handled in the session stdin commands group below
 
       // --- Info commands ---
       case 'cost': {
@@ -319,44 +310,35 @@ export function InputBar() {
         return;
       }
 
-      // --- Stdin passthrough commands ---
-      case 'context':
-      case 'doctor':
-      case 'init':
-      case 'mcp':
-      case 'memory':
-      case 'permissions':
-      case 'stats':
-      case 'statusline':
-      case 'tasks':
-      case 'teleport':
-      case 'todos':
-      case 'usage': {
+      // --- All CLI commands: pass through to active session via stdin ---
+      // TOKENICODE is a GUI wrapper — all slash commands are handled by Claude Code CLI.
+      default: {
         const stdinId = useChatStore.getState().sessionMeta.stdinId;
         if (stdinId) {
-          // Set running status so UI shows activity indicator (thinking/writing/tool)
+          // Emit a processing card immediately so user sees feedback
+          const processingMsgId = generateMessageId();
+          addMessage({
+            id: processingMsgId,
+            role: 'system',
+            type: 'text',
+            content: '',
+            commandType: 'processing',
+            commandData: { command: `/${cmd}${args ? ' ' + args : ''}` },
+            commandStartTime: Date.now(),
+            commandCompleted: false,
+            timestamp: Date.now(),
+          });
+          useChatStore.getState().setSessionMeta({ pendingCommandMsgId: processingMsgId });
           useChatStore.getState().setSessionStatus('running');
           useChatStore.getState().setActivityStatus({ phase: 'thinking' });
-          await bridge.sendStdin(stdinId, `/${cmd}`);
+          await bridge.sendStdin(stdinId, `/${cmd}${args ? ' ' + args : ''}`);
         } else {
           feedback('error', `/${cmd}: ${t('cmd.noActiveSession')}`, { command: `/${cmd}` });
         }
         return;
       }
-
-      default: {
-        const stdinId = useChatStore.getState().sessionMeta.stdinId;
-        if (stdinId) {
-          useChatStore.getState().setSessionStatus('running');
-          useChatStore.getState().setActivityStatus({ phase: 'thinking' });
-          await bridge.sendStdin(stdinId, `/${cmd}`);
-        } else {
-          feedback('error', `/${cmd}: ${t('cmd.unknownCommand')}`, { command: `/${cmd}` });
-        }
-        return;
-      }
     }
-  }, [t]);
+  }, [t, workingDirectory]);
 
   // --- Slash command selection ---
   const handleSlashSelect = useCallback((cmd: UnifiedCommand) => {
@@ -454,13 +436,11 @@ export function InputBar() {
       }
     }
 
-    // Apply mode prefix (only if not already a slash command, and only for first message)
-    if (!text.startsWith('/') && !hasActiveSession) {
-      if (sessionMode === 'ask') {
-        text = `/ask ${text}`;
-      } else if (sessionMode === 'plan') {
-        text = `/plan ${text}`;
-      }
+    // Apply mode prefix when mode is not 'code' and the text isn't already a slash command.
+    // For the first message, the prefix becomes part of the prompt.
+    // For follow-ups, the CLI recognises /ask and /plan as inline mode switches.
+    if (!text.startsWith('/') && (sessionMode === 'ask' || sessionMode === 'plan')) {
+      text = `/${sessionMode} ${text}`;
     }
 
     // Append file paths if there are attachments
@@ -1156,6 +1136,21 @@ export function InputBar() {
         // Clear any remaining partial text before marking turn complete
         clearPartial();
 
+        // Mark pending processing card (CLI slash command) as completed
+        const pendingCmdMsgId = useChatStore.getState().sessionMeta.pendingCommandMsgId;
+        if (pendingCmdMsgId) {
+          const resultOutput = typeof msg.result === 'string' ? msg.result : '';
+          useChatStore.getState().updateMessage(pendingCmdMsgId, {
+            commandCompleted: true,
+            commandData: {
+              ...useChatStore.getState().messages.find((m) => m.id === pendingCmdMsgId)?.commandData,
+              output: resultOutput,
+              completedAt: Date.now(),
+            },
+          });
+          useChatStore.getState().setSessionMeta({ pendingCommandMsgId: undefined });
+        }
+
         // Extract result text for display (e.g., slash command output)
         let resultDisplayText = '';
         if (typeof msg.result === 'string' && msg.result) {
@@ -1423,7 +1418,7 @@ export function InputBar() {
             onClose={() => setSlashVisible(false)}
           />
           <div
-            className={`flex items-end gap-2 glass border rounded-2xl px-4 py-3
+            className={`flex items-end gap-2 bg-bg-input border rounded-2xl px-4 py-3
               focus-within:border-border-focus focus-within:shadow-glow
               transition-smooth
               ${isDragging
@@ -1502,7 +1497,7 @@ export function InputBar() {
                 useChatStore.getState().setActivityStatus({ phase: 'completed' });
                 useChatStore.getState().setSessionMeta({});
               }}
-              className="flex-shrink-0 w-8 h-8 rounded-xl
+              className="flex-shrink-0 w-8 h-8 rounded-[10px]
                 bg-red-500/15 text-red-500
                 flex items-center justify-center
                 hover:bg-red-500/25 transition-smooth"
@@ -1517,7 +1512,7 @@ export function InputBar() {
           <button
             onClick={handleSubmit}
             disabled={!input.trim() && !activePrefix}
-            className="flex-shrink-0 w-8 h-8 rounded-xl
+            className="flex-shrink-0 w-8 h-8 rounded-[10px]
               bg-accent hover:bg-accent-hover text-text-inverse
               flex items-center justify-center
               hover:shadow-glow transition-smooth

@@ -1,10 +1,13 @@
-import { useState, useCallback } from 'react';
-import { ChatMessage, useChatStore } from '../../stores/chatStore';
+import { useState } from 'react';
+import { type ChatMessage } from '../../stores/chatStore';
 import { useFileStore } from '../../stores/fileStore';
 import { useLightboxStore } from '../shared/ImageLightbox';
-import { bridge } from '../../lib/tauri-bridge';
 import { useT } from '../../lib/i18n';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
+import { CommandProcessingCard } from './CommandProcessingCard';
+import { PlanReviewCard } from './PlanReviewCard';
+import { PermissionCard } from './PermissionCard';
+import { QuestionCard } from './QuestionCard';
 
 interface Props {
   message: ChatMessage;
@@ -13,14 +16,15 @@ interface Props {
 
 export function MessageBubble({ message, isFirstInGroup = true }: Props) {
   if (message.role === 'user') return <UserMsg message={message} />;
+  if (message.role === 'system' && message.commandType === 'processing') return <CommandProcessingCard message={message} />;
   if (message.role === 'system' && message.commandType) return <CommandFeedbackMsg message={message} />;
-  if (message.type === 'question') return <QuestionMsg message={message} />;
+  if (message.type === 'question') return <QuestionCard message={message} />;
   if (message.type === 'todo') return <TodoMsg message={message} />;
-  if (message.type === 'plan_review') return <PlanReviewMsg message={message} />;
+  if (message.type === 'plan_review') return <PlanReviewCard message={message} />;
   if (message.type === 'tool_use') return <ToolUseMsg message={message} />;
   if (message.type === 'thinking') return <ThinkingMsg message={message} />;
   if (message.type === 'tool_result') return <ToolResultMsg message={message} />;
-  if (message.type === 'permission') return <PermissionMsg message={message} />;
+  if (message.type === 'permission') return <PermissionCard message={message} />;
   if (message.type === 'plan') return <PlanMsg message={message} />;
   return <AssistantMsg message={message} isFirstInGroup={isFirstInGroup} />;
 }
@@ -102,9 +106,29 @@ function CommandFeedbackMsg({ message }: Props) {
     );
   }
 
-  // --- Info card: structured key-value table ---
+  // --- Info card: structured key-value table or preformatted text ---
   if (cType === 'info') {
     const rows: Array<{ label: string; value: string }> = data.rows || [];
+
+    // Preformatted output (e.g. CLI command results)
+    if (data.preformatted) {
+      return (
+        <div className="ml-11 my-1 animate-fade-in">
+          <div className="rounded-lg border border-border-subtle
+            bg-bg-secondary/50 overflow-hidden max-w-md">
+            <div className="flex items-center gap-2 px-3 py-1.5
+              border-b border-border-subtle/50 bg-bg-tertiary/30">
+              <span className="text-[10px] font-mono text-text-tertiary">{data.command}</span>
+            </div>
+            <pre className="px-3 py-2 text-[11px] font-mono text-text-primary
+              whitespace-pre-wrap break-words overflow-x-auto max-h-60 overflow-y-auto">
+              {message.content}
+            </pre>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="ml-11 my-1 animate-fade-in">
         <div className="inline-block rounded-lg border border-border-subtle
@@ -238,7 +262,7 @@ function AssistantMsg({ message, isFirstInGroup = true }: Props) {
     <div className="flex gap-3">
       {/* Avatar: show only for the first message in a consecutive group */}
       {isFirstInGroup ? (
-        <div className="w-8 h-8 rounded-xl bg-accent
+        <div className="w-8 h-8 rounded-[10px] bg-accent
           flex items-center justify-center flex-shrink-0 text-text-inverse
           text-xs font-bold shadow-md mt-0.5">C</div>
       ) : (
@@ -367,7 +391,7 @@ function getToolLabel(name: string, t: (key: string) => string): string {
   }
 }
 
-function ToolUseMsg({ message }: Props) {
+export function ToolUseMsg({ message }: Props) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
   const toolName = message.toolName || 'Tool';
@@ -619,76 +643,7 @@ function ThinkingMsg({ message }: Props) {
   );
 }
 
-/* ================================================================
-   PermissionMsg — inline prompt + small ghost buttons
-   ================================================================ */
-function PermissionMsg({ message }: Props) {
-  const t = useT();
-
-  const handleRespond = useCallback((allow: boolean) => {
-    const stdinId = useChatStore.getState().sessionMeta.stdinId;
-    if (!stdinId || message.resolved) return;
-    bridge.sendStdin(stdinId, allow ? 'y' : 'n');
-    useChatStore.getState().updateMessage(message.id, { resolved: true });
-  }, [message.id, message.resolved]);
-
-  return (
-    <div className={`ml-11 ${message.resolved ? 'opacity-60' : ''}`}>
-      <div className="flex items-start gap-1.5 py-1">
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
-          stroke="currentColor" strokeWidth="1.5"
-          className="text-warning flex-shrink-0 mt-0.5">
-          <path d="M6 1l5.5 9.5H.5L6 1zM6 5v2.5M6 9v.5" />
-        </svg>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-xs font-medium text-text-muted">
-              {t('msg.permissionTitle')}
-            </span>
-            {message.permissionTool && (
-              <span className="text-[11px] text-text-tertiary font-mono">
-                {message.permissionTool}
-              </span>
-            )}
-          </div>
-          <p className="text-[11px] text-text-tertiary leading-relaxed
-            whitespace-pre-wrap mt-0.5">
-            {message.content}
-          </p>
-        </div>
-      </div>
-      {!message.resolved && (
-        <div className="flex items-center gap-2 ml-5 mt-1 mb-1">
-          <button
-            onClick={() => handleRespond(true)}
-            className="px-2.5 py-1 rounded-md text-[11px] font-medium
-              border border-success/30 text-success
-              hover:bg-success/10 transition-smooth"
-          >
-            {t('msg.allow')}
-          </button>
-          <button
-            onClick={() => handleRespond(false)}
-            className="px-2.5 py-1 rounded-md text-[11px] font-medium
-              border border-border-subtle text-text-muted
-              hover:bg-bg-secondary transition-smooth"
-          >
-            {t('msg.deny')}
-          </button>
-        </div>
-      )}
-      {message.resolved && (
-        <div className="flex items-center gap-1 ml-5 mt-0.5 text-[11px] text-text-tertiary">
-          <svg width="10" height="10" viewBox="0 0 12 12" fill="none"
-            stroke="currentColor" strokeWidth="1.5">
-            <path d="M2.5 6l2.5 2.5 4.5-4.5" />
-          </svg>
-          {t('msg.responded')}
-        </div>
-      )}
-    </div>
-  );
-}
+/* PermissionMsg — extracted to PermissionCard.tsx */
 
 /* ================================================================
    PlanMsg — inline collapsible list (no card)
@@ -836,360 +791,6 @@ function TodoMsg({ message }: Props) {
   );
 }
 
-/* ================================================================
-   PlanReviewMsg — interactive card for plan approval (ExitPlanMode)
-   ================================================================ */
-function PlanReviewMsg({ message }: Props) {
-  const t = useT();
-  const [expanded, setExpanded] = useState(true);
-  const planContent = message.planContent || message.content || '';
-  const isResolved = message.resolved;
+/* PlanReviewMsg — extracted to PlanReviewCard.tsx */
 
-  const handleApprove = useCallback(() => {
-    if (isResolved) return;
-    const stdinId = useChatStore.getState().sessionMeta.stdinId;
-    if (!stdinId) return;
-    bridge.sendStdin(stdinId, 'y');
-    useChatStore.getState().updateMessage(message.id, { resolved: true });
-    useChatStore.getState().setSessionStatus('running');
-    useChatStore.getState().setActivityStatus({ phase: 'thinking' });
-  }, [isResolved, message.id]);
-
-  const handleModify = useCallback(() => {
-    // Focus the input bar — scroll to bottom so user can type feedback
-    const textarea = document.querySelector('textarea');
-    if (textarea) {
-      textarea.focus();
-      textarea.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    }
-  }, []);
-
-  return (
-    <div className={`ml-11 ${isResolved ? 'opacity-70' : ''}`}>
-      <div className={`rounded-xl border overflow-hidden transition-all duration-200
-        ${isResolved
-          ? 'border-border-subtle bg-bg-secondary/30'
-          : 'border-accent/30 bg-accent/5 shadow-sm'
-        }`}>
-        {/* Header */}
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="w-full flex items-center gap-2 px-3 py-2 cursor-pointer
-            hover:bg-accent/5 transition-smooth"
-        >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
-            stroke="currentColor" strokeWidth="1.5"
-            className={`flex-shrink-0 text-accent transition-transform
-              duration-150 ${expanded ? 'rotate-90' : ''}`}>
-            <path d="M3 2l4 3-4 3" />
-          </svg>
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
-            stroke="currentColor" strokeWidth="1.5" className="text-accent flex-shrink-0">
-            <path d="M2 3.5h10M2 7h8M2 10.5h5" />
-          </svg>
-          <span className="text-xs font-semibold text-text-primary">
-            {t('msg.planReview')}
-          </span>
-          {isResolved && (
-            <span className="flex items-center gap-1 ml-auto">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
-                stroke="currentColor" strokeWidth="1.5" className="text-success">
-                <path d="M2.5 6l2.5 2.5 4.5-4.5" />
-              </svg>
-              <span className="text-[11px] text-success font-medium">
-                {t('msg.planApproved')}
-              </span>
-            </span>
-          )}
-        </button>
-
-        {/* Plan content */}
-        {expanded && planContent && (
-          <div className="px-3 pb-2 border-t border-border-subtle/50">
-            <div className="mt-2 text-sm leading-relaxed max-h-64 overflow-y-auto">
-              <MarkdownRenderer content={planContent} />
-            </div>
-          </div>
-        )}
-
-        {/* Action buttons — only when not resolved */}
-        {!isResolved && (
-          <div className="flex items-center gap-2 px-3 py-2 border-t border-border-subtle/50
-            bg-bg-secondary/30">
-            <button
-              onClick={handleApprove}
-              className="px-3 py-1.5 rounded-lg text-[11px] font-medium
-                bg-accent text-text-inverse hover:bg-accent-hover
-                transition-smooth cursor-pointer"
-            >
-              {t('msg.planApprove')}
-            </button>
-            <button
-              onClick={handleModify}
-              className="px-3 py-1.5 rounded-lg text-[11px] font-medium
-                text-text-muted border border-border-subtle
-                hover:bg-bg-secondary hover:text-text-primary
-                transition-smooth cursor-pointer"
-            >
-              {t('msg.planModify')}
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ================================================================
-   QuestionMsg — inline sequential questions (CLI-style)
-   Shows one question at a time in the chat flow.
-   ================================================================ */
-function QuestionMsg({ message }: Props) {
-  const t = useT();
-  const questions = message.questions || [];
-  const [currentIdx, setCurrentIdx] = useState(0);
-  const [selectedMap, setSelectedMap] = useState<Record<number, Set<number>>>({});
-  const [otherText, setOtherText] = useState<Record<number, string>>({});
-  const [useOther, setUseOther] = useState<Record<number, boolean>>({});
-  /* Track per-question resolved answers for display */
-  const [answeredMap, setAnsweredMap] = useState<Record<number, string>>({});
-
-  const currentQ = questions[currentIdx];
-  const isFullyResolved = message.resolved;
-
-  const handleToggle = useCallback((optIdx: number, multi: boolean) => {
-    if (isFullyResolved) return;
-    const qIdx = currentIdx;
-    setSelectedMap((prev) => {
-      const current = prev[qIdx] || new Set<number>();
-      const next = new Set(current);
-      if (multi) {
-        if (next.has(optIdx)) next.delete(optIdx);
-        else next.add(optIdx);
-      } else {
-        next.clear();
-        next.add(optIdx);
-      }
-      setUseOther((p) => ({ ...p, [qIdx]: false }));
-      return { ...prev, [qIdx]: next };
-    });
-  }, [isFullyResolved, currentIdx]);
-
-  const handleOtherToggle = useCallback(() => {
-    if (isFullyResolved) return;
-    const qIdx = currentIdx;
-    setUseOther((prev) => {
-      const next = !prev[qIdx];
-      if (next) {
-        setSelectedMap((p) => ({ ...p, [qIdx]: new Set<number>() }));
-      }
-      return { ...prev, [qIdx]: next };
-    });
-  }, [isFullyResolved, currentIdx]);
-
-  /* Get current question's answer text */
-  const getCurrentAnswer = useCallback((): string => {
-    const qIdx = currentIdx;
-    const q = questions[qIdx];
-    if (!q) return '';
-    if (useOther[qIdx] && otherText[qIdx]?.trim()) {
-      return otherText[qIdx].trim();
-    }
-    const selected = selectedMap[qIdx] || new Set<number>();
-    return Array.from(selected)
-      .map((i) => q.options[i]?.label)
-      .filter(Boolean)
-      .join(', ');
-  }, [currentIdx, questions, selectedMap, useOther, otherText]);
-
-  const hasCurrentSelection = useOther[currentIdx]
-    ? !!otherText[currentIdx]?.trim()
-    : (selectedMap[currentIdx]?.size || 0) > 0;
-
-  /* Confirm current question answer and advance to next */
-  const handleConfirm = useCallback(() => {
-    if (isFullyResolved) return;
-    const answerText = getCurrentAnswer();
-    setAnsweredMap((prev) => ({ ...prev, [currentIdx]: answerText }));
-
-    const isLast = currentIdx >= questions.length - 1;
-    if (isLast) {
-      // All questions answered — submit
-      const stdinId = useChatStore.getState().sessionMeta.stdinId;
-      if (!stdinId) return;
-      const answers: Record<string, string> = {};
-      questions.forEach((q, qIdx) => {
-        const finalQIdx = qIdx === currentIdx ? currentIdx : qIdx;
-        if (useOther[finalQIdx] && otherText[finalQIdx]?.trim()) {
-          answers[String(qIdx)] = otherText[finalQIdx].trim();
-        } else {
-          const selected = selectedMap[finalQIdx] || new Set<number>();
-          const labels = Array.from(selected)
-            .map((i) => q.options[i]?.label)
-            .filter(Boolean);
-          if (labels.length > 0) {
-            answers[String(qIdx)] = labels.join(', ');
-          }
-        }
-      });
-      bridge.sendStdin(stdinId, JSON.stringify({ answers }));
-      useChatStore.getState().updateMessage(message.id, { resolved: true });
-      // Clear any stale partial text that accumulated while question was pending
-      useChatStore.setState({ partialText: '' });
-    } else {
-      setCurrentIdx(currentIdx + 1);
-    }
-  }, [isFullyResolved, currentIdx, questions, selectedMap, useOther, otherText, message.id, getCurrentAnswer]);
-
-  const handleSkip = useCallback(() => {
-    if (isFullyResolved) return;
-    const stdinId = useChatStore.getState().sessionMeta.stdinId;
-    if (!stdinId) return;
-    bridge.sendStdin(stdinId, JSON.stringify({ answers: {} }));
-    useChatStore.getState().updateMessage(message.id, { resolved: true });
-    useChatStore.setState({ partialText: '' });
-  }, [isFullyResolved, message.id]);
-
-  return (
-    <div className="ml-11 space-y-2">
-      {/* Already answered questions — compact display */}
-      {Object.entries(answeredMap).map(([idxStr, answer]) => {
-        const qIdx = Number(idxStr);
-        const q = questions[qIdx];
-        if (!q) return null;
-        return (
-          <div key={qIdx} className="flex items-start gap-2 py-1 opacity-70">
-            <svg width="10" height="10" viewBox="0 0 12 12" fill="none"
-              stroke="currentColor" strokeWidth="1.5" className="text-success mt-0.5 flex-shrink-0">
-              <path d="M2.5 6l2.5 2.5 4.5-4.5" />
-            </svg>
-            <div className="text-xs text-text-muted">
-              <span className="text-text-secondary">{q.question}</span>
-              {' → '}
-              <span className="text-text-primary font-medium">{answer}</span>
-            </div>
-          </div>
-        );
-      })}
-
-      {/* Resolved state — show all answers */}
-      {isFullyResolved && Object.keys(answeredMap).length === 0 && (
-        <div className="flex items-center gap-1.5 py-1 opacity-60">
-          <svg width="10" height="10" viewBox="0 0 12 12" fill="none"
-            stroke="currentColor" strokeWidth="1.5" className="text-success">
-            <path d="M2.5 6l2.5 2.5 4.5-4.5" />
-          </svg>
-          <span className="text-xs text-text-muted">{t('msg.responded')}</span>
-        </div>
-      )}
-
-      {/* Current question — interactive */}
-      {!isFullyResolved && currentQ && (
-        <div className="animate-fade-in">
-          {/* Question text with header badge */}
-          <div className="flex items-start gap-2 mb-2">
-            {currentQ.header && (
-              <span className="flex-shrink-0 px-1.5 py-0.5 rounded
-                bg-accent/10 text-accent text-[10px] font-bold
-                uppercase tracking-wider mt-px">
-                {currentQ.header}
-              </span>
-            )}
-            <span className="text-xs text-text-primary font-medium leading-relaxed">
-              {currentQ.question}
-            </span>
-          </div>
-
-          {/* Progress indicator for multi-question */}
-          {questions.length > 1 && (
-            <div className="text-[10px] text-text-tertiary mb-2">
-              {currentIdx + 1} / {questions.length}
-            </div>
-          )}
-
-          {/* Options — one per line with description always visible */}
-          <div className="flex flex-col gap-1.5 mb-2">
-            {currentQ.options.map((opt, optIdx) => {
-              const isSelected = selectedMap[currentIdx]?.has(optIdx) || false;
-              return (
-                <button
-                  key={optIdx}
-                  onClick={() => handleToggle(optIdx, !!currentQ.multiSelect)}
-                  className={`text-left px-3 py-1.5 rounded-lg text-xs
-                    transition-smooth border cursor-pointer
-                    ${isSelected
-                      ? 'border-accent bg-accent/10 text-accent'
-                      : 'border-border-subtle text-text-secondary hover:border-accent/30 hover:bg-bg-secondary/50'
-                    }`}
-                >
-                  <span className="font-medium">{opt.label}</span>
-                  {opt.description && (
-                    <span className="text-text-tertiary ml-1.5">— {opt.description}</span>
-                  )}
-                </button>
-              );
-            })}
-
-            {/* Other option */}
-            <button
-              onClick={handleOtherToggle}
-              className={`text-left px-3 py-1.5 rounded-lg text-xs
-                transition-smooth border cursor-pointer
-                ${useOther[currentIdx]
-                  ? 'border-accent bg-accent/10 text-accent'
-                  : 'border-border-subtle text-text-tertiary hover:border-accent/30 hover:bg-bg-secondary/50'
-                }`}
-            >
-              {t('msg.questionOther')}
-            </button>
-          </div>
-
-          {/* Other text input */}
-          {useOther[currentIdx] && (
-            <div className="mb-2">
-              <input
-                type="text"
-                value={otherText[currentIdx] || ''}
-                onChange={(e) => setOtherText((p) => ({ ...p, [currentIdx]: e.target.value }))}
-                placeholder={t('msg.questionOtherPlaceholder')}
-                autoFocus
-                className="w-full max-w-xs px-3 py-1.5 rounded-lg text-xs
-                  bg-transparent border border-border-subtle
-                  focus:border-border-focus outline-none text-text-primary
-                  placeholder:text-text-tertiary transition-smooth"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    if (hasCurrentSelection) handleConfirm();
-                  }
-                }}
-              />
-            </div>
-          )}
-
-          {/* Action buttons */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleConfirm}
-              disabled={!hasCurrentSelection}
-              className="px-3 py-1 rounded-lg text-[11px] font-medium
-                bg-accent text-text-inverse hover:bg-accent-hover
-                transition-smooth cursor-pointer
-                disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              {currentIdx >= questions.length - 1 ? t('msg.questionSubmit') : t('msg.questionNext')}
-            </button>
-            <button
-              onClick={handleSkip}
-              className="px-2.5 py-1 rounded-lg text-[11px] font-medium
-                text-text-tertiary hover:text-text-primary
-                hover:bg-bg-tertiary transition-smooth cursor-pointer"
-            >
-              {t('msg.questionSkip')}
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+/* QuestionMsg — extracted to QuestionCard.tsx */

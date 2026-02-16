@@ -2,571 +2,260 @@
 @plugin "@tailwindcss/typography";
 
 /* ================================================================
-   Default theme (Purple) — light mode — liquid glass
+   Default theme (Black) — light mode — clean solid
    ================================================================ */
 @theme {
-  --color-bg-primary: rgba(250, 249, 254, 0.82);
-  --color-bg-secondary: rgba(246, 244, 252, 0.76);
-  --color-bg-tertiary: rgba(240, 238, 248, 0.70);
-  --color-bg-chat: #ffffff;
-  --color-bg-sidebar: rgba(248, 247, 254, 0.65);
-  --color-bg-input: rgba(255, 255, 255, 0.62);
-  --color-bg-user-msg: #8B6CC5;
-  --color-bg-assistant-msg: rgba(250, 249, 254, 0.58);
-  --color-bg-tool: rgba(246, 244, 252, 0.55);
-  --color-bg-thinking: rgba(244, 242, 252, 0.52);
-  --color-bg-glass: rgba(255, 255, 255, 0.40);
-  --color-bg-glass-hover: rgba(255, 255, 255, 0.60);
-  --color-bg-card: rgba(255, 255, 255, 0.50);
-  --color-bg-nav-active: linear-gradient(135deg, rgba(139, 108, 197, 0.08), rgba(168, 144, 212, 0.12));
+  --color-bg-primary: #F8F8FA;
+  --color-bg-secondary: #F0F0F2;
+  --color-bg-tertiary: #E8E8EA;
+  --color-bg-chat: #FFFFFF;
+  --color-bg-sidebar: #F5F5F7;
+  --color-bg-input: #FFFFFF;
+  --color-bg-user-msg: #333333;
+  --color-bg-assistant-msg: #F8F8FA;
+  --color-bg-tool: #F3F3F5;
+  --color-bg-thinking: #F0F0F2;
+  --color-bg-card: #FFFFFF;
+  --color-bg-nav-active: rgba(0, 0, 0, 0.04);
 
-  --color-text-primary: #2D2B3D;
-  --color-text-secondary: #8B6CC5;
-  --color-text-tertiary: #94a3b8;
-  --color-text-inverse: #ffffff;
-  --color-text-muted: #8b8fa3;
+  --color-text-primary: #1A1A1A;
+  --color-text-secondary: #555555;
+  --color-text-tertiary: #999999;
+  --color-text-inverse: #FFFFFF;
+  --color-text-muted: #888888;
 
-  --color-border: rgba(255, 255, 255, 0.45);
-  --color-border-subtle: rgba(255, 255, 255, 0.25);
-  --color-border-focus: #8B6CC5;
+  --color-border: #E5E5EA;
+  --color-border-subtle: #EBEBF0;
+  --color-border-focus: #333333;
 
-  --color-accent: #8B6CC5;
-  --color-accent-light: #A890D4;
-  --color-accent-hover: #7A5BB0;
-  --color-accent-glow: rgba(139, 108, 197, 0.15);
+  --color-accent: #333333;
+  --color-accent-light: #555555;
+  --color-accent-hover: #1A1A1A;
+  --color-accent-glow: rgba(0, 0, 0, 0.06);
   --color-success: #10b981;
   --color-error: #ef4444;
   --color-warning: #f59e0b;
 
-  --color-gradient-start: #8B6CC5;
-  --color-gradient-mid: #9A7DD0;
-  --color-gradient-end: #A890D4;
+  --color-gradient-start: #333333;
+  --color-gradient-mid: #444444;
+  --color-gradient-end: #555555;
 
-  --shadow-sm: 0 1px 3px rgba(139, 108, 197, 0.04),
-    0 1px 2px rgba(0, 0, 0, 0.03);
-  --shadow-md: 0 4px 12px rgba(139, 108, 197, 0.06),
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04),
+    0 1px 2px rgba(0, 0, 0, 0.02);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06),
     0 2px 4px rgba(0, 0, 0, 0.03);
-  --shadow-lg: 0 8px 24px rgba(139, 108, 197, 0.08),
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08),
     0 4px 8px rgba(0, 0, 0, 0.04);
-  --shadow-glow: 0 0 20px rgba(139, 108, 197, 0.12);
+  --shadow-glow: 0 0 20px rgba(0, 0, 0, 0.06);
 }
 
 @variant dark (&:where(.dark, .dark *));
 
 /* ================================================================
-   Purple — dark mode
+   Black — dark mode
    ================================================================ */
 .dark {
-  --color-bg-primary: rgba(14, 14, 18, 0.90);
-  --color-bg-secondary: rgba(24, 24, 30, 0.85);
-  --color-bg-tertiary: rgba(34, 34, 40, 0.78);
-  --color-bg-chat: #141416;
-  --color-bg-sidebar: rgba(10, 10, 14, 0.88);
-  --color-bg-input: rgba(24, 24, 30, 0.80);
-  --color-bg-user-msg: #7A5BB0;
-  --color-bg-assistant-msg: rgba(24, 24, 30, 0.70);
-  --color-bg-tool: rgba(28, 28, 34, 0.68);
-  --color-bg-thinking: rgba(26, 26, 32, 0.65);
-  --color-bg-glass: rgba(18, 18, 24, 0.55);
-  --color-bg-glass-hover: rgba(28, 28, 36, 0.68);
-  --color-bg-card: rgba(22, 22, 28, 0.68);
+  --color-bg-primary: #141414;
+  --color-bg-secondary: #1C1C1E;
+  --color-bg-tertiary: #2C2C2E;
+  --color-bg-chat: #0A0A0A;
+  --color-bg-sidebar: #1C1C1E;
+  --color-bg-input: #1C1C1E;
+  --color-bg-user-msg: #D0D0D0;
+  --color-bg-assistant-msg: #1A1A1C;
+  --color-bg-tool: #1E1E20;
+  --color-bg-thinking: #1A1A1C;
+  --color-bg-card: #1C1C1E;
 
-  --color-text-primary: #f0f0f0;
-  --color-text-secondary: #A890D4;
-  --color-text-tertiary: #6b6b6b;
+  --color-text-primary: #F0F0F0;
+  --color-text-secondary: #B0B0B0;
+  --color-text-tertiary: #666666;
   --color-text-inverse: #101010;
-  --color-text-muted: #525252;
+  --color-text-muted: #505050;
 
-  --color-border: rgba(255, 255, 255, 0.08);
-  --color-border-subtle: rgba(255, 255, 255, 0.04);
-  --color-border-focus: #A890D4;
+  --color-border: #38383A;
+  --color-border-subtle: #2C2C2E;
+  --color-border-focus: #D0D0D0;
 
-  --color-accent: #A890D4;
-  --color-accent-light: #BDA8E0;
-  --color-accent-hover: #8B6CC5;
-  --color-accent-glow: rgba(168, 144, 212, 0.20);
+  --color-accent: #D0D0D0;
+  --color-accent-light: #E0E0E0;
+  --color-accent-hover: #FFFFFF;
+  --color-accent-glow: rgba(255, 255, 255, 0.08);
 
-  --color-gradient-start: #8B6CC5;
-  --color-gradient-mid: #9A7DD0;
-  --color-gradient-end: #A890D4;
+  --color-gradient-start: #D0D0D0;
+  --color-gradient-mid: #E0E0E0;
+  --color-gradient-end: #F0F0F0;
 
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4);
-  --shadow-glow: 0 0 20px rgba(168, 144, 212, 0.15);
+  --shadow-glow: 0 0 20px rgba(255, 255, 255, 0.06);
 }
 
 /* ================================================================
-   Orange / Warm theme — light mode — liquid glass
+   Blue theme — light mode
+   ================================================================ */
+.theme-blue {
+  --color-bg-user-msg: #4E80F7;
+  --color-bg-nav-active: rgba(78, 128, 247, 0.06);
+
+  --color-text-secondary: #4E80F7;
+  --color-border-focus: #4E80F7;
+
+  --color-accent: #4E80F7;
+  --color-accent-light: #6B9AFF;
+  --color-accent-hover: #3D6FE6;
+  --color-accent-glow: rgba(78, 128, 247, 0.10);
+
+  --color-gradient-start: #4E80F7;
+  --color-gradient-mid: #5C8EFF;
+  --color-gradient-end: #6B9AFF;
+
+  --shadow-glow: 0 0 20px rgba(78, 128, 247, 0.10);
+}
+
+/* Blue — dark mode */
+.theme-blue.dark,
+.dark.theme-blue {
+  --color-bg-user-msg: #6B9AFF;
+
+  --color-text-secondary: #6B9AFF;
+  --color-border-focus: #6B9AFF;
+
+  --color-accent: #6B9AFF;
+  --color-accent-light: #8AB2FF;
+  --color-accent-hover: #4E80F7;
+  --color-accent-glow: rgba(107, 154, 255, 0.15);
+
+  --color-gradient-start: #4E80F7;
+  --color-gradient-mid: #5C8EFF;
+  --color-gradient-end: #6B9AFF;
+
+  --shadow-glow: 0 0 20px rgba(107, 154, 255, 0.10);
+}
+
+/* ================================================================
+   Orange theme — light mode
    ================================================================ */
 .theme-orange {
-  --color-bg-primary: rgba(254, 251, 248, 0.82);
-  --color-bg-secondary: rgba(250, 244, 238, 0.76);
-  --color-bg-tertiary: rgba(244, 238, 230, 0.70);
-  --color-bg-chat: #ffffff;
-  --color-bg-sidebar: rgba(252, 249, 246, 0.65);
-  --color-bg-input: rgba(255, 255, 255, 0.62);
-  --color-bg-user-msg: #C4907A;
-  --color-bg-assistant-msg: rgba(254, 251, 248, 0.58);
-  --color-bg-tool: rgba(250, 244, 238, 0.55);
-  --color-bg-thinking: rgba(248, 242, 234, 0.52);
-  --color-bg-glass: rgba(255, 255, 255, 0.40);
-  --color-bg-glass-hover: rgba(255, 255, 255, 0.60);
-  --color-bg-card: rgba(255, 255, 255, 0.50);
-  --color-bg-nav-active: linear-gradient(135deg, rgba(196, 144, 122, 0.08), rgba(212, 160, 138, 0.12));
+  --color-bg-user-msg: #C47252;
+  --color-bg-nav-active: rgba(196, 114, 82, 0.06);
 
-  --color-text-primary: #3D3029;
-  --color-text-secondary: #C4907A;
-  --color-text-tertiary: #9ca3af;
-  --color-text-inverse: #ffffff;
-  --color-text-muted: #8D847C;
+  --color-text-secondary: #C47252;
+  --color-border-focus: #C47252;
 
-  --color-border: rgba(255, 255, 255, 0.45);
-  --color-border-subtle: rgba(255, 255, 255, 0.25);
-  --color-border-focus: #C4907A;
-
-  --color-accent: #C4907A;
-  --color-accent-light: #D4A08A;
-  --color-accent-hover: #B0795F;
-  --color-accent-glow: rgba(196, 144, 122, 0.15);
-  --color-success: #10b981;
-  --color-error: #ef4444;
+  --color-accent: #C47252;
+  --color-accent-light: #D4856A;
+  --color-accent-hover: #B06141;
+  --color-accent-glow: rgba(196, 114, 82, 0.10);
   --color-warning: #E8A86D;
 
-  --color-gradient-start: #C4907A;
-  --color-gradient-mid: #CC9A86;
-  --color-gradient-end: #D4A08A;
+  --color-gradient-start: #C47252;
+  --color-gradient-mid: #CC7E5E;
+  --color-gradient-end: #D4856A;
 
-  --shadow-sm: 0 1px 3px rgba(196, 144, 122, 0.04),
-    0 1px 2px rgba(0, 0, 0, 0.03);
-  --shadow-md: 0 4px 12px rgba(196, 144, 122, 0.06),
-    0 2px 4px rgba(0, 0, 0, 0.03);
-  --shadow-lg: 0 8px 24px rgba(196, 144, 122, 0.08),
-    0 4px 8px rgba(0, 0, 0, 0.04);
-  --shadow-glow: 0 0 20px rgba(196, 144, 122, 0.10);
+  --shadow-glow: 0 0 20px rgba(196, 114, 82, 0.10);
 }
 
-/* ================================================================
-   Orange — dark mode
-   ================================================================ */
+/* Orange — dark mode */
 .theme-orange.dark,
 .dark.theme-orange {
-  --color-bg-primary: rgba(14, 14, 14, 0.90);
-  --color-bg-secondary: rgba(24, 24, 24, 0.85);
-  --color-bg-tertiary: rgba(34, 34, 34, 0.78);
-  --color-bg-chat: #141414;
-  --color-bg-sidebar: rgba(10, 10, 10, 0.88);
-  --color-bg-input: rgba(24, 24, 24, 0.80);
-  --color-bg-user-msg: #B0795F;
-  --color-bg-assistant-msg: rgba(24, 24, 24, 0.70);
-  --color-bg-tool: rgba(28, 28, 28, 0.68);
-  --color-bg-thinking: rgba(26, 26, 26, 0.65);
-  --color-bg-glass: rgba(18, 18, 18, 0.55);
-  --color-bg-glass-hover: rgba(28, 28, 28, 0.68);
-  --color-bg-card: rgba(22, 22, 22, 0.68);
+  --color-bg-user-msg: #D4856A;
 
-  --color-text-primary: #f0f0f0;
-  --color-text-secondary: #D4A08A;
-  --color-text-tertiary: #6b6b6b;
-  --color-text-inverse: #101010;
-  --color-text-muted: #525252;
+  --color-text-secondary: #D4856A;
+  --color-border-focus: #D4856A;
 
-  --color-border: rgba(255, 255, 255, 0.08);
-  --color-border-subtle: rgba(255, 255, 255, 0.04);
-  --color-border-focus: #D4A08A;
+  --color-accent: #D4856A;
+  --color-accent-light: #E09882;
+  --color-accent-hover: #C47252;
+  --color-accent-glow: rgba(212, 133, 106, 0.15);
 
-  --color-accent: #D4A08A;
-  --color-accent-light: #DEB09A;
-  --color-accent-hover: #C4907A;
-  --color-accent-glow: rgba(212, 160, 138, 0.18);
+  --color-gradient-start: #C47252;
+  --color-gradient-mid: #CC7E5E;
+  --color-gradient-end: #D4856A;
 
-  --color-gradient-start: #C4907A;
-  --color-gradient-mid: #CC9A86;
-  --color-gradient-end: #D4A08A;
-
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.25);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.45);
-  --shadow-glow: 0 0 20px rgba(212, 160, 138, 0.12);
+  --shadow-glow: 0 0 20px rgba(212, 133, 106, 0.10);
 }
 
 /* ================================================================
-   Green / Emerald theme — light mode — liquid glass
+   Green theme — light mode
    ================================================================ */
 .theme-green {
-  --color-bg-primary: rgba(248, 252, 249, 0.82);
-  --color-bg-secondary: rgba(242, 248, 244, 0.76);
-  --color-bg-tertiary: rgba(236, 244, 239, 0.70);
-  --color-bg-chat: #ffffff;
-  --color-bg-sidebar: rgba(246, 250, 247, 0.65);
-  --color-bg-input: rgba(255, 255, 255, 0.62);
-  --color-bg-user-msg: #3A9C80;
-  --color-bg-assistant-msg: rgba(248, 252, 249, 0.58);
-  --color-bg-tool: rgba(242, 248, 244, 0.55);
-  --color-bg-thinking: rgba(240, 246, 242, 0.52);
-  --color-bg-glass: rgba(255, 255, 255, 0.40);
-  --color-bg-glass-hover: rgba(255, 255, 255, 0.60);
-  --color-bg-card: rgba(255, 255, 255, 0.50);
-  --color-bg-nav-active: linear-gradient(135deg, rgba(58, 156, 128, 0.08), rgba(90, 185, 154, 0.12));
+  --color-bg-user-msg: #57A64B;
+  --color-bg-nav-active: rgba(87, 166, 75, 0.06);
 
-  --color-text-primary: #1a3a2f;
-  --color-text-secondary: #3A9C80;
-  --color-text-tertiary: #94a3b8;
-  --color-text-inverse: #ffffff;
-  --color-text-muted: #7c8d85;
+  --color-text-secondary: #4CA85A;
+  --color-border-focus: #57A64B;
 
-  --color-border: rgba(255, 255, 255, 0.45);
-  --color-border-subtle: rgba(255, 255, 255, 0.25);
-  --color-border-focus: #3A9C80;
+  --color-accent: #57A64B;
+  --color-accent-light: #6DBF62;
+  --color-accent-hover: #56AD63;
+  --color-accent-glow: rgba(87, 166, 75, 0.10);
+  --color-success: #57A64B;
 
-  --color-accent: #3A9C80;
-  --color-accent-light: #5AB99A;
-  --color-accent-hover: #2D8A6E;
-  --color-accent-glow: rgba(58, 156, 128, 0.15);
-  --color-success: #5AB99A;
-  --color-error: #ef4444;
-  --color-warning: #f59e0b;
+  --color-gradient-start: #57A64B;
+  --color-gradient-mid: #73C880;
+  --color-gradient-end: #6DBF62;
 
-  --color-gradient-start: #3A9C80;
-  --color-gradient-mid: #4AAD8D;
-  --color-gradient-end: #5AB99A;
-
-  --shadow-sm: 0 1px 3px rgba(58, 156, 128, 0.04),
-    0 1px 2px rgba(0, 0, 0, 0.03);
-  --shadow-md: 0 4px 12px rgba(58, 156, 128, 0.06),
-    0 2px 4px rgba(0, 0, 0, 0.03);
-  --shadow-lg: 0 8px 24px rgba(58, 156, 128, 0.08),
-    0 4px 8px rgba(0, 0, 0, 0.04);
-  --shadow-glow: 0 0 20px rgba(58, 156, 128, 0.10);
+  --shadow-glow: 0 0 20px rgba(87, 166, 75, 0.10);
 }
 
-/* ================================================================
-   Green — dark mode
-   ================================================================ */
+/* Green — dark mode */
 .theme-green.dark,
 .dark.theme-green {
-  --color-bg-primary: rgba(14, 14, 16, 0.90);
-  --color-bg-secondary: rgba(22, 24, 24, 0.85);
-  --color-bg-tertiary: rgba(32, 36, 34, 0.78);
-  --color-bg-chat: #121414;
-  --color-bg-sidebar: rgba(10, 12, 11, 0.88);
-  --color-bg-input: rgba(22, 24, 24, 0.80);
-  --color-bg-user-msg: #2D8A6E;
-  --color-bg-assistant-msg: rgba(22, 24, 24, 0.70);
-  --color-bg-tool: rgba(26, 30, 28, 0.68);
-  --color-bg-thinking: rgba(24, 28, 26, 0.65);
-  --color-bg-glass: rgba(16, 20, 18, 0.55);
-  --color-bg-glass-hover: rgba(26, 30, 28, 0.68);
-  --color-bg-card: rgba(20, 24, 22, 0.68);
+  --color-bg-user-msg: #6DBF62;
 
-  --color-text-primary: #f0f0f0;
-  --color-text-secondary: #5AB99A;
-  --color-text-tertiary: #6b6b6b;
-  --color-text-inverse: #101010;
-  --color-text-muted: #525252;
+  --color-text-secondary: #6DBF62;
+  --color-border-focus: #6DBF62;
 
-  --color-border: rgba(255, 255, 255, 0.08);
-  --color-border-subtle: rgba(255, 255, 255, 0.04);
-  --color-border-focus: #5AB99A;
+  --color-accent: #6DBF62;
+  --color-accent-light: #97DEA2;
+  --color-accent-hover: #57A64B;
+  --color-accent-glow: rgba(109, 191, 98, 0.15);
 
-  --color-accent: #5AB99A;
-  --color-accent-light: #78CDB0;
-  --color-accent-hover: #3A9C80;
-  --color-accent-glow: rgba(90, 185, 154, 0.18);
+  --color-gradient-start: #57A64B;
+  --color-gradient-mid: #73C880;
+  --color-gradient-end: #6DBF62;
 
-  --color-gradient-start: #3A9C80;
-  --color-gradient-mid: #4AAD8D;
-  --color-gradient-end: #5AB99A;
-
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.25);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.45);
-  --shadow-glow: 0 0 20px rgba(90, 185, 154, 0.12);
+  --shadow-glow: 0 0 20px rgba(109, 191, 98, 0.10);
 }
 
 /* ================================================================
-   Liquid Glass theme — light mode  (iOS 26 / macOS 26 inspired)
+   Solid backgrounds — all themes
    ================================================================ */
-.theme-liquidglass {
-  --color-bg-primary: rgba(245, 248, 255, 0.85);
-  --color-bg-secondary: rgba(235, 240, 252, 0.8);
-  --color-bg-tertiary: rgba(225, 232, 248, 0.75);
-  --color-bg-chat: #ffffff;
-  --color-bg-sidebar: rgba(240, 244, 255, 0.70);
-  --color-bg-input: rgba(255, 255, 255, 0.65);
-  --color-bg-user-msg: #0A84FF;
-  --color-bg-assistant-msg: rgba(245, 248, 255, 0.6);
-  --color-bg-tool: rgba(235, 240, 252, 0.6);
-  --color-bg-thinking: rgba(230, 238, 255, 0.55);
-  --color-bg-glass: rgba(255, 255, 255, 0.45);
-  --color-bg-glass-hover: rgba(255, 255, 255, 0.65);
-  --color-bg-card: rgba(255, 255, 255, 0.55);
-  --color-bg-nav-active: linear-gradient(135deg, rgba(10, 132, 255, 0.08), rgba(48, 164, 255, 0.12));
 
-  --color-text-primary: #1c1c1e;
-  --color-text-secondary: #0A84FF;
-  --color-text-tertiary: #8e8e93;
-  --color-text-inverse: #ffffff;
-  --color-text-muted: #aeaeb2;
-
-  --color-border: rgba(255, 255, 255, 0.5);
-  --color-border-subtle: rgba(255, 255, 255, 0.3);
-  --color-border-focus: #0A84FF;
-
-  --color-accent: #0A84FF;
-  --color-accent-light: #409CFF;
-  --color-accent-hover: #0070E0;
-  --color-accent-glow: rgba(10, 132, 255, 0.15);
-  --color-success: #30D158;
-  --color-error: #FF453A;
-  --color-warning: #FFD60A;
-
-  --color-gradient-start: #0A84FF;
-  --color-gradient-mid: #2E9AFF;
-  --color-gradient-end: #64B5F6;
-
-  --shadow-sm: 0 1px 3px rgba(10, 80, 180, 0.06),
-    0 1px 2px rgba(0, 0, 0, 0.03);
-  --shadow-md: 0 4px 12px rgba(10, 80, 180, 0.08),
-    0 2px 4px rgba(0, 0, 0, 0.03);
-  --shadow-lg: 0 8px 24px rgba(10, 80, 180, 0.10),
-    0 4px 8px rgba(0, 0, 0, 0.04);
-  --shadow-glow: 0 0 20px rgba(10, 132, 255, 0.12);
+/* Light mode */
+.gradient-bg {
+  background: #F5F5F7;
 }
 
-/* ================================================================
-   Liquid Glass — dark mode
-   ================================================================ */
-.theme-liquidglass.dark,
-.dark.theme-liquidglass {
-  --color-bg-primary: rgba(10, 10, 14, 0.9);
-  --color-bg-secondary: rgba(22, 22, 28, 0.85);
-  --color-bg-tertiary: rgba(34, 34, 40, 0.8);
-  --color-bg-chat: #0e0e12;
-  --color-bg-sidebar: rgba(8, 8, 12, 0.9);
-  --color-bg-input: rgba(22, 22, 28, 0.8);
-  --color-bg-user-msg: #0A64C0;
-  --color-bg-assistant-msg: rgba(22, 22, 28, 0.7);
-  --color-bg-tool: rgba(28, 28, 34, 0.7);
-  --color-bg-thinking: rgba(24, 24, 30, 0.65);
-  --color-bg-glass: rgba(18, 18, 24, 0.6);
-  --color-bg-glass-hover: rgba(28, 28, 36, 0.7);
-  --color-bg-card: rgba(22, 22, 28, 0.7);
-
-  --color-text-primary: #f5f5f7;
-  --color-text-secondary: #409CFF;
-  --color-text-tertiary: #636366;
-  --color-text-inverse: #0a0a0e;
-  --color-text-muted: #48484a;
-
-  --color-border: rgba(255, 255, 255, 0.08);
-  --color-border-subtle: rgba(255, 255, 255, 0.04);
-  --color-border-focus: #409CFF;
-
-  --color-accent: #409CFF;
-  --color-accent-light: #64B5F6;
-  --color-accent-hover: #0A84FF;
-  --color-accent-glow: rgba(64, 156, 255, 0.2);
-
-  --color-gradient-start: #0A84FF;
-  --color-gradient-mid: #2E9AFF;
-  --color-gradient-end: #409CFF;
-
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
-  --shadow-glow: 0 0 20px rgba(64, 156, 255, 0.15);
-}
-
-/* ================================================================
-   Universal Glass — per-theme ambient gradient backgrounds
-   ================================================================ */
-
-/* Default (Purple) — dark gradient */
+/* Dark mode — all themes */
 .dark .gradient-bg {
-  background:
-    radial-gradient(ellipse 80% 60% at 20% 30%, rgba(90, 60, 160, 0.18) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 50% at 75% 20%, rgba(60, 40, 120, 0.14) 0%, transparent 55%),
-    radial-gradient(ellipse 50% 40% at 50% 80%, rgba(80, 60, 140, 0.10) 0%, transparent 50%),
-    radial-gradient(ellipse 40% 30% at 10% 70%, rgba(70, 50, 130, 0.08) 0%, transparent 45%),
-    linear-gradient(165deg, #0c0a14 0%, #0e0c16 30%, #100e18 60%, #0a0812 100%);
-}
-
-/* Orange — light gradient */
-.theme-orange .gradient-bg {
-  background:
-    radial-gradient(ellipse 80% 60% at 20% 30%, rgba(196, 144, 122, 0.15) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 50% at 75% 20%, rgba(212, 160, 138, 0.12) 0%, transparent 55%),
-    radial-gradient(ellipse 50% 40% at 50% 80%, rgba(220, 170, 120, 0.10) 0%, transparent 50%),
-    radial-gradient(ellipse 40% 30% at 10% 70%, rgba(200, 150, 130, 0.08) 0%, transparent 45%),
-    linear-gradient(165deg, #fff0e6 0%, #fff2ea 30%, #ffede0 60%, #fff8f2 100%);
-}
-
-/* Orange — dark gradient */
-.theme-orange.dark .gradient-bg,
-.dark.theme-orange .gradient-bg {
-  background:
-    radial-gradient(ellipse 80% 60% at 20% 30%, rgba(160, 80, 50, 0.18) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 50% at 75% 20%, rgba(140, 70, 40, 0.14) 0%, transparent 55%),
-    radial-gradient(ellipse 50% 40% at 50% 80%, rgba(150, 90, 50, 0.10) 0%, transparent 50%),
-    radial-gradient(ellipse 40% 30% at 10% 70%, rgba(130, 80, 60, 0.08) 0%, transparent 45%),
-    linear-gradient(165deg, #140e0a 0%, #160f0c 30%, #14100c 60%, #120e0a 100%);
-}
-
-/* Green — light gradient */
-.theme-green .gradient-bg {
-  background:
-    radial-gradient(ellipse 80% 60% at 20% 30%, rgba(58, 156, 128, 0.15) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 50% at 75% 20%, rgba(90, 185, 154, 0.12) 0%, transparent 55%),
-    radial-gradient(ellipse 50% 40% at 50% 80%, rgba(60, 180, 160, 0.10) 0%, transparent 50%),
-    radial-gradient(ellipse 40% 30% at 10% 70%, rgba(80, 170, 140, 0.08) 0%, transparent 45%),
-    linear-gradient(165deg, #e8f5ef 0%, #ecf6f1 30%, #e6f3ec 60%, #f2f9f5 100%);
-}
-
-/* Green — dark gradient */
-.theme-green.dark .gradient-bg,
-.dark.theme-green .gradient-bg {
-  background:
-    radial-gradient(ellipse 80% 60% at 20% 30%, rgba(30, 100, 80, 0.18) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 50% at 75% 20%, rgba(20, 80, 60, 0.14) 0%, transparent 55%),
-    radial-gradient(ellipse 50% 40% at 50% 80%, rgba(25, 90, 70, 0.10) 0%, transparent 50%),
-    radial-gradient(ellipse 40% 30% at 10% 70%, rgba(30, 80, 65, 0.08) 0%, transparent 45%),
-    linear-gradient(165deg, #0a120e 0%, #0c140f 30%, #0e1610 60%, #0a100c 100%);
-}
-
-/* Liquid Glass — light gradient */
-.theme-liquidglass .gradient-bg {
-  background:
-    radial-gradient(ellipse 80% 60% at 20% 30%, rgba(100, 160, 255, 0.18) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 50% at 75% 20%, rgba(160, 120, 255, 0.14) 0%, transparent 55%),
-    radial-gradient(ellipse 50% 40% at 50% 80%, rgba(80, 200, 240, 0.12) 0%, transparent 50%),
-    radial-gradient(ellipse 40% 30% at 10% 70%, rgba(130, 180, 255, 0.10) 0%, transparent 45%),
-    linear-gradient(165deg, #e8f0ff 0%, #f0f0ff 30%, #e6f2ff 60%, #f5f8ff 100%);
-}
-
-/* Liquid Glass — dark gradient */
-.theme-liquidglass.dark .gradient-bg,
-.dark.theme-liquidglass .gradient-bg {
-  background:
-    radial-gradient(ellipse 80% 60% at 20% 30%, rgba(10, 60, 140, 0.20) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 50% at 75% 20%, rgba(60, 30, 120, 0.16) 0%, transparent 55%),
-    radial-gradient(ellipse 50% 40% at 50% 80%, rgba(10, 80, 160, 0.12) 0%, transparent 50%),
-    radial-gradient(ellipse 40% 30% at 10% 70%, rgba(30, 50, 100, 0.10) 0%, transparent 45%),
-    linear-gradient(165deg, #08080c 0%, #0a0a10 30%, #0c0c14 60%, #080810 100%);
+  background: #1C1C1E;
 }
 
 /* ================================================================
-   Universal Glass — light mode backdrop-filter
+   User message bubble — subtle shadow
    ================================================================ */
-
-/* Primary glass surfaces — heavy blur (sidebar, cards, modals) */
-.bg-bg-sidebar,
-.bg-bg-card,
-.bg-bg-primary {
-  backdrop-filter: blur(20px) saturate(1.8);
-  -webkit-backdrop-filter: blur(20px) saturate(1.8);
-  border-top: 1px solid rgba(255, 255, 255, 0.35);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.5) inset,
-    0 4px 16px rgba(0, 0, 0, 0.04);
-}
-
-/* Secondary glass surfaces — medium blur (nested panels, inputs, tool blocks) */
-.bg-bg-secondary,
-.bg-bg-input,
-.bg-bg-tool,
-.bg-bg-thinking,
-.bg-bg-assistant-msg,
-.bg-bg-tertiary {
-  backdrop-filter: blur(12px) saturate(1.5);
-  -webkit-backdrop-filter: blur(12px) saturate(1.5);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.3) inset;
-}
-
-/* Modal / overlay backdrop — stronger frosted glass */
-.backdrop-blur-sm {
-  backdrop-filter: blur(20px) saturate(1.6) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(1.6) !important;
-}
-
-/* User message bubble — floating glow */
 .bg-bg-user-msg {
-  box-shadow:
-    0 2px 12px var(--color-accent-glow),
-    0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+  box-shadow: 0 2px 8px var(--color-accent-glow);
 }
 
-/* Accent button glass treatment */
-.bg-accent {
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.25) inset,
-    0 2px 8px var(--color-accent-glow);
-}
-
-/* Interactive hover states — subtle glass on hover */
-[class*="hover\:bg-bg-secondary"]:hover,
-[class*="hover\:bg-bg-tertiary"]:hover {
-  backdrop-filter: blur(8px) saturate(1.3);
-  -webkit-backdrop-filter: blur(8px) saturate(1.3);
-}
-
-/* ================================================================
-   Universal Glass — dark mode overrides
-   ================================================================ */
-
-/* Primary glass surfaces — dark */
-.dark .bg-bg-sidebar,
-.dark .bg-bg-card,
-.dark .bg-bg-primary {
-  backdrop-filter: blur(24px) saturate(1.6);
-  -webkit-backdrop-filter: blur(24px) saturate(1.6);
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.04) inset,
-    0 4px 16px rgba(0, 0, 0, 0.3);
-}
-
-/* Secondary glass surfaces — dark */
-.dark .bg-bg-secondary,
-.dark .bg-bg-input,
-.dark .bg-bg-tool,
-.dark .bg-bg-thinking,
-.dark .bg-bg-assistant-msg,
-.dark .bg-bg-tertiary {
-  backdrop-filter: blur(16px) saturate(1.4);
-  -webkit-backdrop-filter: blur(16px) saturate(1.4);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
-}
-
-/* Modal overlay — dark */
-.dark .backdrop-blur-sm {
-  backdrop-filter: blur(24px) saturate(1.4) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(1.4) !important;
-}
-
-/* User message glow — dark */
 .dark .bg-bg-user-msg {
-  box-shadow:
-    0 2px 16px var(--color-accent-glow),
-    0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+  box-shadow: 0 2px 12px var(--color-accent-glow);
 }
 
-/* Accent button — dark */
+/* Accent button treatment */
+.bg-accent {
+  box-shadow: 0 1px 4px var(--color-accent-glow);
+}
+
 .dark .bg-accent {
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.08) inset,
-    0 2px 10px var(--color-accent-glow);
-}
-
-/* Hover states — dark */
-.dark [class*="hover\:bg-bg-secondary"]:hover,
-.dark [class*="hover\:bg-bg-tertiary"]:hover {
-  backdrop-filter: blur(10px) saturate(1.3);
-  -webkit-backdrop-filter: blur(10px) saturate(1.3);
+  box-shadow: 0 1px 6px var(--color-accent-glow);
 }
 
 /* ================================================================
-   Glass — accessibility & performance
+   Accessibility & performance
    ================================================================ */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -574,20 +263,6 @@
   *::after {
     transition-duration: 0s !important;
     animation-duration: 0s !important;
-  }
-}
-
-@supports not (backdrop-filter: blur(1px)) {
-  .bg-bg-sidebar,
-  .bg-bg-card,
-  .bg-bg-primary,
-  .bg-bg-secondary,
-  .bg-bg-input,
-  .bg-bg-tool,
-  .bg-bg-thinking,
-  .bg-bg-assistant-msg,
-  .bg-bg-tertiary {
-    background-color: rgba(245, 248, 255, 0.95);
   }
 }
 
@@ -625,102 +300,52 @@ input, textarea, [contenteditable="true"],
   -webkit-user-select: text;
 }
 
-/* Scrollbar styling */
+/* Scrollbar styling — auto-hide globally, only visible on hover */
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--color-accent-glow);
+  background: transparent;
   border-radius: 3px;
+  transition: background 0.2s;
+}
+*:hover > ::-webkit-scrollbar-thumb,
+*:hover::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+}
+.dark *:hover > ::-webkit-scrollbar-thumb,
+.dark *:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-accent-light);
+  background: var(--color-accent-glow) !important;
 }
 
-/* Auto-hide scrollbar: thin + subtle, only visible on direct hover */
-.scrollbar-autohide {
+/* Firefox: auto-hide scrollbar globally */
+* {
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
 }
-.scrollbar-autohide:hover {
-  scrollbar-color: rgba(0, 0, 0, 0.08) transparent;
+*:hover {
+  scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
 }
-.dark .scrollbar-autohide:hover {
-  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
-}
-.scrollbar-autohide::-webkit-scrollbar {
-  width: 4px;
-}
-.scrollbar-autohide::-webkit-scrollbar-track {
-  background: transparent;
-}
-.scrollbar-autohide::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 2px;
-}
-.scrollbar-autohide:hover::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.1);
-}
-.dark .scrollbar-autohide:hover::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-}
-.scrollbar-autohide::-webkit-scrollbar-thumb:hover {
-  background: var(--color-accent-glow);
+.dark *:hover {
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
 }
 
-/* Glass effect utility */
-.glass {
-  background: var(--color-bg-glass);
-  backdrop-filter: blur(24px) saturate(1.8);
-  -webkit-backdrop-filter: blur(24px) saturate(1.8);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.5) inset,
-    0 8px 32px rgba(0, 0, 0, 0.06);
-}
-.dark .glass {
-  backdrop-filter: blur(28px) saturate(1.6);
-  -webkit-backdrop-filter: blur(28px) saturate(1.6);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.05) inset,
-    0 8px 32px rgba(0, 0, 0, 0.4);
-}
-.glass-hover:hover {
-  background: var(--color-bg-glass-hover);
-}
-
-/* Glass tint — backdrop-filter glass with transparent tinted background */
-.glass-tint {
-  backdrop-filter: blur(12px) saturate(1.5);
-  -webkit-backdrop-filter: blur(12px) saturate(1.5);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset;
-}
-.dark .glass-tint {
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
-}
-
-/* Glass hover — liquid glass tint on hover for interactive elements */
-.glass-hover-tint:hover {
-  backdrop-filter: blur(12px) saturate(1.5);
-  -webkit-backdrop-filter: blur(12px) saturate(1.5);
-  background: var(--color-accent-glow);
+/* Legacy .scrollbar-autohide — kept for backward compat, now a no-op since global auto-hides */
+.scrollbar-autohide {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
 }
 
 /* Accent text (formerly gradient-text) */
 .gradient-text {
   color: var(--color-accent);
-}
-
-/* Rich gradient background — default (Purple) light mode */
-.gradient-bg {
-  background:
-    radial-gradient(ellipse 80% 60% at 20% 30%, rgba(139, 108, 197, 0.15) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 50% at 75% 20%, rgba(168, 144, 212, 0.12) 0%, transparent 55%),
-    radial-gradient(ellipse 50% 40% at 50% 80%, rgba(120, 140, 220, 0.10) 0%, transparent 50%),
-    radial-gradient(ellipse 40% 30% at 10% 70%, rgba(160, 130, 210, 0.08) 0%, transparent 45%),
-    linear-gradient(165deg, #ede8ff 0%, #f0eeff 30%, #ebe8ff 60%, #f4f2ff 100%);
 }
 
 /* Pulse animation for streaming */
@@ -730,6 +355,24 @@ input, textarea, [contenteditable="true"],
 }
 .animate-pulse-soft {
   animation: pulse-soft 1.5s ease-in-out infinite;
+}
+
+/* Indeterminate progress bar */
+@keyframes progress-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+.animate-progress {
+  animation: progress-indeterminate 1.5s ease-in-out infinite;
+}
+
+/* Scale-in for cards */
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+.animate-scale-in {
+  animation: scale-in 0.2s ease-out;
 }
 
 /* Slow spin for activity indicator asterisk */
@@ -878,20 +521,10 @@ input, textarea, [contenteditable="true"],
   user-select: none;
   touch-action: none;
 }
-.resize-handle:hover,
-.resize-handle:active {
-  background: var(--color-accent);
-  opacity: 0.5;
-}
 
 /* Horizontal resize handle for vertical splits */
 .resize-handle-h {
   cursor: row-resize;
   user-select: none;
   touch-action: none;
-}
-.resize-handle-h:hover,
-.resize-handle-h:active {
-  background: var(--color-accent);
-  opacity: 0.5;
 }

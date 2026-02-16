@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useMemo, useCallback } from 'react';
-import { useChatStore } from '../../stores/chatStore';
+import { useChatStore, type ChatMessage } from '../../stores/chatStore';
 import { MessageBubble } from './MessageBubble';
+import { ToolGroup } from './ToolGroup';
 import { InputBar } from './InputBar';
 import { ExportMenu } from '../conversations/ExportMenu';
 import { useSettingsStore, MODEL_OPTIONS } from '../../stores/settingsStore';
@@ -11,12 +12,14 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { useT } from '../../lib/i18n';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
+import { SetupWizard } from '../setup/SetupWizard';
 
 /** Map raw model ID to friendly display name */
 function getModelDisplayName(modelId: string): string {
   const option = MODEL_OPTIONS.find((m) => modelId.includes(m.id));
   return option?.short || modelId;
 }
+
 
 /** Format token count: "3.2k" for >=1000, raw number for <1000 */
 function formatTokens(n: number): string {
@@ -31,55 +34,6 @@ function formatElapsed(ms: number): string {
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
   return `${m}m ${s}s`;
-}
-
-/** Real-time elapsed timer + token count shown while session is running */
-function RunningStats({ startTime }: { startTime: number }) {
-  const [now, setNow] = useState(Date.now());
-  const outputTokens = useChatStore((s) => s.sessionMeta.outputTokens) || 0;
-
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  const elapsed = formatElapsed(now - startTime);
-  const tokens = formatTokens(outputTokens);
-
-  return (
-    <div className="ml-auto flex items-center gap-1.5 pointer-events-none
-      glass-tint px-2.5 py-1 rounded-lg bg-accent/8">
-      <span className="text-xs text-text-muted font-mono">{elapsed}</span>
-      <span className="text-xs text-text-tertiary">·</span>
-      <span className="text-xs text-text-tertiary font-mono">↓ {tokens}</span>
-    </div>
-  );
-}
-
-/** Static cost/turns/tokens shown after session completes */
-function CompletedStats({ meta }: { meta: { cost?: number; turns?: number; inputTokens?: number; outputTokens?: number } }) {
-  const t = useT();
-  const totalTokens = (meta.inputTokens || 0) + (meta.outputTokens || 0);
-  return (
-    <div className="ml-auto flex items-center gap-3 pointer-events-none
-      glass-tint px-2.5 py-1 rounded-lg bg-accent/8">
-      {meta.cost != null && (
-        <span className="text-xs text-text-muted font-mono">
-          ${meta.cost.toFixed(4)}
-        </span>
-      )}
-      {meta.turns != null && (
-        <span className="text-xs text-text-tertiary">
-          {meta.turns} {t('chat.turns')}
-        </span>
-      )}
-      {totalTokens > 0 && (
-        <span className="text-xs text-text-tertiary font-mono">
-          {formatTokens(totalTokens)} tokens
-        </span>
-      )}
-    </div>
-  );
 }
 
 /** Activity indicator with elapsed time and token count */
@@ -146,6 +100,32 @@ export function ChatPanel() {
 
   const [showPlanPanel, setShowPlanPanel] = useState(false);
 
+  // --- Tool grouping: group 3+ consecutive tool_use messages ---
+  type DisplayItem =
+    | { kind: 'message'; msg: ChatMessage; idx: number }
+    | { kind: 'tool_group'; msgs: ChatMessage[]; startIdx: number };
+
+  const displayItems = useMemo<DisplayItem[]>(() => {
+    const items: DisplayItem[] = [];
+    let i = 0;
+    while (i < messages.length) {
+      // Detect runs of consecutive tool_use messages
+      if (messages[i].type === 'tool_use') {
+        let j = i;
+        while (j < messages.length && messages[j].type === 'tool_use') j++;
+        const runLength = j - i;
+        if (runLength >= 3) {
+          items.push({ kind: 'tool_group', msgs: messages.slice(i, j), startIdx: i });
+          i = j;
+          continue;
+        }
+      }
+      items.push({ kind: 'message', msg: messages[i], idx: i });
+      i++;
+    }
+    return items;
+  }, [messages]);
+
   // Collect plan review messages from the session (created by ExitPlanMode)
   const planMessages = useMemo(
     () => messages.filter((m) => m.type === 'plan_review'),
@@ -206,12 +186,6 @@ export function ChatPanel() {
             </span>
           )}
         </div>
-        {sessionStatus === 'running' && sessionMeta.turnStartTime && (
-          <RunningStats startTime={sessionMeta.turnStartTime} />
-        )}
-        {sessionStatus !== 'running' && (sessionMeta.cost != null || (sessionMeta.inputTokens != null || sessionMeta.outputTokens != null)) && (
-          <CompletedStats meta={sessionMeta} />
-        )}
         <ExportMenu sessionPath={currentSessionPath} />
         {/* Plan view button */}
         <button
@@ -298,31 +272,41 @@ export function ChatPanel() {
           <EmptyReadyState />
         ) : (
           <div className="max-w-3xl mx-auto">
-            {messages.map((msg, idx) => {
-              // Compact spacing for tool/thinking/result messages;
-              // larger spacing around user and assistant text messages
-              const isCompact = ['tool_use', 'tool_result', 'thinking', 'todo', 'plan', 'plan_review'].includes(msg.type);
-              const prevMsg = idx > 0 ? messages[idx - 1] : null;
-              const prevIsCompact = prevMsg && ['tool_use', 'tool_result', 'thinking', 'todo', 'plan', 'plan_review'].includes(prevMsg.type);
-              // Use tight spacing (4px) between consecutive compact messages,
-              // medium (12px) transition, large (20px) between text blocks
-              const spacing = idx === 0
+            {displayItems.map((item, displayIdx) => {
+              // Determine spacing based on item type
+              const isCompact = item.kind === 'tool_group'
+                || (item.kind === 'message' && ['tool_use', 'tool_result', 'thinking', 'todo', 'plan', 'plan_review'].includes(item.msg.type));
+              const prevItem = displayIdx > 0 ? displayItems[displayIdx - 1] : null;
+              const prevIsCompact = prevItem && (
+                prevItem.kind === 'tool_group'
+                || (prevItem.kind === 'message' && ['tool_use', 'tool_result', 'thinking', 'todo', 'plan', 'plan_review'].includes(prevItem.msg.type))
+              );
+              const spacing = displayIdx === 0
                 ? ''
                 : isCompact && prevIsCompact
                   ? 'mt-0.5'
                   : isCompact || prevIsCompact
                     ? 'mt-2'
                     : 'mt-5';
+
+              if (item.kind === 'tool_group') {
+                return (
+                  <div key={`tg_${item.msgs[0].id}`} className={spacing}>
+                    <ToolGroup messages={item.msgs} />
+                  </div>
+                );
+              }
+
+              const msg = item.msg;
+              const idx = item.idx;
               // Show avatar only for the FIRST assistant text in a turn.
-              // A "turn" starts after a user message. We scan backwards to see
-              // if there's already an assistant text message before hitting a user msg.
               let isFirstInGroup = true;
               if (msg.role === 'assistant' && msg.type === 'text') {
                 for (let j = idx - 1; j >= 0; j--) {
                   const prev = messages[j];
-                  if (prev.role === 'user') break; // hit user boundary → this is first
+                  if (prev.role === 'user') break;
                   if (prev.role === 'assistant' && prev.type === 'text') {
-                    isFirstInGroup = false; // found earlier assistant text in same turn
+                    isFirstInGroup = false;
                     break;
                   }
                 }
@@ -354,7 +338,7 @@ export function ChatPanel() {
               return (
               <div className="flex gap-3 mt-2">
                 {showStreamAvatar ? (
-                  <div className="w-8 h-8 rounded-xl bg-accent
+                  <div className="w-8 h-8 rounded-[10px] bg-accent
                     flex items-center justify-center flex-shrink-0 text-text-inverse
                     text-xs font-bold shadow-md mt-0.5">C</div>
                 ) : (
@@ -363,7 +347,7 @@ export function ChatPanel() {
                 <div className="flex-1 min-w-0 text-sm text-text-primary leading-relaxed">
                   <MarkdownRenderer content={partialText} />
                   <span className="inline-block w-2 h-5 bg-accent ml-0.5
-                    animate-pulse-soft rounded-sm shadow-[0_0_8px_rgba(124,58,237,0.3)]" />
+                    animate-pulse-soft rounded-sm shadow-[0_0_8px_var(--color-accent-glow)]" />
                 </div>
               </div>
               );
@@ -460,6 +444,7 @@ async function startDraftSession(folderPath: string) {
 /** Welcome screen shown when no project folder is selected */
 function WelcomeScreen() {
   const t = useT();
+  const setupCompleted = useSettingsStore((s) => s.setupCompleted);
   const recentProjects = useFileStore((s) => s.recentProjects);
   const fetchProjects = useFileStore((s) => s.fetchRecentProjects);
 
@@ -476,18 +461,19 @@ function WelcomeScreen() {
     }
   }, [t]);
 
+  // Show SetupWizard if setup has not been completed
+  if (!setupCompleted) {
+    return <SetupWizard />;
+  }
+
   return (
     <div className="flex flex-col items-center justify-center h-full text-center">
-      <div className="w-20 h-20 rounded-3xl bg-accent/10
-        flex items-center justify-center mb-6 shadow-glow">
-        <svg width="36" height="36" viewBox="0 0 36 36" fill="none"
-          className="text-accent">
-          <path d="M18 4C10.268 4 4 10.268 4 18s6.268 14 14 14 14-6.268 14-14S25.732 4 18 4z"
-            stroke="currentColor" strokeWidth="1.5" />
-          <path d="M13 17h10M13 21h6" stroke="currentColor" strokeWidth="1.5"
-            strokeLinecap="round" />
-        </svg>
-      </div>
+      <img
+        src="/app-icon.png"
+        alt="TOKENICODE"
+        className="w-20 h-20 rounded-3xl mb-6 shadow-glow"
+        draggable={false}
+      />
       <h2 className="text-xl font-semibold text-accent mb-2">
         {t('chat.welcome')}
       </h2>
@@ -498,7 +484,7 @@ function WelcomeScreen() {
       {/* Primary action: new chat with folder picker */}
       <button
         onClick={handlePickFolder}
-        className="px-6 py-3 rounded-xl text-sm font-medium
+        className="px-6 py-3 rounded-[20px] text-sm font-medium
           bg-accent hover:bg-accent-hover text-text-inverse
           hover:shadow-glow transition-smooth
           flex items-center gap-2 mb-8"
@@ -549,16 +535,12 @@ function EmptyReadyState() {
   const workingDirectory = useSettingsStore((s) => s.workingDirectory);
   return (
     <div className="flex flex-col items-center justify-center h-full text-center">
-      <div className="w-16 h-16 rounded-2xl bg-accent/10
-        flex items-center justify-center mb-5 shadow-glow">
-        <svg width="28" height="28" viewBox="0 0 36 36" fill="none"
-          className="text-accent">
-          <path d="M18 4C10.268 4 4 10.268 4 18s6.268 14 14 14 14-6.268 14-14S25.732 4 18 4z"
-            stroke="currentColor" strokeWidth="1.5" />
-          <path d="M13 17h10M13 21h6" stroke="currentColor" strokeWidth="1.5"
-            strokeLinecap="round" />
-        </svg>
-      </div>
+      <img
+        src="/app-icon.png"
+        alt="TOKENICODE"
+        className="w-16 h-16 rounded-2xl mb-5 shadow-glow"
+        draggable={false}
+      />
       <h2 className="text-lg font-semibold text-accent mb-1">
         {t('chat.welcome')}
       </h2>

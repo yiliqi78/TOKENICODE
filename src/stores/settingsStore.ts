@@ -4,8 +4,8 @@ import { persist } from 'zustand/middleware';
 // --- Types ---
 
 export type Theme = 'light' | 'dark' | 'system';
-export type ColorTheme = 'purple' | 'orange' | 'green' | 'liquidglass';
-export type SecondaryPanelTab = 'files' | 'agents' | 'skills' | 'mcp';
+export type ColorTheme = 'black' | 'blue' | 'orange' | 'green';
+export type SecondaryPanelTab = 'files' | 'agents' | 'skills';
 export type ModelId = 'claude-opus-4-0' | 'claude-sonnet-4-0' | 'claude-haiku-3-5';
 export type SessionMode = 'code' | 'ask' | 'plan' | 'bypass';
 export type Locale = 'zh' | 'en';
@@ -36,6 +36,8 @@ interface SettingsState {
   fontSize: number;
   /** Sidebar width in px (default 260) */
   sidebarWidth: number;
+  /** Whether the CLI setup wizard has been completed or skipped */
+  setupCompleted: boolean;
 
   toggleTheme: () => void;
   setTheme: (theme: Theme) => void;
@@ -54,6 +56,7 @@ interface SettingsState {
   increaseFontSize: () => void;
   decreaseFontSize: () => void;
   setSidebarWidth: (width: number) => void;
+  setSetupCompleted: (completed: boolean) => void;
 }
 
 // --- Theme cycle order ---
@@ -71,7 +74,7 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
       theme: 'system',
-      colorTheme: 'purple',
+      colorTheme: 'black',
       sidebarOpen: true,
       secondaryPanelOpen: false,
       secondaryPanelTab: 'files',
@@ -83,6 +86,7 @@ export const useSettingsStore = create<SettingsState>()(
       locale: 'zh',
       fontSize: 14,
       sidebarWidth: 260,
+      setupCompleted: false,
 
       toggleTheme: () =>
         set((state) => ({ theme: nextTheme(state.theme) })),
@@ -137,6 +141,9 @@ export const useSettingsStore = create<SettingsState>()(
 
       setSidebarWidth: (width) =>
         set(() => ({ sidebarWidth: Math.max(180, Math.min(450, width)) })),
+
+      setSetupCompleted: (completed) =>
+        set(() => ({ setupCompleted: completed })),
     }),
     {
       name: 'tokenicode-settings',
@@ -151,6 +158,7 @@ export const useSettingsStore = create<SettingsState>()(
         locale: state.locale,
         fontSize: state.fontSize,
         sidebarWidth: state.sidebarWidth,
+        setupCompleted: state.setupCompleted,
       }),
     },
   ),

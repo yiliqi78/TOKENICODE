@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useSkillStore } from '../../stores/skillStore';
 import { useFileStore } from '../../stores/fileStore';
 import { useCommandStore } from '../../stores/commandStore';
@@ -332,11 +333,11 @@ export function SkillsPanel() {
         )}
       </div>
 
-      {/* Context menu (triggered by "..." button) */}
-      {contextMenu && (
+      {/* Context menu — rendered via portal to escape overflow-hidden + backdrop-filter ancestors */}
+      {contextMenu && createPortal(
         <div
           ref={menuRef}
-          className="fixed z-50 min-w-[180px] py-1 rounded-xl border border-border-subtle
+          className="fixed z-[9999] min-w-[180px] py-1 rounded-xl border border-border-subtle
             bg-bg-card shadow-lg animate-fade-in"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
@@ -414,7 +415,8 @@ export function SkillsPanel() {
             </svg>
             {t('skills.delete')}
           </button>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

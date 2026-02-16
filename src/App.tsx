@@ -12,29 +12,23 @@ import { useFileStore } from './stores/fileStore';
 import { bridge, onFileChange } from './lib/tauri-bridge';
 import './App.css';
 
-/** Gradient colors per theme for the icon background */
-const THEME_GRADIENTS: Record<ColorTheme, { start: string; end: string }> = {
-  purple: { start: '#8B6CC5', end: '#A890D4' },
-  orange: { start: '#C4907A', end: '#D4A08A' },
-  green: { start: '#3A9C80', end: '#5AB99A' },
-  liquidglass: { start: '#0A84FF', end: '#64B5F6' },
+/** Accent colors per theme for the slash in the icon */
+const THEME_ACCENT_COLORS: Record<ColorTheme, string> = {
+  black: '#FFFFFF',
+  blue: '#4E80F7',
+  orange: '#C47252',
+  green: '#57A64B',
 };
 
-/** Render the app icon SVG to a canvas with gradient background + white content, return base64 PNG */
-function renderIconPng(gradient: { start: string; end: string }): Promise<string> {
+/** Render the app icon SVG: black bg, white brackets, accent-colored slash — return base64 PNG */
+function renderIconPng(accentColor: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const size = 512;
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="-20.75 -20.75 212.5 212.5">
-<defs>
-  <linearGradient id="bg" x1="0" y1="0" x2="171" y2="171" gradientUnits="userSpaceOnUse">
-    <stop offset="0%" stop-color="${gradient.start}"/>
-    <stop offset="100%" stop-color="${gradient.end}"/>
-  </linearGradient>
-</defs>
-<rect width="171" height="171" rx="38.5" fill="url(#bg)"/>
+<rect width="171" height="171" rx="38.5" fill="#000000"/>
 <path d="M66.7913 58.7327L40.3284 85.1946L66.7913 111.657L57.5295 120.919L21.8049 85.1946L57.5295 49.471L66.7913 58.7327Z" fill="white"/>
 <path d="M111.497 49.471L147.222 85.1946L111.497 120.919L102.236 111.657L128.698 85.1946L102.236 58.7327L111.497 49.471Z" fill="white"/>
-<path d="M90.0113 39.9192L102.011 39.9192L79.2356 129.919L67.2356 129.919L79.2356 81.9192L90.0113 39.9192Z" fill="white"/>
+<path d="M90.0113 39.9192L102.011 39.9192L79.2356 129.919L67.2356 129.919L79.2356 81.9192L90.0113 39.9192Z" fill="${accentColor}"/>
 </svg>`;
     const blob = new Blob([svg], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
@@ -60,8 +54,8 @@ function renderIconPng(gradient: { start: string; end: string }): Promise<string
 
 async function updateDockIcon(colorTheme: ColorTheme, _theme: Theme) {
   try {
-    const gradient = THEME_GRADIENTS[colorTheme];
-    const pngBase64 = await renderIconPng(gradient);
+    const accentColor = THEME_ACCENT_COLORS[colorTheme];
+    const pngBase64 = await renderIconPng(accentColor);
     await bridge.setDockIcon(pngBase64);
   } catch {
     // Silently ignore on non-macOS or errors
@@ -114,15 +108,15 @@ function App() {
   // Apply color theme class to document
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.remove('theme-orange', 'theme-green', 'theme-liquidglass');
-    if (colorTheme === 'orange') {
+    root.classList.remove('theme-blue', 'theme-orange', 'theme-green');
+    if (colorTheme === 'blue') {
+      root.classList.add('theme-blue');
+    } else if (colorTheme === 'orange') {
       root.classList.add('theme-orange');
     } else if (colorTheme === 'green') {
       root.classList.add('theme-green');
-    } else if (colorTheme === 'liquidglass') {
-      root.classList.add('theme-liquidglass');
     }
-    // 'purple' is the default — no class needed
+    // 'black' is the default — no class needed
   }, [colorTheme]);
 
   // Update macOS dock icon when color theme changes

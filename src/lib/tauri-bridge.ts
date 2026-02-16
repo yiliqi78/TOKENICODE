@@ -70,6 +70,25 @@ export interface SkillInfo {
   version?: string;
 }
 
+export interface CliStatus {
+  installed: boolean;
+  path: string | null;
+  version: string | null;
+}
+
+export interface AuthStatus {
+  authenticated: boolean;
+}
+
+export interface SetupOutputEvent {
+  stream: 'stdout' | 'stderr';
+  line: string;
+}
+
+export interface SetupExitEvent {
+  code: number;
+}
+
 export interface UnifiedCommand {
   name: string;
   description: string;
@@ -78,6 +97,7 @@ export interface UnifiedCommand {
   has_args: boolean;
   path?: string;
   immediate: boolean;
+  execution?: 'ui' | 'cli' | 'session';
 }
 
 // --- Bridge ---
@@ -194,6 +214,26 @@ export const bridge = {
   // Set macOS dock icon from base64-encoded PNG
   setDockIcon: (pngBase64: string) =>
     invoke<void>('set_dock_icon', { pngBase64 }),
+
+  // Run a Claude CLI subcommand as a one-shot process (e.g. `claude doctor`)
+  runClaudeCommand: (subcommand: string, cwd?: string) =>
+    invoke<string>('run_claude_command', { subcommand, cwd }),
+
+  // Setup: CLI detection, installation & login
+  checkClaudeCli: () =>
+    invoke<CliStatus>('check_claude_cli'),
+
+  installClaudeCli: () =>
+    invoke<void>('install_claude_cli'),
+
+  startClaudeLogin: () =>
+    invoke<void>('start_claude_login'),
+
+  checkClaudeAuth: () =>
+    invoke<AuthStatus>('check_claude_auth'),
+
+  openTerminalLogin: () =>
+    invoke<void>('open_terminal_login'),
 };
 
 // --- Event Listeners ---
@@ -224,6 +264,42 @@ export function onSessionExit(
 ): Promise<UnlistenFn> {
   return listen<number | null>(
     `claude:exit:${sessionId}`,
+    (event) => callback(event.payload),
+  );
+}
+
+export function onSetupInstallOutput(
+  callback: (event: SetupOutputEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<SetupOutputEvent>(
+    'setup:install:output',
+    (event) => callback(event.payload),
+  );
+}
+
+export function onSetupInstallExit(
+  callback: (event: SetupExitEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<SetupExitEvent>(
+    'setup:install:exit',
+    (event) => callback(event.payload),
+  );
+}
+
+export function onSetupLoginOutput(
+  callback: (event: SetupOutputEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<SetupOutputEvent>(
+    'setup:login:output',
+    (event) => callback(event.payload),
+  );
+}
+
+export function onSetupLoginExit(
+  callback: (event: SetupExitEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<SetupExitEvent>(
+    'setup:login:exit',
     (event) => callback(event.payload),
   );
 }

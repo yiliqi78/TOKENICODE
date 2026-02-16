@@ -1,30 +1,33 @@
+import { useEffect, useState, useCallback } from 'react';
 import { useSettingsStore, MODEL_OPTIONS, ColorTheme } from '../../stores/settingsStore';
+import { useMcpStore } from '../../stores/mcpStore';
+import type { McpServer, McpServerConfig } from '../../stores/mcpStore';
 import { useT } from '../../lib/i18n';
 
 const COLOR_THEMES: { id: ColorTheme; labelKey: string; preview: string; previewDark: string }[] = [
   {
-    id: 'purple',
-    labelKey: 'settings.purple',
-    preview: '#7c3aed',
-    previewDark: '#8b5cf6',
+    id: 'black',
+    labelKey: 'settings.black',
+    preview: '#333333',
+    previewDark: '#D0D0D0',
+  },
+  {
+    id: 'blue',
+    labelKey: 'settings.blue',
+    preview: '#4E80F7',
+    previewDark: '#6B9AFF',
   },
   {
     id: 'orange',
     labelKey: 'settings.orange',
-    preview: '#D97757',
-    previewDark: '#E08A6D',
+    preview: '#C47252',
+    previewDark: '#D4856A',
   },
   {
     id: 'green',
     labelKey: 'settings.green',
-    preview: '#0d7d5f',
-    previewDark: '#0a6a50',
-  },
-  {
-    id: 'liquidglass',
-    labelKey: 'settings.liquidglass',
-    preview: '#0A84FF',
-    previewDark: '#409CFF',
+    preview: '#57A64B',
+    previewDark: '#6DBF62',
   },
 ];
 
@@ -49,7 +52,7 @@ export function SettingsPanel() {
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
 
       {/* Panel */}
-      <div className="relative w-[380px] max-h-[80vh] rounded-2xl bg-bg-card
+      <div className="relative w-[420px] max-h-[80vh] rounded-2xl bg-bg-card
         border border-border-subtle shadow-lg overflow-hidden animate-fade-in">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4
@@ -106,11 +109,11 @@ export function SettingsPanel() {
                   <button
                     key={m}
                     onClick={() => setTheme(m)}
-                    className={`py-1.5 px-2.5 text-[11px] font-medium transition-smooth
-                      border-r border-border-subtle last:border-r-0
+                    className={`py-1.5 px-3 text-[11px] font-medium transition-smooth
+                      border-r border-border-subtle last:border-r-0 whitespace-nowrap
                       ${theme === m
-                        ? 'glass-tint bg-accent/10 text-accent'
-                        : 'text-text-muted glass-hover-tint'
+                        ? 'bg-accent/10 text-accent'
+                        : 'text-text-muted hover:bg-bg-secondary'
                       }`}
                   >
                     {t(`settings.${m}`)}
@@ -134,8 +137,8 @@ export function SettingsPanel() {
                     className={`py-1.5 px-3 text-[11px] font-medium transition-smooth
                       border-r border-border-subtle last:border-r-0
                       ${locale === l
-                        ? 'glass-tint bg-accent/10 text-accent'
-                        : 'text-text-muted glass-hover-tint'
+                        ? 'bg-accent/10 text-accent'
+                        : 'text-text-muted hover:bg-bg-secondary'
                       }`}
                   >
                     {l === 'zh' ? '中文' : 'EN'}
@@ -154,7 +157,7 @@ export function SettingsPanel() {
                   onClick={() => setFontSize(fontSize - 1)}
                   disabled={fontSize <= 10}
                   className="w-7 h-7 text-xs font-bold text-text-primary
-                    glass-hover-tint transition-smooth
+                    hover:bg-bg-secondary transition-smooth
                     disabled:opacity-30 disabled:cursor-not-allowed
                     flex items-center justify-center border-r border-border-subtle"
                 >-</button>
@@ -165,7 +168,7 @@ export function SettingsPanel() {
                   onClick={() => setFontSize(fontSize + 1)}
                   disabled={fontSize >= 24}
                   className="w-7 h-7 text-xs font-bold text-text-primary
-                    glass-hover-tint transition-smooth
+                    hover:bg-bg-secondary transition-smooth
                     disabled:opacity-30 disabled:cursor-not-allowed
                     flex items-center justify-center border-l border-border-subtle"
                 >+</button>
@@ -185,8 +188,8 @@ export function SettingsPanel() {
                   className={`inline-flex items-center gap-1 px-2.5 py-1.5
                     rounded-lg text-[11px] font-medium transition-smooth
                     ${selectedModel === model.id
-                      ? 'glass-tint bg-accent/10 text-accent border border-accent/30'
-                      : 'text-text-muted glass-hover-tint border border-border-subtle'
+                      ? 'bg-accent/10 text-accent border border-accent/30'
+                      : 'text-text-muted hover:bg-bg-secondary border border-border-subtle'
                     }`}
                 >
                   {selectedModel === model.id && (
@@ -201,6 +204,9 @@ export function SettingsPanel() {
             </div>
           </div>
 
+          {/* MCP Servers */}
+          <McpSection />
+
           {/* About */}
           <div className="pt-2 border-t border-border-subtle">
             <div className="flex items-center justify-between">
@@ -209,6 +215,314 @@ export function SettingsPanel() {
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================
+   MCP Servers section — collapsible, embedded in settings
+   ================================================================ */
+
+function McpSection() {
+  const t = useT();
+  const servers = useMcpStore((s) => s.servers);
+  const isLoading = useMcpStore((s) => s.isLoading);
+  const fetchServers = useMcpStore((s) => s.fetchServers);
+  const addServer = useMcpStore((s) => s.addServer);
+  const updateServer = useMcpStore((s) => s.updateServer);
+  const deleteServer = useMcpStore((s) => s.deleteServer);
+  const editingServer = useMcpStore((s) => s.editingServer);
+  const isAdding = useMcpStore((s) => s.isAdding);
+  const setEditing = useMcpStore((s) => s.setEditing);
+  const setAdding = useMcpStore((s) => s.setAdding);
+
+  const [collapsed, setCollapsed] = useState(true);
+
+  useEffect(() => {
+    fetchServers();
+  }, [fetchServers]);
+
+  const handleDelete = useCallback(async (name: string) => {
+    if (confirm(t('mcp.confirmDelete'))) {
+      await deleteServer(name);
+    }
+  }, [deleteServer, t]);
+
+  return (
+    <div className="pt-2 border-t border-border-subtle">
+      {/* Header row */}
+      <div className="flex items-center justify-between mb-2">
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="flex items-center gap-1.5"
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
+            stroke="currentColor" strokeWidth="1.5"
+            className={`text-text-tertiary transition-transform ${collapsed ? '' : 'rotate-90'}`}>
+            <path d="M3 1l4 4-4 4" />
+          </svg>
+          <h3 className="text-[11px] font-semibold text-text-muted uppercase tracking-wider">
+            {t('mcp.title')}
+          </h3>
+          <span className="text-[10px] text-text-tertiary">{servers.length}</span>
+        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => fetchServers()}
+            className="p-1 rounded hover:bg-bg-secondary
+              text-text-tertiary transition-smooth"
+            title={t('mcp.refresh')}
+          >
+            <svg width="11" height="11" viewBox="0 0 12 12" fill="none"
+              stroke="currentColor" strokeWidth="1.5">
+              <path d="M1 6a5 5 0 019-2M11 6a5 5 0 01-9 2" />
+              <path d="M10 1v3h-3M2 11V8h3" />
+            </svg>
+          </button>
+          <button
+            onClick={() => { setAdding(true); setCollapsed(false); }}
+            className="p-1 rounded hover:bg-bg-secondary
+              text-text-tertiary transition-smooth"
+            title={t('mcp.add')}
+          >
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none"
+              stroke="currentColor" strokeWidth="1.5">
+              <path d="M8 3v10M3 8h10" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Collapsible content */}
+      {!collapsed && (
+        <div className="space-y-1.5">
+          {/* Add form */}
+          {isAdding && (
+            <McpServerForm
+              onSave={async (name, config) => { await addServer(name, config); }}
+              onCancel={() => setAdding(false)}
+              t={t}
+            />
+          )}
+
+          {isLoading ? (
+            <div className="flex items-center justify-center py-4">
+              <div className="w-4 h-4 border-2 border-accent/30
+                border-t-accent rounded-full animate-spin" />
+            </div>
+          ) : servers.length === 0 && !isAdding ? (
+            <p className="text-[11px] text-text-tertiary text-center py-3">
+              {t('mcp.noServers')}
+            </p>
+          ) : (
+            servers.map((server) => (
+              editingServer === server.name ? (
+                <McpServerForm
+                  key={server.name}
+                  server={server}
+                  onSave={async (name, config) => {
+                    await updateServer(server.name, name, config);
+                  }}
+                  onCancel={() => setEditing(null)}
+                  t={t}
+                />
+              ) : (
+                <McpServerCardCompact
+                  key={server.name}
+                  server={server}
+                  onEdit={() => setEditing(server.name)}
+                  onDelete={() => handleDelete(server.name)}
+                  t={t}
+                />
+              )
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Compact server card for settings panel */
+function McpServerCardCompact({
+  server,
+  onEdit,
+  onDelete,
+  t,
+}: {
+  server: McpServer;
+  onEdit: () => void;
+  onDelete: () => void;
+  t: (key: string) => string;
+}) {
+  const envCount = Object.keys(server.config.env).length;
+  const cmdDisplay = [server.config.command, ...server.config.args].join(' ');
+
+  return (
+    <div className="px-2.5 py-2 rounded-lg transition-smooth group border
+      border-border-subtle hover:bg-bg-secondary">
+      {/* Name + type + actions */}
+      <div className="flex items-center gap-1.5">
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="none"
+          stroke="currentColor" strokeWidth="1.5"
+          className="text-text-tertiary flex-shrink-0">
+          <path d="M2 4a2 2 0 012-2h8a2 2 0 012 2v1H2V4z" />
+          <path d="M2 7h12v5a2 2 0 01-2 2H4a2 2 0 01-2-2V7z" />
+        </svg>
+        <span className="text-[12px] font-medium truncate flex-1 text-text-primary">
+          {server.name}
+        </span>
+        <span className="flex-shrink-0 px-1.5 py-0.5 text-[9px] rounded-md
+          bg-blue-500/15 text-blue-400 font-medium">
+          {server.config.type}
+        </span>
+        <button
+          onClick={onEdit}
+          className="flex-shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100
+            hover:bg-bg-tertiary transition-smooth text-text-tertiary"
+          title={t('mcp.edit')}
+        >
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none"
+            stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <path d="M11.5 1.5l3 3L5 14H2v-3l9.5-9.5z" />
+          </svg>
+        </button>
+        <button
+          onClick={onDelete}
+          className="flex-shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100
+            hover:bg-red-500/10 transition-smooth text-text-tertiary hover:text-red-500"
+          title={t('mcp.delete')}
+        >
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none"
+            stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2 4h12M5.333 4V2.667a1.333 1.333 0 011.334-1.334h2.666a1.333 1.333 0 011.334 1.334V4m2 0v9.333a1.333 1.333 0 01-1.334 1.334H4.667a1.333 1.333 0 01-1.334-1.334V4h9.334z" />
+          </svg>
+        </button>
+      </div>
+      {/* Command */}
+      <p className="text-[10px] text-text-muted mt-0.5 font-mono truncate pl-4">
+        {cmdDisplay}
+      </p>
+      {envCount > 0 && (
+        <p className="text-[9px] text-text-tertiary mt-0.5 pl-4">
+          {envCount} {t('mcp.envCount')}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/* Add/Edit form for MCP servers */
+function McpServerForm({
+  server,
+  onSave,
+  onCancel,
+  t,
+}: {
+  server?: McpServer;
+  onSave: (name: string, config: McpServerConfig) => Promise<void>;
+  onCancel: () => void;
+  t: (key: string) => string;
+}) {
+  const [name, setName] = useState(server?.name || '');
+  const [command, setCommand] = useState(server?.config.command || '');
+  const [argsText, setArgsText] = useState(server?.config.args.join('\n') || '');
+  const [envText, setEnvText] = useState(
+    server?.config.env
+      ? Object.entries(server.config.env).map(([k, v]) => `${k}=${v}`).join('\n')
+      : ''
+  );
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSave = useCallback(async () => {
+    if (!name.trim() || !command.trim()) return;
+    setIsSaving(true);
+    try {
+      const args = argsText.split('\n').map((s) => s.trim()).filter(Boolean);
+      const env: Record<string, string> = {};
+      envText.split('\n').forEach((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx > 0) {
+          env[trimmed.slice(0, eqIdx)] = trimmed.slice(eqIdx + 1);
+        }
+      });
+      await onSave(name.trim(), { command: command.trim(), args, env, type: 'stdio' });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [name, command, argsText, envText, onSave]);
+
+  const inputClass = `w-full px-2 py-1 text-xs bg-bg-chat border border-border-subtle
+    rounded-lg outline-none focus:border-accent text-text-primary`;
+
+  return (
+    <div className="px-2.5 py-2 rounded-lg border border-accent/30 bg-accent/5 space-y-2">
+      <div>
+        <label className="text-[10px] text-text-tertiary font-medium uppercase tracking-wider">
+          {t('mcp.name')}
+        </label>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder={t('mcp.namePlaceholder')}
+          className={inputClass}
+          autoFocus
+          onKeyDown={(e) => { if (e.key === 'Escape') onCancel(); }}
+        />
+      </div>
+      <div>
+        <label className="text-[10px] text-text-tertiary font-medium uppercase tracking-wider">
+          {t('mcp.command')}
+        </label>
+        <input
+          value={command}
+          onChange={(e) => setCommand(e.target.value)}
+          placeholder={t('mcp.commandPlaceholder')}
+          className={inputClass}
+        />
+      </div>
+      <div>
+        <label className="text-[10px] text-text-tertiary font-medium uppercase tracking-wider">
+          {t('mcp.args')}
+        </label>
+        <textarea
+          value={argsText}
+          onChange={(e) => setArgsText(e.target.value)}
+          placeholder={t('mcp.argsHint')}
+          rows={2}
+          className={`${inputClass} resize-none font-mono`}
+        />
+      </div>
+      <div>
+        <label className="text-[10px] text-text-tertiary font-medium uppercase tracking-wider">
+          {t('mcp.env')}
+        </label>
+        <textarea
+          value={envText}
+          onChange={(e) => setEnvText(e.target.value)}
+          placeholder={t('mcp.envHint')}
+          rows={2}
+          className={`${inputClass} resize-none font-mono`}
+        />
+      </div>
+      <div className="flex gap-2">
+        <button
+          onClick={handleSave}
+          disabled={!name.trim() || !command.trim() || isSaving}
+          className="flex-1 px-2 py-1 text-xs bg-accent text-text-inverse rounded-lg
+            hover:bg-accent-hover disabled:opacity-40 transition-smooth"
+        >
+          {isSaving ? '...' : t('mcp.save')}
+        </button>
+        <button
+          onClick={onCancel}
+          className="px-2 py-1 text-xs text-text-muted hover:text-text-primary transition-smooth"
+        >
+          {t('mcp.cancel')}
+        </button>
       </div>
     </div>
   );

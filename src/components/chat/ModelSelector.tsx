@@ -28,7 +28,7 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
         disabled={disabled}
         className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg
           text-xs text-text-muted hover:text-text-primary
-          glass-hover-tint transition-smooth
+          hover:bg-bg-secondary transition-smooth
           disabled:opacity-40 disabled:cursor-not-allowed"
       >
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
@@ -45,7 +45,7 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
 
       {open && (
         <div className="absolute bottom-full right-0 mb-1 w-48
-          glass border border-border-subtle rounded-xl shadow-lg
+          bg-bg-card border border-border-subtle rounded-xl shadow-lg
           py-1 z-50 animate-in fade-in slide-in-from-bottom-1 duration-150">
           {MODEL_OPTIONS.map((option) => (
             <button
@@ -58,7 +58,7 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
                 transition-smooth flex items-center justify-between
                 ${option.id === selectedModel
                   ? 'text-accent bg-accent/5'
-                  : 'text-text-muted hover:text-text-primary glass-hover-tint'
+                  : 'text-text-muted hover:text-text-primary hover:bg-bg-secondary'
                 }`}
             >
               <div>

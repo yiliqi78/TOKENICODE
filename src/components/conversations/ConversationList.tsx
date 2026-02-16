@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useCallback, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useChatStore, generateMessageId } from '../../stores/chatStore';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -437,7 +438,7 @@ export function ConversationList() {
             <button
               onClick={() => toggleCollapse(project)}
               className="w-full flex items-center gap-2 px-3 py-1.5
-                glass-hover-tint rounded-lg transition-smooth"
+                hover:bg-bg-secondary rounded-lg transition-smooth"
             >
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
                 stroke="currentColor" strokeWidth="1.5"
@@ -475,8 +476,8 @@ export function ConversationList() {
                 className={`w-full text-left px-3 py-1.5 ml-2 rounded-xl
                   transition-smooth group
                   ${selectedId === session.id
-                    ? 'glass-tint bg-accent/10 border border-accent/20'
-                    : 'glass-hover-tint border border-transparent'
+                    ? 'bg-accent/10 border border-accent/20'
+                    : 'hover:bg-bg-secondary border border-transparent'
                   }`}
                 style={{ width: 'calc(100% - 8px)' }}
               >
@@ -510,7 +511,7 @@ export function ConversationList() {
                   {/* Blinking working indicator — shown when session is running in background */}
                   {runningSessions.has(session.id) && (
                     <span className="flex-shrink-0 w-2 h-2 rounded-full bg-success
-                      shadow-[0_0_6px_rgba(16,185,129,0.6)]
+                      shadow-[0_0_6px_var(--color-accent-glow)]
                       animate-pulse-soft" />
                   )}
                 </div>
@@ -534,24 +535,23 @@ export function ConversationList() {
         onClick={fetchSessions}
         className="mx-2 mt-2 py-1.5 rounded-lg text-[11px]
           text-text-muted hover:text-text-primary
-          glass-hover-tint transition-smooth"
+          hover:bg-bg-secondary transition-smooth"
       >
         {t('conv.refresh')}
       </button>
 
-      {/* Context menu */}
-      {contextMenu && (
+      {/* Context menu — rendered via portal to escape overflow-hidden + backdrop-filter ancestors */}
+      {contextMenu && createPortal(
         <div
           ref={menuRef}
-          className="fixed z-50 min-w-[160px] py-1.5 rounded-xl
-            bg-bg-card border border-border-subtle shadow-xl
-            backdrop-blur-xl"
+          className="fixed z-[9999] min-w-[160px] py-1.5 rounded-xl
+            bg-bg-card border border-border-subtle shadow-xl"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           <button
             onClick={() => handleRenameStart(contextMenu.session)}
             className="w-full flex items-center gap-2.5 px-3 py-1.5
-              text-xs text-text-primary glass-hover-tint transition-smooth"
+              text-xs text-text-primary hover:bg-bg-secondary transition-smooth"
           >
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
               stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -563,7 +563,7 @@ export function ConversationList() {
             <button
               onClick={() => handleRevealInFinder(contextMenu.session)}
               className="w-full flex items-center gap-2.5 px-3 py-1.5
-                text-xs text-text-primary glass-hover-tint transition-smooth"
+                text-xs text-text-primary hover:bg-bg-secondary transition-smooth"
             >
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
                 stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -576,7 +576,7 @@ export function ConversationList() {
             <button
               onClick={() => handleExportMarkdown(contextMenu.session)}
               className="w-full flex items-center gap-2.5 px-3 py-1.5
-                text-xs text-text-primary glass-hover-tint transition-smooth"
+                text-xs text-text-primary hover:bg-bg-secondary transition-smooth"
             >
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
                 stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -598,7 +598,8 @@ export function ConversationList() {
             </svg>
             {t('conv.delete')}
           </button>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

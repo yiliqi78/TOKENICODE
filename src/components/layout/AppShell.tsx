@@ -209,13 +209,13 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
         >
           {sidebar}
         </div>
-        {/* Sidebar resize handle */}
+        {/* Sidebar resize handle: 1px line with wider invisible hit area */}
         <div
           onMouseDown={handleSidebarMouseDown}
-          className="w-1 h-full resize-handle flex-shrink-0
-            hover:bg-accent/30 transition-colors duration-150
-            border-r border-border-subtle"
-        />
+          className="w-px h-full resize-handle flex-shrink-0 relative bg-border-subtle"
+        >
+          <div className="absolute inset-y-0 -left-[4px] -right-[4px] cursor-col-resize" />
+        </div>
       </div>
 
       {/* Main Panel — full-height, separated by vertical border lines */}
@@ -231,10 +231,10 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
         {/* Resize handle — also serves as the divider line */}
         <div
           onMouseDown={handleRightMouseDown}
-          className="w-1 h-full resize-handle flex-shrink-0
-            hover:bg-accent/30 transition-colors duration-150
-            border-l border-border-subtle"
-        />
+          className="w-px h-full resize-handle flex-shrink-0 relative bg-border-subtle"
+        >
+          <div className="absolute inset-y-0 -left-[4px] -right-[4px] cursor-col-resize" />
+        </div>
         <div className="flex-1 h-full overflow-hidden min-w-0 flex flex-col bg-bg-chat">
           <FilePreview />
         </div>
@@ -249,12 +249,12 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
           {/* Resize handle — also serves as the divider line */}
           <div
             onMouseDown={handleRightMouseDown}
-            className="w-1 h-full resize-handle flex-shrink-0
-              hover:bg-accent/30 transition-colors duration-150
-              border-l border-border-subtle"
-          />
+            className="w-px h-full resize-handle flex-shrink-0 relative bg-border-subtle"
+          >
+            <div className="absolute inset-y-0 -left-[4px] -right-[4px] cursor-col-resize" />
+          </div>
           <div
-            className="flex-1 h-full overflow-y-auto bg-bg-sidebar min-w-0"
+            className="flex-1 h-full overflow-y-auto overflow-x-hidden bg-bg-sidebar min-w-0"
           >
             {secondary}
           </div>
@@ -293,7 +293,7 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
             className="fixed top-0 right-0 h-full z-50 flex animate-in slide-in-from-right duration-200"
             style={{ width: `${secondaryPanelWidth}px` }}
           >
-            <div className="flex-1 h-full overflow-y-auto bg-bg-sidebar
+            <div className="flex-1 h-full overflow-y-auto overflow-x-hidden bg-bg-sidebar
               border-l border-border-subtle shadow-lg">
               {secondary}
             </div>

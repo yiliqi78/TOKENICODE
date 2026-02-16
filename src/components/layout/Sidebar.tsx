@@ -76,7 +76,7 @@ export function Sidebar() {
         // Add draft with empty project — user will pick folder from WelcomeScreen
         useSessionStore.getState().addDraftSession(draftId, '');
       }}
-        className="w-full py-2.5 px-4 rounded-xl text-sm font-medium
+        className="w-full py-2.5 px-4 rounded-[20px] text-sm font-medium
           bg-accent hover:bg-accent-hover text-text-inverse
           hover:shadow-glow transition-smooth mb-4
           flex items-center justify-center gap-2">
@@ -89,7 +89,7 @@ export function Sidebar() {
 
       {/* Current Session */}
       {sessionMeta.sessionId && (
-        <div className="p-3 rounded-xl glass border border-border-subtle mb-3">
+        <div className="p-3 rounded-xl bg-bg-secondary border border-border-subtle mb-3">
           <div className="text-[11px] font-medium text-text-tertiary uppercase
             tracking-wider mb-1.5">{t('sidebar.currentSession')}</div>
           <div className="text-sm font-medium text-text-primary truncate">
@@ -98,7 +98,7 @@ export function Sidebar() {
           <div className="flex items-center gap-2 mt-2">
             <span className={`w-2 h-2 rounded-full transition-smooth
               ${sessionStatus === 'running'
-                ? 'bg-success shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse-soft'
+                ? 'bg-success shadow-[0_0_8px_var(--color-accent-glow)] animate-pulse-soft'
                 : sessionStatus === 'completed' ? 'bg-success'
                 : sessionStatus === 'error' ? 'bg-error'
                 : 'bg-text-tertiary'}`} />
@@ -121,7 +121,7 @@ export function Sidebar() {
       <div className="pt-3 mt-3 border-t border-border-subtle">
         <button onClick={toggleSettings}
           className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl
-            text-sm text-text-muted glass-hover-tint hover:text-text-primary
+            text-sm text-text-muted hover:bg-bg-secondary hover:text-text-primary
             transition-smooth">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
             stroke="currentColor" strokeWidth="1.5">

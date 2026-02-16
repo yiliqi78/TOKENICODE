@@ -6,7 +6,7 @@
 
 ### Claude Code 桌面美化客户端
 
-[![Version](https://img.shields.io/badge/版本-0.1.1-blue?style=flat-square)](https://github.com/yiliqi78/TOKENICODE/releases)
+[![Version](https://img.shields.io/badge/版本-0.2.0-blue?style=flat-square)](https://github.com/yiliqi78/TOKENICODE/releases)
 [![License](https://img.shields.io/badge/许可证-Apache%202.0-green?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/平台-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](#安装)
 [![Tauri](https://img.shields.io/badge/Tauri-2.0-FFC131?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
@@ -35,8 +35,8 @@
 
 ### 前置条件
 
-- 已安装并认证 [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)
 - macOS 12+、Windows 10+ 或 Linux（需要 WebKit2GTK）
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) — TOKENICODE 会在首次启动时自动检测、安装和认证
 
 ### 安装
 
@@ -55,8 +55,9 @@
 ### 首次启动
 
 1. 打开 TOKENICODE
-2. 在欢迎界面或输入栏选择一个项目文件夹
-3. 开始对话 — Claude CLI 会话在后台无缝运行
+2. 如果未安装 Claude Code CLI，安装向导会引导你完成安装和登录 — 无需打开终端
+3. 在欢迎界面或输入栏选择一个项目文件夹
+4. 开始对话 — Claude CLI 会话在后台无缝运行
 
 ## 功能详解
 

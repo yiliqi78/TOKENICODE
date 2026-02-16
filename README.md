@@ -6,7 +6,7 @@
 
 ### A Beautiful Desktop Client for Claude Code
 
-[![Version](https://img.shields.io/badge/version-0.1.1-blue?style=flat-square)](https://github.com/yiliqi78/TOKENICODE/releases)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue?style=flat-square)](https://github.com/yiliqi78/TOKENICODE/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](#installation)
 [![Tauri](https://img.shields.io/badge/Tauri-2.0-FFC131?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
@@ -35,8 +35,8 @@
 
 ### Prerequisites
 
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
 - macOS 12+, Windows 10+, or Linux (with WebKit2GTK)
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) — TOKENICODE can auto-detect, install, and authenticate it for you on first launch
 
 ### Installation
 
@@ -55,8 +55,9 @@ Download the `.AppImage`, `.deb`, or `.rpm` package from [Releases](https://gith
 ### First Launch
 
 1. Open TOKENICODE
-2. Select a project folder from the welcome screen or input bar
-3. Start chatting — the Claude CLI session runs seamlessly in the background
+2. If the Claude Code CLI is not installed, the setup wizard will guide you through installation and login — no terminal required
+3. Select a project folder from the welcome screen or input bar
+4. Start chatting — the Claude CLI session runs seamlessly in the background
 
 ## Features Deep Dive
 
