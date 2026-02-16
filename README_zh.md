@@ -44,6 +44,11 @@
 
 从 [Releases](https://github.com/yiliqi78/TOKENICODE/releases) 下载最新的 `.dmg` 文件，打开后将 **TOKENICODE** 拖入应用程序文件夹。
 
+> **提示「TOKENICODE 已损坏，无法打开」** — 这是因为应用未经代码签名。在终端运行以下命令即可解决：
+> ```bash
+> xattr -cr /Applications/TOKENICODE.app
+> ```
+
 #### Windows
 
 从 [Releases](https://github.com/yiliqi78/TOKENICODE/releases) 下载最新的 `.msi` 或 `.exe` 安装包并运行。

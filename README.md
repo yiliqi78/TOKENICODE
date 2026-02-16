@@ -44,6 +44,11 @@
 
 Download the latest `.dmg` from [Releases](https://github.com/yiliqi78/TOKENICODE/releases), open it, and drag **TOKENICODE** to your Applications folder.
 
+> **"TOKENICODE is damaged and can't be opened"** — This happens because the app is not code-signed. Run the following command to fix it:
+> ```bash
+> xattr -cr /Applications/TOKENICODE.app
+> ```
+
 #### Windows
 
 Download the latest `.msi` or `.exe` installer from [Releases](https://github.com/yiliqi78/TOKENICODE/releases) and run it.

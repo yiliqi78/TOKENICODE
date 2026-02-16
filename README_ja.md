@@ -44,6 +44,11 @@
 
 [Releases](https://github.com/yiliqi78/TOKENICODE/releases) から最新の `.dmg` をダウンロードし、**TOKENICODE** をアプリケーションフォルダにドラッグしてください。
 
+> **「TOKENICODE は壊れているため開けません」と表示される場合** — アプリがコード署名されていないためです。以下のコマンドで解決できます：
+> ```bash
+> xattr -cr /Applications/TOKENICODE.app
+> ```
+
 #### Windows
 
 [Releases](https://github.com/yiliqi78/TOKENICODE/releases) から最新の `.msi` または `.exe` インストーラーをダウンロードして実行してください。
