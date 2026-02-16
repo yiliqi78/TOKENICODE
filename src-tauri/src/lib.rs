@@ -1863,7 +1863,7 @@ end tell"#,
         let mut opened = false;
         for (term, args) in &terminals {
             if std::process::Command::new(term)
-                .args(args.iter().map(|s| s.as_ref()))
+                .args(args.iter().copied())
                 .spawn()
                 .is_ok()
             {
