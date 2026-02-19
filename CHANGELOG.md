@@ -6,6 +6,26 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.4.2] - 2026-02-19
+
+### Bug Fixes / 修复
+
+- **Session Switch Cache** — Fixed chat history disappearing when clicking "New Task" while a session is running. Background stream messages now correctly route to cache.
+
+- **会话切换缓存修复** — 修复在运行中的会话点击"新任务"后聊天记录丢失的问题。
+
+### New Features / 新功能
+
+- **Long Message Collapse** — User messages longer than 12 lines collapse by default with expand/collapse toggle.
+
+- **长消息折叠** — 超过 12 行的用户消息默认折叠，可点击展开/收起。
+
+- **Auto-Expanding Input** — Chat input grows up to 50% of window height, then scrolls.
+
+- **输入框自动增高** — 输入框随内容自动增高，最大到窗口高度的一半。
+
+---
+
 ## [0.4.1] - 2026-02-19
 
 ### Bug Fixes / 修复

@@ -312,8 +312,21 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   addMessageToCache: (tabId, message) => {
     const cache = get().sessionCache;
     const snapshot = cache.get(tabId);
-    if (!snapshot) return;
     const next = new Map(cache);
+    if (!snapshot) {
+      // Initialize cache for sessions that were moved to background before first save
+      next.set(tabId, {
+        messages: [message],
+        isStreaming: false,
+        partialText: '',
+        sessionStatus: 'running',
+        sessionMeta: {},
+        activityStatus: { phase: 'idle' as ActivityPhase },
+        inputDraft: '',
+      });
+      set({ sessionCache: next });
+      return;
+    }
     // De-duplicate: update existing message if ID matches
     const existingIdx = snapshot.messages.findIndex((m) => m.id === message.id);
     const messages = existingIdx !== -1
@@ -330,7 +343,21 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   updatePartialInCache: (tabId, text) => {
     const cache = get().sessionCache;
     const snapshot = cache.get(tabId);
-    if (!snapshot) return;
+    if (!snapshot) {
+      // Initialize cache with the partial text
+      const next = new Map(cache);
+      next.set(tabId, {
+        messages: [],
+        isStreaming: true,
+        partialText: text,
+        sessionStatus: 'running',
+        sessionMeta: {},
+        activityStatus: { phase: 'idle' as ActivityPhase },
+        inputDraft: '',
+      });
+      set({ sessionCache: next });
+      return;
+    }
     const next = new Map(cache);
     next.set(tabId, {
       ...snapshot,
@@ -343,10 +370,22 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   setStatusInCache: (tabId, status) => {
     const cache = get().sessionCache;
     const snapshot = cache.get(tabId);
-    if (!snapshot) return;
     // Also sync running state indicator
     useSessionStore.getState().setSessionRunning(tabId, status === 'running');
     const next = new Map(cache);
+    if (!snapshot) {
+      next.set(tabId, {
+        messages: [],
+        isStreaming: false,
+        partialText: '',
+        sessionStatus: status,
+        sessionMeta: {},
+        activityStatus: { phase: (status === 'running' ? 'thinking' : status) as ActivityPhase },
+        inputDraft: '',
+      });
+      set({ sessionCache: next });
+      return;
+    }
     next.set(tabId, {
       ...snapshot,
       sessionStatus: status,

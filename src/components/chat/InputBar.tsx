@@ -108,9 +108,6 @@ export function InputBar() {
   // Drag state (file drop)
   const [isDragging, setIsDragging] = useState(false);
 
-  // Fixed max height for textarea auto-grow
-  const inputMaxHeight = 128;
-
   // Fetch slash commands when working directory changes
   useEffect(() => {
     useCommandStore.getState().fetchCommands(workingDirectory || undefined);
@@ -1500,12 +1497,13 @@ export function InputBar() {
               style={{
                 height: 'auto',
                 minHeight: '24px',
-                maxHeight: `${inputMaxHeight}px`,
+                maxHeight: '50vh',
               }}
               onInput={(e) => {
                 const el = e.currentTarget;
                 el.style.height = 'auto';
-                el.style.height = `${Math.min(el.scrollHeight, inputMaxHeight)}px`;
+                const maxH = Math.max(128, Math.floor(window.innerHeight * 0.5));
+                el.style.height = `${Math.min(el.scrollHeight, maxH)}px`;
               }}
             />
           </div>

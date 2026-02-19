@@ -32,14 +32,37 @@ export const MessageBubble = memo(function MessageBubble({ message, isFirstInGro
 /* ================================================================
    UserMsg — bubble on the right
    ================================================================ */
+/** Collapse threshold: messages longer than this are collapsed by default */
+const USER_MSG_COLLAPSE_LINES = 12;
+
 function UserMsg({ message }: Props) {
+  const [expanded, setExpanded] = useState(false);
   const attachments = message.attachments;
+  const content = message.content || '';
+  const lines = content.split('\n');
+  const isLong = lines.length > USER_MSG_COLLAPSE_LINES || content.length > 600;
+  const displayContent = (!expanded && isLong)
+    ? lines.slice(0, USER_MSG_COLLAPSE_LINES).join('\n')
+    : content;
+
   return (
     <div className="flex justify-end">
       <div className="max-w-[80%] px-4 py-3 rounded-2xl rounded-br-md
         bg-bg-user-msg text-text-inverse
         text-base leading-relaxed shadow-md whitespace-pre-wrap">
-        {message.content}
+        {displayContent}
+        {!expanded && isLong && (
+          <span className="text-white/60">…</span>
+        )}
+        {isLong && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="block mt-1.5 text-xs text-white/60 hover:text-white/90
+              transition-smooth"
+          >
+            {expanded ? '▲ 收起' : '▼ 展开全部'}
+          </button>
+        )}
         {attachments && attachments.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-2">
             {attachments.map((att, i) => (

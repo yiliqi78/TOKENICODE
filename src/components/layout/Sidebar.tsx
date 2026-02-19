@@ -60,6 +60,9 @@ export function Sidebar() {
           useAgentStore.getState().saveToCache(currentTabId);
         }
 
+        // Deselect current session FIRST so background stream routing works
+        useSessionStore.getState().setSelectedSession(null);
+
         // Clear working directory so ChatPanel shows WelcomeScreen
         useSettingsStore.getState().setWorkingDirectory('');
         useChatStore.getState().clearMessages();
