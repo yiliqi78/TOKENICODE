@@ -236,7 +236,21 @@ export function ConversationList() {
             const text = msg.message.content;
             if (!isSystemText(text)) userTexts.push(text);
           }
-          const content = userTexts.join('');
+          let content = userTexts.join('');
+          // Extract file attachments from text (e.g. "[附加的文件]\n/path1\n/path2")
+          const attachments: Array<{ name: string; path: string; isImage: boolean }> = [];
+          const attachRegex = /\n?\n?\[(?:附加的文件|Attached files)\]\n([\s\S]+)$/;
+          const attachMatch = content.match(attachRegex);
+          if (attachMatch) {
+            content = content.slice(0, attachMatch.index!).trimEnd();
+            const paths = attachMatch[1].split('\n').map(p => p.trim()).filter(Boolean);
+            for (const p of paths) {
+              const name = p.split('/').pop() || p;
+              const ext = name.split('.').pop()?.toLowerCase() || '';
+              const isImage = ['png','jpg','jpeg','gif','webp','bmp','svg'].includes(ext);
+              attachments.push({ name, path: p, isImage });
+            }
+          }
           if (content.trim()) {
             addMessage({
               id: msg.uuid || generateMessageId(),
@@ -244,6 +258,7 @@ export function ConversationList() {
               type: 'text',
               content,
               timestamp: msg.timestamp || Date.now(),
+              attachments: attachments.length > 0 ? attachments : undefined,
             });
           }
         } else if (msg.type === 'assistant') {

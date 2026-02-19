@@ -6,6 +6,16 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.4.3] - 2026-02-19
+
+### Bug Fixes / 修复
+
+- **History Attachment Display** — File attachments in historical sessions now render as styled chips instead of raw file paths.
+
+- **历史附件显示修复** — 历史对话中的附加文件现在显示为卡片样式，而不是原始路径文本。
+
+---
+
 ## [0.4.2] - 2026-02-19
 
 ### Bug Fixes / 修复
