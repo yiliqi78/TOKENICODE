@@ -6,6 +6,16 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.4.1] - 2026-02-19
+
+### Bug Fixes / 修复
+
+- **CJK Path Decoding** — Fixed project paths containing Chinese/CJK characters (e.g. `2026工作间`) being corrupted into slashes, causing empty file tree and broken session grouping. Now reads the authoritative `cwd` field from session JSONL instead of relying on lossy directory name decoding.
+
+- **中文路径解码修复** — 修复包含中文字符的项目路径（如 `2026工作间`）被错误解码为斜杠，导致文件树为空、会话分组显示异常的严重 Bug。现在直接从 session JSONL 中读取真实的 `cwd` 路径，不再依赖有损的目录名解码。
+
+---
+
 ## [0.4.0] - 2026-02-19
 
 ### Added / 新增功能

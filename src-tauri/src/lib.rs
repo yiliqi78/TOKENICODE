@@ -395,13 +395,18 @@ async fn list_sessions() -> Result<Vec<Value>, String> {
                                     .map(|d| d.as_millis() as u64)
                                     .unwrap_or(0);
 
-                                // Read first few lines to extract preview
-                                let preview = extract_session_preview(&path);
+                                // Read first few lines to extract preview and cwd
+                                let (preview, cwd) = extract_session_info(&path);
 
-                                // Decode project path from directory name
+                                // Use cwd from JSONL if available (authoritative),
+                                // otherwise fall back to decoding the directory name.
                                 let project_dir = entry.file_name()
                                     .to_string_lossy().to_string();
-                                let project_name = decode_project_name(&project_dir);
+                                let project_name = if cwd.is_empty() {
+                                    decode_project_name(&project_dir)
+                                } else {
+                                    cwd
+                                };
 
                                 sessions.push(serde_json::json!({
                                     "id": id,
@@ -429,71 +434,103 @@ async fn list_sessions() -> Result<Vec<Value>, String> {
     Ok(sessions)
 }
 
-/// Extract a preview (first user message) from a session .jsonl file
-fn extract_session_preview(path: &std::path::Path) -> String {
+/// Extract preview (first user message) and cwd from a session .jsonl file.
+/// Returns (preview, cwd) — cwd may be empty if not found.
+fn extract_session_info(path: &std::path::Path) -> (String, String) {
     use std::io::BufRead;
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
-        Err(_) => return String::new(),
+        Err(_) => return (String::new(), String::new()),
     };
     let reader = std::io::BufReader::new(file);
-    // Scan up to 100 lines to find the first real user message with text content.
-    // Some sessions start with tool_result or system messages before the first text prompt.
+    let mut cwd = String::new();
+    let mut preview = String::new();
+
+    // Scan up to 100 lines to find cwd and first real user message.
     for line in reader.lines().take(100) {
-        if let Ok(line) = line {
-            if let Ok(json) = serde_json::from_str::<Value>(&line) {
-                // Match user/human messages from various Claude CLI formats
-                let is_user = json["type"].as_str() == Some("human")
-                    || json["type"].as_str() == Some("user")
-                    || json["role"].as_str() == Some("user")
-                    || json["message"]["role"].as_str() == Some("user");
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+        let json = match serde_json::from_str::<Value>(&line) {
+            Ok(j) => j,
+            Err(_) => continue,
+        };
 
-                if !is_user {
-                    continue;
+        // Extract cwd from the first line that has it
+        if cwd.is_empty() {
+            if let Some(c) = json["cwd"].as_str() {
+                if !c.is_empty() {
+                    cwd = c.to_string();
                 }
+            }
+        }
 
-                // Try to extract text from message.content array
-                if let Some(content) = json["message"]["content"].as_array() {
-                    // First pass: look for direct text blocks
-                    for block in content {
-                        if let Some(text) = block["text"].as_str() {
-                            let trimmed = text.trim();
-                            if !trimmed.is_empty() {
-                                return trimmed.chars().take(120).collect();
-                            }
+        // Extract preview from first user message
+        if preview.is_empty() {
+            let is_user = json["type"].as_str() == Some("human")
+                || json["type"].as_str() == Some("user")
+                || json["role"].as_str() == Some("user")
+                || json["message"]["role"].as_str() == Some("user");
+
+            if !is_user {
+                continue;
+            }
+
+            // Try to extract text from message.content array
+            if let Some(content) = json["message"]["content"].as_array() {
+                // First pass: look for direct text blocks
+                for block in content {
+                    if let Some(text) = block["text"].as_str() {
+                        let trimmed = text.trim();
+                        if !trimmed.is_empty() {
+                            preview = trimmed.chars().take(120).collect();
+                            break;
                         }
                     }
-                    // Second pass: look for text inside nested content (e.g. tool_result.content[].text)
+                }
+                // Second pass: look for text inside nested content
+                if preview.is_empty() {
                     for block in content {
                         if let Some(inner) = block["content"].as_array() {
                             for inner_block in inner {
                                 if let Some(text) = inner_block["text"].as_str() {
                                     let trimmed = text.trim();
                                     if !trimmed.is_empty() {
-                                        return trimmed.chars().take(120).collect();
+                                        preview = trimmed.chars().take(120).collect();
+                                        break;
                                     }
                                 }
                             }
+                            if !preview.is_empty() { break; }
                         }
                         if let Some(text) = block["content"].as_str() {
                             let trimmed = text.trim();
                             if !trimmed.is_empty() {
-                                return trimmed.chars().take(120).collect();
+                                preview = trimmed.chars().take(120).collect();
+                                break;
                             }
                         }
                     }
                 }
-                // Try direct content string
+            }
+            // Try direct content string
+            if preview.is_empty() {
                 if let Some(text) = json["message"]["content"].as_str() {
                     let trimmed = text.trim();
                     if !trimmed.is_empty() {
-                        return trimmed.chars().take(120).collect();
+                        preview = trimmed.chars().take(120).collect();
                     }
                 }
             }
         }
+
+        // Stop early if we have both
+        if !cwd.is_empty() && !preview.is_empty() {
+            break;
+        }
     }
-    String::new()
+    (preview, cwd)
 }
 
 /// Decode project directory name back to readable path.
@@ -504,9 +541,15 @@ fn extract_session_preview(path: &std::path::Path) -> String {
 /// Simple `.replace('-', '/')` fails when directory names contain hyphens
 /// (e.g. "ppt-maker" becomes "ppt/maker").
 ///
+/// Claude CLI encodes project paths by replacing `/`, `.`, and ` ` (space)
+/// with `-`. This is lossy: "a-b" could mean "a/b", "a.b", "a b", or literal
+/// "a-b". We resolve ambiguity via greedy filesystem probing.
+///
 /// Strategy: greedily match real filesystem segments from left to right.
-/// At each position, try the longest possible segment first to prefer
-/// "ppt-maker" over "ppt" when both could match.
+/// At each position, try the longest possible segment first.  For each
+/// candidate span of dash-separated parts, try joining them with the
+/// original `-`, then ` ` (space), then `.` — whichever produces a path
+/// that actually exists on disk wins.
 fn decode_project_name(encoded: &str) -> String {
     // Strip leading '-' (corresponds to root '/')
     let trimmed = encoded.strip_prefix('-').unwrap_or(encoded);
@@ -530,16 +573,70 @@ fn decode_project_name(encoded: &str) -> String {
             format!("/{}", decoded_segments.join("/"))
         };
 
-        // Try combining parts[i..j] with hyphens, longest first
+        // Try combining parts[i..j], longest first.
+        // For each candidate length, try multiple join separators.
         let max_j = parts.len().min(i + 10); // limit lookahead
-        for j in (i + 1..=max_j).rev() {
-            let candidate = parts[i..j].join("-");
-            let full_path = format!("{}/{}", parent, candidate);
-            if std::path::Path::new(&full_path).exists() {
-                best_len = j - i;
-                best_segment = candidate;
-                break;
+        let mut found = false;
+        'outer: for j in (i + 1..=max_j).rev() {
+            let slice = &parts[i..j];
+            // Separators to try: hyphen (original name), space, dot
+            for sep in ["-", " ", "."] {
+                let candidate = slice.join(sep);
+                let full_path = format!("{}/{}", parent, candidate);
+                if std::path::Path::new(&full_path).exists() {
+                    best_len = j - i;
+                    best_segment = candidate;
+                    found = true;
+                    break 'outer;
+                }
             }
+        }
+
+        // Handle empty parts from consecutive dashes (e.g. "/." encoded as "--").
+        // If we're at an empty part and no filesystem match was found, try
+        // prepending a "." to the next segment (hidden dirs like .claude).
+        if !found && parts[i].is_empty() {
+            // Collect consecutive empty parts (each represents one encoded char)
+            let start = i;
+            while i < parts.len() && parts[i].is_empty() {
+                i += 1;
+            }
+            let dot_count = i - start; // number of dots/special chars
+
+            if i < parts.len() {
+                // Try interpreting as dot-prefixed segment:
+                // e.g. empty + "claude-worktrees" → ".claude-worktrees"
+                let prefix = ".".repeat(dot_count);
+                // Greedy match on the remaining parts after the dots
+                let remaining_max = parts.len().min(i + 10);
+                let mut dot_found = false;
+                for j in (i + 1..=remaining_max).rev() {
+                    for sep in ["-", " ", "."] {
+                        let after = parts[i..j].join(sep);
+                        let candidate = format!("{}{}", prefix, after);
+                        let full_path = format!("{}/{}", parent, candidate);
+                        if std::path::Path::new(&full_path).exists() {
+                            decoded_segments.push(candidate);
+                            i = j;
+                            dot_found = true;
+                            break;
+                        }
+                    }
+                    if dot_found { break; }
+                }
+                if !dot_found {
+                    // Fallback: just use dot + next part as segment
+                    let candidate = format!("{}{}", prefix, parts[i]);
+                    decoded_segments.push(candidate);
+                    i += 1;
+                }
+            } else {
+                // Trailing empty parts — append dots to last segment or ignore
+                if let Some(prev) = decoded_segments.last_mut() {
+                    prev.push_str(&".".repeat(dot_count));
+                }
+            }
+            continue;
         }
 
         decoded_segments.push(best_segment);
@@ -2114,4 +2211,49 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod decode_tests {
+    use super::decode_project_name;
+    
+    #[test]
+    fn test_simple_path() {
+        let result = decode_project_name("-Users-tinyzhuang-Documents-FocusZone");
+        assert_eq!(result, "/Users/tinyzhuang/Documents/FocusZone");
+    }
+    
+    #[test]
+    fn test_hyphenated_dir() {
+        // ppt-maker exists on disk as a dir with hyphens in name
+        let result = decode_project_name("-Users-tinyzhuang-Desktop-ppt-maker");
+        assert_eq!(result, "/Users/tinyzhuang/Desktop/ppt-maker");
+    }
+    
+    #[test]
+    fn test_hidden_dir_double_dash() {
+        // FocusZone/.claude-worktrees/condescending-brown
+        // "/" → "-", "." → empty part making "--"
+        let result = decode_project_name("-Users-tinyzhuang-Documents-FocusZone--claude-worktrees-condescending-brown");
+        println!("Result: {}", result);
+        // Should contain .claude somewhere
+        assert!(result.contains(".claude"), "Expected .claude in path, got: {}", result);
+    }
+    
+    #[test]
+    fn test_nested_subdir() {
+        let result = decode_project_name("-Users-tinyzhuang-Desktop-test-NiCode");
+        // test/NiCode or test-NiCode — depends on what exists on disk
+        println!("Result: {}", result);
+        assert!(result.starts_with("/Users/tinyzhuang/Desktop/test"));
+    }
+
+    #[test]
+    fn test_space_in_dir_name() {
+        // "jd 设计" exists at ~/Desktop/jd 设计
+        let result = decode_project_name("-Users-tinyzhuang-Desktop-jd-设计");
+        println!("Result: {}", result);
+        // Should decode to "/Users/tinyzhuang/Desktop/jd 设计"
+        assert_eq!(result, "/Users/tinyzhuang/Desktop/jd 设计");
+    }
 }
