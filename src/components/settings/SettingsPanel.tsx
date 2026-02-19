@@ -207,15 +207,193 @@ export function SettingsPanel() {
           {/* MCP Servers */}
           <McpSection />
 
-          {/* About */}
-          <div className="pt-2 border-t border-border-subtle">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] text-text-muted">TOKENICODE</span>
-              <span className="text-[11px] text-text-tertiary">v0.1.0</span>
-            </div>
-          </div>
+          {/* About & Update */}
+          <UpdateSection />
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ================================================================
+   About & Update section
+   ================================================================ */
+
+type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'latest' | 'error';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type UpdateHandle = any;
+
+function UpdateSection() {
+  const t = useT();
+  const [appVersion, setAppVersion] = useState('');
+  const [status, setStatus] = useState<UpdateStatus>('idle');
+  const [updateInfo, setUpdateInfo] = useState<UpdateHandle>(null);
+  const [progress, setProgress] = useState(0);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    import('@tauri-apps/api/app').then(({ getVersion }) =>
+      getVersion().then(setAppVersion).catch(() => {})
+    );
+  }, []);
+
+  const handleCheck = useCallback(async () => {
+    setStatus('checking');
+    setErrorMsg('');
+    try {
+      const { check } = await import('@tauri-apps/plugin-updater');
+      const update = await check();
+      if (update) {
+        setUpdateInfo(update);
+        setStatus('available');
+      } else {
+        setStatus('latest');
+        setTimeout(() => setStatus('idle'), 3000);
+      }
+    } catch (e) {
+      setErrorMsg(String(e));
+      setStatus('error');
+    }
+  }, []);
+
+  const handleDownload = useCallback(async () => {
+    if (!updateInfo) return;
+    setStatus('downloading');
+    setProgress(0);
+    try {
+      let totalLen = 0;
+      let downloaded = 0;
+      await updateInfo.downloadAndInstall((event: { event: string; data: { contentLength?: number; chunkLength: number } }) => {
+        if (event.event === 'Started' && event.data.contentLength) {
+          totalLen = event.data.contentLength;
+        } else if (event.event === 'Progress') {
+          downloaded += event.data.chunkLength;
+          if (totalLen > 0) setProgress(Math.round((downloaded / totalLen) * 100));
+        } else if (event.event === 'Finished') {
+          setProgress(100);
+        }
+      });
+      setStatus('ready');
+    } catch (e) {
+      setErrorMsg(String(e));
+      setStatus('error');
+    }
+  }, [updateInfo]);
+
+  const handleRestart = useCallback(async () => {
+    const { relaunch } = await import('@tauri-apps/plugin-process');
+    await relaunch();
+  }, []);
+
+  return (
+    <div className="pt-2 border-t border-border-subtle space-y-2">
+      {/* Version row */}
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] text-text-muted">TOKENICODE</span>
+        <span className="text-[11px] text-text-tertiary">
+          {appVersion ? `v${appVersion}` : '...'}
+        </span>
+      </div>
+
+      {/* Update controls */}
+      {status === 'idle' && (
+        <button
+          onClick={handleCheck}
+          className="w-full py-1.5 text-[11px] font-medium rounded-lg
+            border border-border-subtle text-text-muted
+            hover:bg-bg-secondary hover:text-text-primary transition-smooth"
+        >
+          {t('update.check')}
+        </button>
+      )}
+
+      {status === 'checking' && (
+        <div className="flex items-center justify-center gap-2 py-1.5">
+          <div className="w-3 h-3 border-2 border-accent/30
+            border-t-accent rounded-full animate-spin" />
+          <span className="text-[11px] text-text-muted">{t('update.checking')}</span>
+        </div>
+      )}
+
+      {status === 'latest' && (
+        <div className="py-1.5 text-center">
+          <span className="text-[11px] text-green-500 font-medium">
+            {t('update.latest')}
+          </span>
+        </div>
+      )}
+
+      {status === 'available' && updateInfo && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-text-muted">
+              {t('update.version')}: <span className="font-medium text-accent">
+                v{updateInfo.version}
+              </span>
+            </span>
+          </div>
+          <button
+            onClick={handleDownload}
+            className="w-full py-1.5 text-[11px] font-medium rounded-lg
+              bg-accent text-text-inverse hover:bg-accent-hover transition-smooth"
+          >
+            {t('update.install')}
+          </button>
+        </div>
+      )}
+
+      {status === 'downloading' && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-text-muted">{t('update.downloading')}</span>
+            <span className="text-[11px] text-text-tertiary">{progress}%</span>
+          </div>
+          <div className="w-full h-1.5 rounded-full bg-bg-tertiary overflow-hidden">
+            <div
+              className="h-full bg-accent rounded-full transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {status === 'ready' && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] text-text-muted text-center">
+            {t('update.readyRestart')}
+          </p>
+          <button
+            onClick={handleRestart}
+            className="w-full py-1.5 text-[11px] font-medium rounded-lg
+              bg-accent text-text-inverse hover:bg-accent-hover transition-smooth"
+          >
+            {t('update.restart')}
+          </button>
+        </div>
+      )}
+
+      {status === 'error' && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] text-red-500 text-center">
+            {t('update.error')}
+          </p>
+          {errorMsg && (
+            <p className="text-[10px] text-text-tertiary text-center truncate"
+              title={errorMsg}>
+              {errorMsg}
+            </p>
+          )}
+          <button
+            onClick={handleCheck}
+            className="w-full py-1.5 text-[11px] font-medium rounded-lg
+              border border-border-subtle text-text-muted
+              hover:bg-bg-secondary transition-smooth"
+          >
+            {t('update.check')}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

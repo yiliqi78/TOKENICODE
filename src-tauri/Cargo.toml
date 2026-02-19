@@ -1,6 +1,6 @@
 [package]
 name = "tokenicode"
-version = "0.2.0"
+version = "0.3.0"
 description = "TOKENICODE - A beautiful GUI for Claude Code"
 authors = ["TinyZ"]
 license = "Apache-2.0"
@@ -26,6 +26,8 @@ dirs = "6"
 notify = "7"
 base64 = "0.22"
 serde_yaml = "0.9"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.26"

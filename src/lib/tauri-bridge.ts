@@ -12,6 +12,8 @@ export interface StartSessionParams {
   dangerously_skip_permissions?: boolean;
   /** Resume an existing Claude CLI session by ID (for follow-up messages) */
   resume_session_id?: string;
+  /** Enable extended thinking mode */
+  thinking_enabled?: boolean;
 }
 
 export interface SessionInfo {

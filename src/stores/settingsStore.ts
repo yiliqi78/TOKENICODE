@@ -6,16 +6,16 @@ import { persist } from 'zustand/middleware';
 export type Theme = 'light' | 'dark' | 'system';
 export type ColorTheme = 'black' | 'blue' | 'orange' | 'green';
 export type SecondaryPanelTab = 'files' | 'agents' | 'skills';
-export type ModelId = 'claude-opus-4-0' | 'claude-sonnet-4-0' | 'claude-haiku-3-5';
+export type ModelId = 'claude-opus-4-6' | 'claude-sonnet-4-6' | 'claude-haiku-4-5';
 export type SessionMode = 'code' | 'ask' | 'plan' | 'bypass';
 export type Locale = 'zh' | 'en';
 
 // --- Model options (display mapping) ---
 
 export const MODEL_OPTIONS: { id: ModelId; label: string; short: string }[] = [
-  { id: 'claude-opus-4-0', label: 'Claude Opus 4.6', short: 'Opus 4.6' },
-  { id: 'claude-sonnet-4-0', label: 'Claude Sonnet 4.6', short: 'Sonnet 4.6' },
-  { id: 'claude-haiku-3-5', label: 'Claude Haiku 4.5', short: 'Haiku 4.5' },
+  { id: 'claude-opus-4-6', label: 'Claude Opus 4.6', short: 'Opus 4.6' },
+  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', short: 'Sonnet 4.6' },
+  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', short: 'Haiku 4.5' },
 ];
 
 // --- Store State & Actions ---
@@ -32,12 +32,14 @@ interface SettingsState {
   selectedModel: ModelId;
   sessionMode: SessionMode;
   locale: Locale;
-  /** Global UI font size in px (default 14) */
+  /** Global UI font size in px (default 18) */
   fontSize: number;
-  /** Sidebar width in px (default 260) */
+  /** Sidebar width in px (default 280) */
   sidebarWidth: number;
   /** Whether the CLI setup wizard has been completed or skipped */
   setupCompleted: boolean;
+  /** Whether extended thinking is enabled for Claude */
+  thinkingEnabled: boolean;
 
   toggleTheme: () => void;
   setTheme: (theme: Theme) => void;
@@ -57,6 +59,7 @@ interface SettingsState {
   decreaseFontSize: () => void;
   setSidebarWidth: (width: number) => void;
   setSetupCompleted: (completed: boolean) => void;
+  toggleThinking: () => void;
 }
 
 // --- Theme cycle order ---
@@ -81,12 +84,13 @@ export const useSettingsStore = create<SettingsState>()(
       secondaryPanelWidth: 300,
       settingsOpen: false,
       workingDirectory: '',
-      selectedModel: 'claude-opus-4-0',
+      selectedModel: 'claude-opus-4-6',
       sessionMode: 'code',
       locale: 'zh',
-      fontSize: 14,
-      sidebarWidth: 260,
+      fontSize: 18,
+      sidebarWidth: 280,
       setupCompleted: false,
+      thinkingEnabled: true,
 
       toggleTheme: () =>
         set((state) => ({ theme: nextTheme(state.theme) })),
@@ -144,21 +148,41 @@ export const useSettingsStore = create<SettingsState>()(
 
       setSetupCompleted: (completed) =>
         set(() => ({ setupCompleted: completed })),
+
+      toggleThinking: () =>
+        set((state) => ({ thinkingEnabled: !state.thinkingEnabled })),
     }),
     {
       name: 'tokenicode-settings',
+      version: 1,
+      migrate: (persisted: Record<string, unknown>, version: number) => {
+        if (version === 0) {
+          // Migrate legacy model IDs to current ones
+          const legacyMap: Record<string, ModelId> = {
+            'claude-opus-4-0': 'claude-opus-4-6',
+            'claude-sonnet-4-0': 'claude-sonnet-4-6',
+            'claude-haiku-3-5': 'claude-haiku-4-5',
+          };
+          const old = persisted.selectedModel as string;
+          if (old && legacyMap[old]) {
+            persisted.selectedModel = legacyMap[old];
+          }
+        }
+        return persisted;
+      },
       partialize: (state) => ({
         theme: state.theme,
         colorTheme: state.colorTheme,
         sidebarOpen: state.sidebarOpen,
         secondaryPanelWidth: state.secondaryPanelWidth,
-        workingDirectory: state.workingDirectory,
+        // workingDirectory intentionally NOT persisted — app starts at WelcomeScreen
         selectedModel: state.selectedModel,
         sessionMode: state.sessionMode,
         locale: state.locale,
         fontSize: state.fontSize,
         sidebarWidth: state.sidebarWidth,
         setupCompleted: state.setupCompleted,
+        thinkingEnabled: state.thinkingEnabled,
       }),
     },
   ),

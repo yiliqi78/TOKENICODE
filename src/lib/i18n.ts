@@ -1,5 +1,6 @@
 import { useSettingsStore } from '../stores/settingsStore';
 import type { Locale } from '../stores/settingsStore';
+import { modKey, fileManagerName, fileManagerNameEn } from './platform';
 
 // --- Translation dictionary ---
 
@@ -29,6 +30,9 @@ const messages: Record<Locale, Record<string, string>> = {
     'input.prefixPlaceholder': '输入参数...',
     'input.attachFiles': '附加文件',
     'input.attachedFiles': '[附加的文件]',
+    'input.thinkOn': '已开启深度思考',
+    'input.thinkOff': '已关闭深度思考',
+    'input.shortcutHint': '⏎ 发送 · {mod}⏎ 换行',
 
     // MessageBubble
     'msg.thinking': '思考中...',
@@ -60,7 +64,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'conv.loadFailed': '加载任务失败',
     'conv.delete': '删除任务',
     'conv.rename': '重命名',
-    'conv.revealInFinder': '在 Finder 中显示',
+    'conv.revealInFinder': '在 {fileManager} 中显示',
     'conv.export': '导出',
     'conv.newChat': '新建任务',
     'conv.renamePrompt': '输入新名称',
@@ -90,7 +94,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'files.noFiles': '未找到文件',
     'files.openVscode': '双击在 VS Code 中打开',
     'files.search': '搜索文件...',
-    'files.revealInFinder': '在 Finder 中显示',
+    'files.revealInFinder': '在 {fileManager} 中显示',
     'files.openDefault': '使用默认应用打开',
     'files.openVscodeShort': '在 VS Code 中打开',
     'files.preview': '预览',
@@ -204,7 +208,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'agents.error': '出错',
 
     // WelcomeScreen
-    'welcome.newChat': '新建任务',
+    'welcome.newChat': '选择文件夹',
     'welcome.subtitle': '选择一个项目文件夹以开始',
     'welcome.recentProjects': '最近项目',
 
@@ -222,7 +226,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'settings.language': '语言',
     'settings.defaultModel': '默认模型',
     'settings.fontSize': '字体大小',
-    'settings.fontSizeHint': '⌘+/- 快捷调整，⌘+0 重置',
+    'settings.fontSizeHint': '{mod}+/- 快捷调整，{mod}+0 重置',
 
     // Slash commands
     'slash.commands': '命令',
@@ -374,7 +378,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'skills.enable': '启用',
     'skills.disable': '禁用',
     'skills.duplicate': '复制',
-    'skills.revealInFinder': '在 Finder 中显示',
+    'skills.revealInFinder': '在 {fileManager} 中显示',
     'skills.tools': '工具',
     'skills.model': '模型',
     'skills.context': '上下文',
@@ -401,6 +405,18 @@ const messages: Record<Locale, Record<string, string>> = {
     'mcp.commandPlaceholder': '输入命令，如 npx',
     'mcp.refresh': '刷新',
     'mcp.envCount': '个环境变量',
+
+    // Update
+    'update.check': '检查更新',
+    'update.checking': '检查中...',
+    'update.available': '发现新版本',
+    'update.latest': '已是最新版本',
+    'update.downloading': '下载中...',
+    'update.readyRestart': '更新已就绪，重启以完成安装',
+    'update.restart': '重启应用',
+    'update.error': '检查更新失败',
+    'update.version': '新版本',
+    'update.install': '下载并安装',
 
     // Setup wizard
     'setup.checking': '正在检测 Claude Code CLI...',
@@ -454,6 +470,9 @@ const messages: Record<Locale, Record<string, string>> = {
     'input.prefixPlaceholder': 'Enter arguments...',
     'input.attachFiles': 'Attach files',
     'input.attachedFiles': '[Attached files]',
+    'input.thinkOn': 'Extended thinking enabled',
+    'input.thinkOff': 'Extended thinking disabled',
+    'input.shortcutHint': '⏎ Send · {mod}⏎ New line',
 
     // MessageBubble
     'msg.thinking': 'Thinking...',
@@ -485,7 +504,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'conv.loadFailed': 'Failed to load task',
     'conv.delete': 'Delete',
     'conv.rename': 'Rename',
-    'conv.revealInFinder': 'Reveal in Finder',
+    'conv.revealInFinder': 'Reveal in {fileManagerEn}',
     'conv.export': 'Export',
     'conv.newChat': 'New Task',
     'conv.renamePrompt': 'Enter new name',
@@ -515,7 +534,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'files.noFiles': 'No files found',
     'files.openVscode': 'Double-click to open in VS Code',
     'files.search': 'Search files...',
-    'files.revealInFinder': 'Reveal in Finder',
+    'files.revealInFinder': 'Reveal in {fileManagerEn}',
     'files.openDefault': 'Open with Default App',
     'files.openVscodeShort': 'Open in VS Code',
     'files.preview': 'Preview',
@@ -629,7 +648,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'agents.error': 'Error',
 
     // WelcomeScreen
-    'welcome.newChat': 'New Task',
+    'welcome.newChat': 'Select Folder',
     'welcome.subtitle': 'Select a project folder to get started',
     'welcome.recentProjects': 'Recent Projects',
 
@@ -647,7 +666,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'settings.language': 'Language',
     'settings.defaultModel': 'Default Model',
     'settings.fontSize': 'Font Size',
-    'settings.fontSizeHint': '⌘+/- to adjust, ⌘+0 to reset',
+    'settings.fontSizeHint': '{mod}+/- to adjust, {mod}+0 to reset',
 
     // Slash commands
     'slash.commands': 'Commands',
@@ -799,7 +818,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'skills.enable': 'Enable',
     'skills.disable': 'Disable',
     'skills.duplicate': 'Duplicate',
-    'skills.revealInFinder': 'Reveal in Finder',
+    'skills.revealInFinder': 'Reveal in {fileManagerEn}',
     'skills.tools': 'Tools',
     'skills.model': 'Model',
     'skills.context': 'Context',
@@ -826,6 +845,18 @@ const messages: Record<Locale, Record<string, string>> = {
     'mcp.commandPlaceholder': 'Enter command, e.g. npx',
     'mcp.refresh': 'Refresh',
     'mcp.envCount': 'env vars',
+
+    // Update
+    'update.check': 'Check for Updates',
+    'update.checking': 'Checking...',
+    'update.available': 'Update Available',
+    'update.latest': 'Up to Date',
+    'update.downloading': 'Downloading...',
+    'update.readyRestart': 'Update ready, restart to install',
+    'update.restart': 'Restart',
+    'update.error': 'Update check failed',
+    'update.version': 'New version',
+    'update.install': 'Download & Install',
 
     // Setup wizard
     'setup.checking': 'Detecting Claude Code CLI...',
@@ -855,17 +886,30 @@ const messages: Record<Locale, Record<string, string>> = {
   },
 };
 
+// --- Platform-aware placeholder substitution ---
+
+function resolvePlatformPlaceholders(text: string): string {
+  if (!text.includes('{')) return text;
+  return text
+    .replace(/\{mod\}/g, modKey())
+    .replace(/\{fileManager\}/g, fileManagerName())
+    .replace(/\{fileManagerEn\}/g, fileManagerNameEn());
+}
+
 // --- Non-reactive t() for use outside components ---
 
 export function t(key: string): string {
   const locale = useSettingsStore.getState().locale;
-  return messages[locale]?.[key] || messages['en'][key] || key;
+  const raw = messages[locale]?.[key] || messages['en'][key] || key;
+  return resolvePlatformPlaceholders(raw);
 }
 
 // --- Reactive hook for use inside React components ---
 
 export function useT() {
   const locale = useSettingsStore((s) => s.locale);
-  return (key: string): string =>
-    messages[locale]?.[key] || messages['en'][key] || key;
+  return (key: string): string => {
+    const raw = messages[locale]?.[key] || messages['en'][key] || key;
+    return resolvePlatformPlaceholders(raw);
+  };
 }

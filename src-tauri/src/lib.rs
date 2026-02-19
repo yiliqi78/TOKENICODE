@@ -146,6 +146,12 @@ async fn start_claude_session(
         args.push("acceptEdits".to_string());
     }
 
+    // Extended thinking: inject via --settings JSON
+    if params.thinking_enabled.unwrap_or(true) {
+        args.push("--settings".to_string());
+        args.push(r#"{"alwaysThinkingEnabled":true}"#.to_string());
+    }
+
     // Resolve claude binary — it may not be on the default PATH
     let claude_bin = find_claude_binary().unwrap_or_else(|| "claude".to_string());
 
@@ -480,11 +486,59 @@ fn extract_session_preview(path: &std::path::Path) -> String {
     String::new()
 }
 
-/// Decode project directory name back to readable path
+/// Decode project directory name back to readable path.
+///
+/// Claude CLI encodes paths by replacing `/` with `-`, e.g.:
+///   /Users/tinyzhuang/Desktop/ppt-maker → -Users-tinyzhuang-Desktop-ppt-maker
+///
+/// Simple `.replace('-', '/')` fails when directory names contain hyphens
+/// (e.g. "ppt-maker" becomes "ppt/maker").
+///
+/// Strategy: greedily match real filesystem segments from left to right.
+/// At each position, try the longest possible segment first to prefer
+/// "ppt-maker" over "ppt" when both could match.
 fn decode_project_name(encoded: &str) -> String {
-    // Claude encodes paths like: -Users-tinyzhuang-Documents-project
-    // Convert back to: ~/Documents/project (shortened)
-    let decoded = encoded.replace('-', "/");
+    // Strip leading '-' (corresponds to root '/')
+    let trimmed = encoded.strip_prefix('-').unwrap_or(encoded);
+    let parts: Vec<&str> = trimmed.split('-').collect();
+
+    if parts.is_empty() {
+        return encoded.to_string();
+    }
+
+    let mut decoded_segments: Vec<String> = Vec::new();
+    let mut i = 0;
+
+    while i < parts.len() {
+        let mut best_len = 1;
+        let mut best_segment = parts[i].to_string();
+
+        // Build the parent path for existence checking
+        let parent = if decoded_segments.is_empty() {
+            "/".to_string()
+        } else {
+            format!("/{}", decoded_segments.join("/"))
+        };
+
+        // Try combining parts[i..j] with hyphens, longest first
+        let max_j = parts.len().min(i + 10); // limit lookahead
+        for j in (i + 1..=max_j).rev() {
+            let candidate = parts[i..j].join("-");
+            let full_path = format!("{}/{}", parent, candidate);
+            if std::path::Path::new(&full_path).exists() {
+                best_len = j - i;
+                best_segment = candidate;
+                break;
+            }
+        }
+
+        decoded_segments.push(best_segment);
+        i += best_len;
+    }
+
+    let decoded = format!("/{}", decoded_segments.join("/"));
+
+    // Shorten home directory prefix to ~
     if let Some(home) = dirs::home_dir() {
         let home_str = home.to_string_lossy();
         if decoded.starts_with(&*home_str) {
@@ -967,10 +1021,11 @@ async fn list_slash_commands(cwd: Option<String>) -> Result<Vec<SlashCommand>, S
     let mut commands: Vec<SlashCommand> = vec![];
 
     // Built-in commands: (name, description, has_args)
-    let builtins: [(&str, &str, bool); 28] = [
+    let builtins: [(&str, &str, bool); 29] = [
         ("/ask", "Ask a question without making changes", false),
         ("/bug", "Report a bug with Claude Code", false),
         ("/clear", "Clear conversation history", false),
+        ("/code", "Switch to code mode (default)", false),
         ("/compact", "Compact conversation to reduce context", false),
         ("/config", "Open settings panel", false),
         ("/context", "Manage context files and directories", false),
@@ -1309,10 +1364,11 @@ async fn list_all_commands(cwd: Option<String>) -> Result<Vec<UnifiedCommand>, S
 
     // 1. Built-in commands: (name, description, has_args, execution)
     // execution: "ui" = handled in frontend, "cli" = run as separate CLI process, "session" = needs active CLI session
-    let builtins: [(&str, &str, bool, &str); 28] = [
+    let builtins: [(&str, &str, bool, &str); 29] = [
         ("/ask", "Ask a question without making changes", false, "ui"),
         ("/bug", "Report a bug with Claude Code", false, "ui"),
         ("/clear", "Clear conversation history", false, "ui"),
+        ("/code", "Switch to code mode (default)", false, "ui"),
         ("/compact", "Compact conversation to reduce context", false, "session"),
         ("/config", "Open settings panel", false, "ui"),
         ("/context", "Manage context files and directories", false, "session"),
@@ -1943,26 +1999,18 @@ pub fn run() {
         .manage(ProcessManager::new())
         .manage(StdinManager::new())
         .manage(WatcherManager::default())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
-            // macOS: make the transparent titlebar area match the app's background
-            #[cfg(target_os = "macos")]
-            {
-                use cocoa::appkit::NSWindow;
-                use cocoa::base::id;
+            // titleBarStyle: "Overlay" in tauri.conf.json handles macOS traffic lights
+            // and native titlebar drag/double-click-to-maximize automatically.
 
-                let window = app.get_webview_window("main").unwrap();
-                let ns_window = window.ns_window().unwrap() as id;
+            // Register updater plugin (desktop only)
+            #[cfg(desktop)]
+            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
 
-                unsafe {
-                    // Make the titlebar fully transparent and blend with content
-                    ns_window.setTitlebarAppearsTransparent_(cocoa::base::YES);
+            #[cfg(not(desktop))]
+            let _ = app;
 
-                    // Extend the content area into the titlebar region
-                    let mask = ns_window.styleMask()
-                        | cocoa::appkit::NSWindowStyleMask::NSFullSizeContentViewWindowMask;
-                    ns_window.setStyleMask_(mask);
-                }
-            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

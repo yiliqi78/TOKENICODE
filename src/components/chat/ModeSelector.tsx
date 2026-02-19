@@ -59,7 +59,7 @@ export function ModeSelector({ disabled = false }: { disabled?: boolean }) {
           key={mode.id}
           onClick={() => setSessionMode(mode.id)}
           disabled={disabled}
-          className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs
+          className={`inline-flex items-center gap-1 px-2.5 py-1 text-sm
             transition-smooth border-r border-border-subtle last:border-r-0
             ${mode.id === sessionMode
               ? mode.id === 'bypass'

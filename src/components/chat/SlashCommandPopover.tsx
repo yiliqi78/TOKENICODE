@@ -104,7 +104,7 @@ export function SlashCommandPopover({
           {sIdx > 0 && <div className="mx-3 my-1 border-t border-border-subtle" />}
 
           {/* Section header */}
-          <div className="px-3 py-1 text-[10px] text-text-tertiary font-medium uppercase tracking-wider">
+          <div className="px-3 py-1 text-[11px] text-text-tertiary font-medium uppercase tracking-wider">
             {t(section.labelKey)}
           </div>
 
@@ -159,7 +159,7 @@ export function SlashCommandPopover({
                       </span>
                     )}
                   </div>
-                  <div className="text-text-tertiary text-[10px] truncate mt-0.5">
+                  <div className="text-text-tertiary text-[11px] truncate mt-0.5">
                     {cmd.category === 'builtin'
                       ? t(`slash.desc.${cmd.name.slice(1)}`) || cmd.description
                       : cmd.description}

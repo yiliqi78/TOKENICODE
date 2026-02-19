@@ -53,6 +53,22 @@ function ContextMenu({ menu, onClose }: {
 }) {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ x: menu.x, y: menu.y });
+
+  // Adjust position to keep menu within viewport
+  useEffect(() => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let x = menu.x;
+    let y = menu.y;
+    if (x + rect.width > vw - 8) x = vw - rect.width - 8;
+    if (y + rect.height > vh - 8) y = vh - rect.height - 8;
+    if (x < 8) x = 8;
+    if (y < 8) y = 8;
+    setPos({ x, y });
+  }, [menu.x, menu.y]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -118,9 +134,9 @@ function ContextMenu({ menu, onClose }: {
   return createPortal(
     <div
       ref={ref}
-      className="fixed z-50 min-w-[180px] py-1 rounded-xl border border-border-subtle
-        bg-bg-card shadow-lg animate-fade-in"
-      style={{ left: menu.x, top: menu.y }}
+      className="fixed z-[9999] min-w-[200px] py-1 rounded-xl border border-border-subtle
+        bg-bg-card shadow-lg animate-fade-in whitespace-nowrap"
+      style={{ left: pos.x, top: pos.y }}
     >
       {items.map((item, i) => (
         <button

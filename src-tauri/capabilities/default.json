@@ -6,8 +6,12 @@
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-set-ignore-cursor-events",
     "opener:default",
     "dialog:default",
-    "shell:default"
+    "shell:default",
+    "updater:default",
+    "process:allow-restart"
   ]
 }

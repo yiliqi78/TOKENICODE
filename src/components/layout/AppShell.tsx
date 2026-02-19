@@ -2,7 +2,6 @@ import { useCallback, useRef, useEffect, useState } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useFileStore } from '../../stores/fileStore';
 import { FilePreview } from '../files/FilePreview';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 
 interface AppShellProps {
   sidebar: React.ReactNode;
@@ -176,13 +175,6 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
     };
   }, [sidebarOpen, toggleSidebar, setSidebarWidth]);
 
-  // Window drag handler for the top title bar strip
-  const handleTitleBarDrag = useCallback((e: React.MouseEvent) => {
-    if (e.buttons === 1) {
-      getCurrentWindow().startDragging();
-    }
-  }, []);
-
   /* Compute sidebar visibility: hidden when file preview is active (reclaim space) */
   const showSidebar = sidebarOpen && !isFilePreviewMode;
   const showFloatingSidebar = sidebarOpen && isFilePreviewMode;
@@ -192,10 +184,10 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
 
   return (
     <div className="flex h-full w-full overflow-hidden gradient-bg">
-      {/* Top drag strip — spans full window width for easy window dragging */}
+      {/* Drag region — data-tauri-drag-region handles both drag and double-click-to-maximize natively */}
       <div
-        onMouseDown={handleTitleBarDrag}
-        className="fixed top-0 left-0 right-0 h-[28px] z-50 cursor-default"
+        data-tauri-drag-region
+        className="fixed top-0 left-0 right-0 h-[28px] z-50"
       />
 
       {/* Sidebar — animates to w-0 when hidden or preview mode */}

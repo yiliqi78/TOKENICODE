@@ -10,7 +10,6 @@ import { useFileStore } from '../../stores/fileStore';
 import { bridge, onClaudeStream, onClaudeStderr } from '../../lib/tauri-bridge';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useT } from '../../lib/i18n';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
 import { SetupWizard } from '../setup/SetupWizard';
 
@@ -139,14 +138,7 @@ export function ChatPanel() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Handle window dragging from the title bar area
-  const handleDragStart = useCallback((e: React.MouseEvent) => {
-    // Only drag if clicking on the bar itself (not buttons/children)
-    if ((e.target as HTMLElement).closest('button, a, input, [role="button"]')) return;
-    if (e.buttons === 1) {
-      getCurrentWindow().startDragging();
-    }
-  }, []);
+  // Window dragging handled via CSS -webkit-app-region: drag on the top strip
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -157,7 +149,7 @@ export function ChatPanel() {
   return (
     <div className="flex flex-col h-full">
       {/* Top Bar — with extra top padding for macOS traffic lights */}
-      <div onMouseDown={handleDragStart}
+      <div
         className="flex items-center h-[68px] pt-[20px] px-5 border-b border-border-subtle
         flex-shrink-0 bg-bg-chat cursor-default">
         {/* Show sidebar toggle when sidebar is not visible:
@@ -424,6 +416,7 @@ async function startDraftSession(folderPath: string) {
       model: useSettingsStore.getState().selectedModel,
       session_id: preWarmId,
       dangerously_skip_permissions: useSettingsStore.getState().sessionMode === 'bypass',
+      thinking_enabled: useSettingsStore.getState().thinkingEnabled,
     });
 
     // Store stdinId so InputBar can send the first message via stdin
@@ -490,8 +483,8 @@ function WelcomeScreen() {
           flex items-center gap-2 mb-8"
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
-          stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-          <path d="M8 3v10M3 8h10" />
+          stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M2 4h4l2 2h6v7H2V4z" />
         </svg>
         {t('welcome.newChat')}
       </button>

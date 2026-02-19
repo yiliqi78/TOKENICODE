@@ -6,6 +6,176 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.3.0] - 2026-02-19
+
+### Added / 新增功能
+
+#### In-App Update / 应用内更新
+
+Built-in update mechanism using `tauri-plugin-updater` + GitHub Releases. Users can now check for, download, and install updates directly from the Settings panel — no need to visit GitHub manually.
+
+- "Check for Updates" button in Settings → About section
+- Displays new version number when an update is available
+- Download progress bar with percentage indicator
+- One-click restart after update installation
+- Update signing with Ed25519 keypair for secure distribution
+- GitHub Actions workflow updated with signing environment variables
+
+内置更新机制，基于 `tauri-plugin-updater` + GitHub Releases。用户现在可以在设置面板中直接检查、下载和安装更新，无需手动访问 GitHub。
+
+- 设置面板「关于」区域新增「检查更新」按钮
+- 有新版本时显示版本号
+- 下载进度条及百分比
+- 更新安装完成后一键重启
+- Ed25519 签名密钥对确保更新分发安全
+- GitHub Actions 工作流添加签名环境变量
+
+#### Extended Thinking Toggle / 深度思考开关
+
+New "Think" toggle button in the input toolbar. When enabled, Claude sessions start with `--settings '{"alwaysThinkingEnabled":true}'`.
+
+- Persistent setting (saved in localStorage)
+- Visual indicator: amber glow when active
+- Passed through to Rust backend via `thinking_enabled` parameter
+
+输入工具栏新增「Think」开关按钮。启用后 Claude 会话以深度思考模式启动。
+
+- 设置持久化（保存在 localStorage）
+- 视觉指示：启用时显示琥珀色高亮
+- 通过 `thinking_enabled` 参数传递至 Rust 后端
+
+#### Windows Platform Adaptation / Windows 平台适配
+
+Cross-platform UI text now adapts to the detected OS:
+
+- Keyboard shortcut hints: `⌘` on macOS → `Ctrl` on Windows/Linux
+- File manager references: `Finder` → `Explorer` (Windows) / `Files` (Linux)
+- Session path grouping: supports both Unix (`/Users/...`) and Windows (`C:\Users\...`) path formats
+- New `platform.ts` utility with cached platform detection
+
+UI 文本现在根据检测到的操作系统自适应：
+
+- 快捷键提示：macOS 显示 `⌘`，Windows/Linux 显示 `Ctrl`
+- 文件管理器名称：macOS `Finder` → Windows `资源管理器` / Linux `文件管理器`
+- 会话路径分组：同时支持 Unix (`/Users/...`) 和 Windows (`C:\Users\...`) 路径格式
+- 新增 `platform.ts` 工具，带缓存的平台检测
+
+#### `/code` Slash Command
+
+Added missing `/code` built-in command to switch back to default code mode.
+
+新增 `/code` 内置命令，用于切换回默认 code 模式。
+
+### Fixed / 修复
+
+#### Project Path Decoding / 项目路径解码
+
+Rewrote `decode_project_name` in Rust to handle directory names containing hyphens (e.g., `ppt-maker` was incorrectly decoded as `ppt/maker`). New algorithm greedily matches real filesystem segments from left to right.
+
+重写 Rust 端的 `decode_project_name`，修复包含连字符的目录名被错误解码的问题（如 `ppt-maker` 被解码为 `ppt/maker`）。新算法从左到右贪心匹配真实的文件系统路径段。
+
+#### Ask/Plan Mode Prefix Scope / Ask/Plan 模式前缀作用域
+
+Mode prefix (`/ask`, `/plan`) is now only applied to the first message of a new session, not to follow-up messages. Previously, follow-up messages also received the prefix, which the CLI could misinterpret as a skill invocation.
+
+模式前缀（`/ask`、`/plan`）现在只在新会话的首条消息中添加，不再应用于后续消息。之前后续消息也会附带前缀，CLI 可能将其误解为技能调用。
+
+#### Window Dragging / 窗口拖拽
+
+Replaced all manual `startDragging()` JS handlers with native `data-tauri-drag-region` attribute. Removed `getCurrentWindow()` imports from Sidebar, ChatPanel, SecondaryPanel, and AppShell.
+
+用原生 `data-tauri-drag-region` 属性替代所有手动 `startDragging()` JS 处理。从 Sidebar、ChatPanel、SecondaryPanel、AppShell 中移除 `getCurrentWindow()` 导入。
+
+#### Session Deletion Cleanup / 会话删除清理
+
+Deleting the current session now properly clears session metadata and working directory, preventing stale state.
+
+删除当前会话时现在会正确清理会话元数据和工作目录，防止残留状态。
+
+#### Context Menu Clipping / 右键菜单裁切
+
+File explorer context menu now detects viewport boundaries and repositions to stay fully visible. Z-index raised to `z-[9999]`.
+
+文件管理器右键菜单现在检测视口边界并自动调整位置确保完全可见。Z-index 提升至 `z-[9999]`。
+
+### Changed / 变更
+
+- Model IDs updated: `claude-opus-4-0` → `claude-opus-4-6`, `claude-sonnet-4-0` → `claude-sonnet-4-6`, `claude-haiku-3-5` → `claude-haiku-4-5`
+- Default font size: 14px → 18px
+- Default sidebar width: 260px → 280px
+- Dark mode text colors adjusted for better readability (`text-tertiary`, `text-muted`)
+- Secondary panel tab text: `text-xs` → `text-sm`
+- Session count label: `text-[10px]` → `text-[11px]`
+- Version display in Settings now dynamically reads from Tauri `getVersion()` API instead of hardcoded string
+- Agent cache saved/restored on session switch (via `agentStore.saveToCache`)
+- localStorage migration (version 0 → 1) for model ID updates
+
+---
+
+## [0.2.1] - 2026-02-19
+
+### Fixed / 修复
+
+#### Model ID Update / 模型 ID 更新
+
+Updated all model IDs to match the latest Anthropic API:
+- `claude-opus-4-0` → `claude-opus-4-6`
+- `claude-sonnet-4-0` → `claude-sonnet-4-6`
+- `claude-haiku-3-5` → `claude-haiku-4-5`
+
+Added localStorage migration (version 0 → 1) to automatically update persisted model selections.
+
+更新所有模型 ID 以匹配最新的 Anthropic API：
+- `claude-opus-4-0` → `claude-opus-4-6`
+- `claude-sonnet-4-0` → `claude-sonnet-4-6`
+- `claude-haiku-3-5` → `claude-haiku-4-5`
+
+新增 localStorage 迁移（version 0 → 1），自动更新已保存的模型选择。
+
+#### New Task Flow / 新建任务流程优化
+
+- Sidebar "New Task" button now navigates to WelcomeScreen instead of directly opening folder picker
+- WelcomeScreen button text changed from "新建任务" to "选择文件夹" with folder icon
+- App starts at WelcomeScreen on every launch (workingDirectory no longer persisted)
+- Deleting current session returns to WelcomeScreen
+
+- 侧栏「新任务」按钮现在导航至 WelcomeScreen 而非直接弹出文件夹选择器
+- WelcomeScreen 按钮文案从「新建任务」改为「选择文件夹」，图标改为文件夹
+- 每次启动应用都从 WelcomeScreen 开始（workingDirectory 不再持久化）
+- 删除当前会话后返回 WelcomeScreen
+
+#### Session Grouping Fix / 会话分组修复
+
+Fixed duplicate project groups in sidebar caused by path format mismatch between draft sessions (full path `/Users/xxx/...`) and historical sessions (`~/...`). Added `normalizeProjectKey` to unify grouping.
+
+修复侧栏中同一文件夹出现两个分组的问题，原因是草稿会话（完整路径）和历史会话（`~/` 前缀路径）格式不一致。新增 `normalizeProjectKey` 统一分组键。
+
+#### Titlebar Drag & Double-Click Maximize / 标题栏拖拽与双击最大化
+
+- Switched from `titleBarStyle: "Transparent"` to `"Overlay"` for native macOS titlebar behavior
+- Replaced JS `startDragging()` hacks with `data-tauri-drag-region` — system handles drag and double-click-to-maximize natively
+- Removed manual cocoa `NSFullSizeContentViewWindowMask` setup (Tauri handles this with Overlay mode)
+
+- 标题栏样式从 `Transparent` 切换为 `Overlay`，使用 macOS 原生标题栏行为
+- 用 `data-tauri-drag-region` 替代 JS `startDragging()` hack——系统原生处理拖拽和双击最大化
+- 移除手动设置的 cocoa `NSFullSizeContentViewWindowMask`（Overlay 模式下 Tauri 自动处理）
+
+#### File Explorer Context Menu / 文件管理器右键菜单
+
+- Fixed context menu text being clipped by window edge — added viewport boundary detection
+- Increased z-index to `z-[9999]` to prevent overlay issues
+
+- 修复右键菜单文字被窗口边界截断的问题——添加视口边界检测
+- 提升 z-index 至 `z-[9999]` 防止图层遮挡
+
+#### UI Consistency / UI 一致性
+
+- Unified file tree font size (`text-sm` → `text-[13px]`) to match conversation list
+
+- 统一文件树字体大小（`text-sm` → `text-[13px]`）与任务列表一致
+
+---
+
 ## [0.2.0] - 2026-02-16
 
 ### Added / 新增功能

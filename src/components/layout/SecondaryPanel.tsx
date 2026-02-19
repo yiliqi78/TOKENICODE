@@ -1,10 +1,8 @@
-import { useCallback } from 'react';
 import { useSettingsStore, SecondaryPanelTab } from '../../stores/settingsStore';
 import { FileExplorer } from '../files/FileExplorer';
 import { AgentPanel } from '../agents/AgentPanel';
 import { SkillsPanel } from '../skills/SkillsPanel';
 import { useT } from '../../lib/i18n';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 
 const tabs: { id: SecondaryPanelTab; labelKey: string; icon: string }[] = [
   { id: 'files', labelKey: 'panel.files', icon: 'M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3z' },
@@ -18,17 +16,12 @@ export function SecondaryPanel() {
   const setTab = useSettingsStore((s) => s.setSecondaryTab);
   const togglePanel = useSettingsStore((s) => s.toggleSecondaryPanel);
 
-  const handleDragStart = useCallback((e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('button, a, input, [role="button"]')) return;
-    if (e.buttons === 1) {
-      getCurrentWindow().startDragging();
-    }
-  }, []);
+  // Window dragging handled via CSS -webkit-app-region: drag on the top strip
 
   return (
     <div className="flex flex-col h-full">
-      {/* Tab bar — extra top padding for macOS traffic lights, draggable */}
-      <div onMouseDown={handleDragStart}
+      {/* Tab bar — extra top padding for macOS traffic lights */}
+      <div
         className="flex items-center justify-between px-2 pt-6 pb-2
         border-b border-border-subtle cursor-default">
         <div className="flex gap-1 min-w-0 overflow-hidden">
@@ -36,7 +29,7 @@ export function SecondaryPanel() {
             <button
               key={tab.id}
               onClick={() => setTab(tab.id)}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium
+              className={`px-2.5 py-1.5 rounded-lg text-sm font-medium
                 transition-smooth flex items-center gap-1.5 whitespace-nowrap flex-shrink-0
                 ${activeTab === tab.id
                   ? 'bg-accent/10 text-accent'

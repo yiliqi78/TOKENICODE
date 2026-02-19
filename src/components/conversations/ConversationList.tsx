@@ -109,7 +109,9 @@ export function ConversationList() {
       if (selectedId === sessionId) {
         setSelected('');
         useChatStore.getState().clearMessages();
+        useChatStore.getState().setSessionMeta({});
         useChatStore.getState().setSessionStatus('idle');
+        useSettingsStore.getState().setWorkingDirectory('');
       }
       // Also remove from chat cache so it doesn't linger
       useChatStore.getState().removeFromCache(sessionId);
@@ -372,11 +374,23 @@ export function ConversationList() {
     });
   }, []);
 
+  // Normalize project key: replace full home path with ~ for consistent grouping
+  const normalizeProjectKey = useCallback((raw: string) => {
+    // Unix:    /Users/foo/bar → ~/bar  or  /home/foo/bar → ~/bar
+    // Windows: C:\Users\foo\bar → ~\bar
+    const unix = raw.match(/^\/(?:Users|home)\/[^/]+(\/.*)/);
+    if (unix) return '~' + unix[1];
+    const win = raw.match(/^[A-Za-z]:[/\\]Users[/\\][^/\\]+([/\\].*)/i);
+    if (win) return '~' + win[1];
+    return raw;
+  }, []);
+
   // Group sessions by project, sorted by most recent activity
   const projectGroups = useMemo(() => {
     const map = new Map<string, SessionListItem[]>();
     for (const s of filtered) {
-      const key = s.project || s.projectDir;
+      const raw = s.project || s.projectDir;
+      const key = normalizeProjectKey(raw);
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(s);
     }
@@ -390,7 +404,7 @@ export function ConversationList() {
       return tb - ta;
     });
     return entries;
-  }, [filtered]);
+  }, [filtered, normalizeProjectKey]);
 
   const projectLabel = (project: string) => {
     const parts = project.replace(/^~\//, '').split('/');
@@ -450,7 +464,7 @@ export function ConversationList() {
                 truncate flex-1 text-left">
                 {projectLabel(project)}
               </span>
-              <span className="text-[10px] text-text-tertiary flex-shrink-0">
+              <span className="text-[11px] text-text-tertiary flex-shrink-0">
                 {items.length} {t('conv.sessions')}
               </span>
             </button>
@@ -505,7 +519,7 @@ export function ConversationList() {
                         || (session.path === '' ? t('conv.newChat') : t('conv.empty'))}
                     </div>
                   )}
-                  <span className="text-[11px] text-text-tertiary flex-shrink-0">
+                  <span className="text-[12px] text-text-tertiary flex-shrink-0">
                     {formatRelativeTime(session.modifiedAt)}
                   </span>
                   {/* Blinking working indicator — shown when session is running in background */}
@@ -533,7 +547,7 @@ export function ConversationList() {
       {/* Refresh button */}
       <button
         onClick={fetchSessions}
-        className="mx-2 mt-2 py-1.5 rounded-lg text-[11px]
+        className="mx-2 mt-2 py-1.5 rounded-lg text-[12px]
           text-text-muted hover:text-text-primary
           hover:bg-bg-secondary transition-smooth"
       >

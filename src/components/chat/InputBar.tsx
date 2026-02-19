@@ -15,6 +15,35 @@ import { SlashCommandPopover, getFilteredCommandList } from './SlashCommandPopov
 import { useCommandStore } from '../../stores/commandStore';
 import { useSnapshotStore } from '../../stores/snapshotStore';
 
+/** Think mode toggle button for the toolbar */
+function ThinkToggle({ disabled }: { disabled: boolean }) {
+  const thinkingEnabled = useSettingsStore((s) => s.thinkingEnabled);
+  const toggleThinking = useSettingsStore((s) => s.toggleThinking);
+  const t = useT();
+
+  return (
+    <button
+      onClick={toggleThinking}
+      disabled={disabled}
+      className={`p-1.5 rounded-lg transition-smooth flex items-center gap-1
+        ${disabled ? 'opacity-40 cursor-not-allowed' : ''}
+        ${thinkingEnabled
+          ? 'bg-amber-500/10 text-amber-500'
+          : 'text-text-tertiary hover:text-text-primary hover:bg-bg-secondary'
+        }`}
+      title={thinkingEnabled ? t('input.thinkOn') : t('input.thinkOff')}
+    >
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
+        stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="8" cy="6" r="4" />
+        <path d="M5.5 9.5C5.5 11.5 6 13 8 13s2.5-1.5 2.5-3.5" />
+        <path d="M6.5 14h3" />
+      </svg>
+      <span className="text-[10px]">Think</span>
+    </button>
+  );
+}
+
 export function InputBar() {
   const t = useT();
   const inputDraft = useChatStore((s) => s.inputDraft);
@@ -436,13 +465,6 @@ export function InputBar() {
       }
     }
 
-    // Apply mode prefix when mode is not 'code' and the text isn't already a slash command.
-    // For the first message, the prefix becomes part of the prompt.
-    // For follow-ups, the CLI recognises /ask and /plan as inline mode switches.
-    if (!text.startsWith('/') && (sessionMode === 'ask' || sessionMode === 'plan')) {
-      text = `/${sessionMode} ${text}`;
-    }
-
     // Append file paths if there are attachments
     if (files.length > 0) {
       const filePaths = files.map((f) => f.path).join('\n');
@@ -510,6 +532,15 @@ export function InputBar() {
 
       if (!sentViaStdin) {
         // ===== No running process: spawn a new persistent stream-json process =====
+
+        // Apply mode prefix only for new sessions (not follow-ups).
+        // Follow-up messages should not get the prefix because the session is
+        // already running in the correct mode, and the CLI may interpret
+        // /ask or /plan as an unknown skill invocation.
+        if (!text.startsWith('/') && (sessionMode === 'ask' || sessionMode === 'plan')) {
+          text = `/${sessionMode} ${text}`;
+        }
+
         // If we have an existing sessionId (loaded historical session), resume it.
         // Only use it as resume_session_id if it looks like a real CLI session ID (UUID),
         // not a desk-generated ID like "desk_xxx".
@@ -566,6 +597,7 @@ export function InputBar() {
           session_id: preGeneratedId,
           dangerously_skip_permissions: sessionMode === 'bypass',
           resume_session_id: existingSessionId || undefined,
+          thinking_enabled: useSettingsStore.getState().thinkingEnabled,
         });
 
         // Store both: session_id for tracking, stdinId (preGeneratedId) for stdin communication
@@ -1420,7 +1452,7 @@ export function InputBar() {
           <div
             className={`flex items-end gap-2 bg-bg-input border rounded-2xl px-4 py-3
               focus-within:border-border-focus focus-within:shadow-glow
-              transition-smooth
+              transition-smooth group/input
               ${isDragging
                 ? 'border-accent bg-accent/5 shadow-glow'
                 : 'border-border-subtle'
@@ -1481,6 +1513,14 @@ export function InputBar() {
               }}
             />
           </div>
+          {/* Shortcut hint — visible when input area is not focused and input is empty */}
+          {!input && !activePrefix && !isRunning && (
+            <span className="flex-shrink-0 text-[10px] text-text-tertiary/50
+              group-focus-within/input:hidden select-none whitespace-nowrap
+              self-center mr-1">
+              {t('input.shortcutHint')}
+            </span>
+          )}
           {/* Stop button — visible only while running */}
           {isRunning && (
             <button
@@ -1552,6 +1592,9 @@ export function InputBar() {
 
           {/* Mode selector */}
           <ModeSelector disabled={isRunning} />
+
+          {/* Think toggle */}
+          <ThinkToggle disabled={isRunning} />
 
           {/* Rewind button */}
           {showRewind && (

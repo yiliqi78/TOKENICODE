@@ -1,10 +1,9 @@
-import { useCallback } from 'react';
 import { useSettingsStore, MODEL_OPTIONS } from '../../stores/settingsStore';
 import { useChatStore } from '../../stores/chatStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { ConversationList } from '../conversations/ConversationList';
 import { useT } from '../../lib/i18n';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { useAgentStore } from '../../stores/agentStore';
 
 /** Map raw model ID to friendly display name */
 function getModelDisplayName(modelId: string): string {
@@ -19,18 +18,12 @@ export function Sidebar() {
   const sessionStatus = useChatStore((s) => s.sessionStatus);
   const t = useT();
 
-  // Handle window dragging from the sidebar header
-  const handleDragStart = useCallback((e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('button, a, input, [role="button"]')) return;
-    if (e.buttons === 1) {
-      getCurrentWindow().startDragging();
-    }
-  }, []);
+  // Window dragging handled via CSS -webkit-app-region: drag on the top strip
 
   return (
     <div className="flex flex-col h-full pt-8 pb-4 px-3">
-      {/* Logo — draggable area */}
-      <div onMouseDown={handleDragStart}
+      {/* Logo area */}
+      <div
         className="flex items-center justify-between mb-6 px-2 cursor-default">
         <div className="flex items-center pointer-events-none">
           {/* Text logo — TOKEN/CODE, slash uses theme accent */}
@@ -58,23 +51,20 @@ export function Sidebar() {
         </button>
       </div>
 
-      {/* New Chat */}
-      <button onClick={async () => {
-        // Save current session to cache before switching (preserve messages & running process)
+      {/* New Chat — navigate to WelcomeScreen where user picks a folder */}
+      <button onClick={() => {
+        // Save current session to cache before switching
         const currentTabId = useSessionStore.getState().selectedSessionId;
         if (currentTabId) {
           useChatStore.getState().saveToCache(currentTabId);
+          useAgentStore.getState().saveToCache(currentTabId);
         }
 
-        // Clear chat state for the new session
-        useChatStore.getState().clearMessages();
-
-        // Create a draft tab immediately so the user sees the tab right away
-        const draftId = `draft_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        // Clear working directory so WelcomeScreen (folder picker) shows up
+        // Clear working directory so ChatPanel shows WelcomeScreen
         useSettingsStore.getState().setWorkingDirectory('');
-        // Add draft with empty project — user will pick folder from WelcomeScreen
-        useSessionStore.getState().addDraftSession(draftId, '');
+        useChatStore.getState().clearMessages();
+        useChatStore.getState().setSessionMeta({});
+        useChatStore.getState().setSessionStatus('idle');
       }}
         className="w-full py-2.5 px-4 rounded-[20px] text-sm font-medium
           bg-accent hover:bg-accent-hover text-text-inverse
@@ -90,7 +80,7 @@ export function Sidebar() {
       {/* Current Session */}
       {sessionMeta.sessionId && (
         <div className="p-3 rounded-xl bg-bg-secondary border border-border-subtle mb-3">
-          <div className="text-[11px] font-medium text-text-tertiary uppercase
+          <div className="text-[12px] font-medium text-text-tertiary uppercase
             tracking-wider mb-1.5">{t('sidebar.currentSession')}</div>
           <div className="text-sm font-medium text-text-primary truncate">
             {sessionMeta.model ? getModelDisplayName(sessionMeta.model) : 'Claude'}
