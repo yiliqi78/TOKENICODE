@@ -155,7 +155,8 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: 'tokenicode-settings',
       version: 1,
-      migrate: (persisted: Record<string, unknown>, version: number) => {
+      migrate: (persistedState: unknown, version: number) => {
+        const persisted = persistedState as Record<string, unknown>;
         if (version === 0) {
           // Migrate legacy model IDs to current ones
           const legacyMap: Record<string, ModelId> = {
