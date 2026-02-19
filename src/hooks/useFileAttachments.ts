@@ -143,7 +143,7 @@ export function useFileAttachments() {
       const newFiles: FileAttachment[] = [];
       for (const filePath of paths) {
         try {
-          const name = filePath.split('/').pop() || filePath;
+          const name = filePath.split(/[\\/]/).pop() || filePath;
           const mime = guessMime(name);
           const isImg = isImageExt(name);
 

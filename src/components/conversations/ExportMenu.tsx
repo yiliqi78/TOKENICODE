@@ -45,7 +45,7 @@ export function ExportMenu({ sessionPath }: Props) {
     const ext = format === 'markdown' ? 'md' : 'json';
     const filterName = format === 'markdown' ? 'Markdown' : 'JSON';
     const timestamp = new Date().toISOString().slice(0, 10);
-    const defaultName = `${(sessionPath.split('/').pop() || 'export').replace('.jsonl', '')}_${timestamp}.${ext}`;
+    const defaultName = `${(sessionPath.split(/[\\/]/).pop() || 'export').replace('.jsonl', '')}_${timestamp}.${ext}`;
 
     const outputPath = await save({
       defaultPath: defaultName,
@@ -59,7 +59,7 @@ export function ExportMenu({ sessionPath }: Props) {
       } else {
         await bridge.exportSessionJson(sessionPath, outputPath);
       }
-      setStatus(`${t('export.success')} ${outputPath.split('/').pop()}`);
+      setStatus(`${t('export.success')} ${outputPath.split(/[\\/]/).pop()}`);
       setTimeout(() => setStatus(null), 3000);
     } catch (err) {
       setStatus(`Error: ${err}`);

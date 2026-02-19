@@ -322,7 +322,7 @@ function computeWriteLines(input: any): number | null {
 
 /** Get short filename from path */
 function shortPath(filePath: string): string {
-  const parts = filePath.split('/');
+  const parts = filePath.split(/[\\/]/);
   return parts.length > 2 ? parts.slice(-2).join('/') : parts[parts.length - 1] || filePath;
 }
 

@@ -38,7 +38,7 @@ function getExt(path: string): string {
 }
 
 function getFileName(path: string): string {
-  return path.split('/').pop() || path;
+  return path.split(/[\\/]/).pop() || path;
 }
 
 function getFileIcon(ext: string): string {
@@ -90,8 +90,9 @@ function getLanguageExtension(ext: string) {
  * resolve relative to the file's directory on disk.
  */
 function injectBaseTag(html: string, filePath: string): string {
-  // Get directory of the file
-  const dir = filePath.substring(0, filePath.lastIndexOf('/') + 1);
+  // Get directory of the file (handle both / and \ separators)
+  const lastSep = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
+  const dir = lastSep >= 0 ? filePath.substring(0, lastSep + 1) : '';
   const baseTag = `<base href="file://${dir}">`;
 
   // Insert into <head> if present, otherwise prepend
@@ -408,7 +409,29 @@ export function FilePreview() {
           /* Markdown preview: rendered */
           <div className="overflow-auto h-full p-4">
             <div className="text-sm leading-relaxed selectable max-w-3xl mx-auto">
-              <MarkdownRenderer content={fileContent} />
+              {(() => {
+                // Extract YAML frontmatter if present
+                const fmMatch = fileContent.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+                const frontmatter = fmMatch ? fmMatch[1] : null;
+                const body = fmMatch ? fileContent.slice(fmMatch[0].length) : fileContent;
+                return (
+                  <>
+                    {frontmatter && (
+                      <div className="mb-4 rounded-lg border border-border-subtle
+                        bg-bg-secondary/50 overflow-hidden text-xs font-mono">
+                        <div className="px-3 py-1 border-b border-border-subtle/50
+                          bg-bg-tertiary/30 text-[10px] text-text-tertiary font-sans">
+                          frontmatter
+                        </div>
+                        <div className="px-3 py-2 text-text-muted whitespace-pre-wrap">
+                          {frontmatter}
+                        </div>
+                      </div>
+                    )}
+                    <MarkdownRenderer content={body} />
+                  </>
+                );
+              })()}
             </div>
           </div>
         ) : fileContent !== null ? (

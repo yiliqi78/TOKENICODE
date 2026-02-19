@@ -105,7 +105,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
           className="max-w-full max-h-96 object-contain cursor-zoom-in"
           onClick={() => {
             if (!src) return;
-            if (src.startsWith('file://') || src.startsWith('/')) {
+            if (src.startsWith('file://') || src.startsWith('/') || /^[A-Za-z]:[/\\]/.test(src)) {
               const path = src.startsWith('file://') ? src.slice(7) : src;
               useLightboxStore.getState().openFile(path, alt);
             } else if (src.startsWith('data:')) {

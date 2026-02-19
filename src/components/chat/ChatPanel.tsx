@@ -200,7 +200,7 @@ export function ChatPanel() {
           {workingDirectory && (
             <span className="text-[10px] text-text-tertiary truncate max-w-[160px]"
               title={workingDirectory}>
-              {workingDirectory.split('/').pop()}
+              {workingDirectory.split(/[\\/]/).pop()}
             </span>
           )}
         </div>

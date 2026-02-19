@@ -300,47 +300,31 @@ input, textarea, [contenteditable="true"],
   -webkit-user-select: text;
 }
 
-/* Scrollbar styling — auto-hide globally, only visible on hover */
+/* Scrollbar styling — thin, theme-aware, consistent across OS settings.
+   Works whether the OS is set to "always show", "when scrolling", or "auto".
+   WebKit: custom ::-webkit-scrollbar overrides the OS preference entirely,
+   so we get full control over width, color, and visibility.
+   Firefox: scrollbar-width + scrollbar-color for thin themed scrollbar. */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 0; /* Hide horizontal scrollbar globally */
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  border-radius: 4px;
   transition: background 0.2s;
 }
-*:hover > ::-webkit-scrollbar-thumb,
-*:hover::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.12);
-}
-.dark *:hover > ::-webkit-scrollbar-thumb,
-.dark *:hover::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-}
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-accent-glow) !important;
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
 }
 
-/* Firefox: auto-hide scrollbar globally */
+/* Firefox: thin scrollbar, themed color */
 * {
   scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
-}
-*:hover {
-  scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
-}
-.dark *:hover {
-  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
-}
-
-/* Legacy .scrollbar-autohide — kept for backward compat, now a no-op since global auto-hides */
-.scrollbar-autohide {
-  scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
+  scrollbar-color: color-mix(in srgb, var(--color-accent) 12%, transparent) transparent;
 }
 
 /* Accent text (formerly gradient-text) */

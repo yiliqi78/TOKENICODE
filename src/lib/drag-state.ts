@@ -21,7 +21,7 @@ export function startTreeDrag(path: string) {
   // Create ghost element
   _ghostEl = document.createElement('div');
   _ghostEl.id = 'tree-drag-ghost';
-  const name = path.split('/').pop() || path;
+  const name = path.split(/[\\/]/).pop() || path;
   _ghostEl.textContent = `📄 ${name}`;
   Object.assign(_ghostEl.style, {
     position: 'fixed',

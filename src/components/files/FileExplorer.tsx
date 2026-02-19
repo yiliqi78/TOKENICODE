@@ -398,7 +398,7 @@ export function FileExplorer() {
 
   const handlePaste = useCallback(async (targetDir: string) => {
     if (!clipboardPath) return;
-    const fileName = clipboardPath.split('/').pop() || 'file';
+    const fileName = clipboardPath.split(/[\\/]/).pop() || 'file';
     const dest = `${targetDir}/${fileName}`;
     try {
       await bridge.copyFile(clipboardPath, dest);
@@ -410,7 +410,7 @@ export function FileExplorer() {
   }, [clipboardPath, refreshTree]);
 
   const handleStartRename = useCallback((path: string) => {
-    const name = path.split('/').pop() || '';
+    const name = path.split(/[\\/]/).pop() || '';
     setRenamingPath(path);
     setRenameValue(name);
   }, []);
@@ -420,7 +420,7 @@ export function FileExplorer() {
       setRenamingPath(null);
       return;
     }
-    const dir = renamingPath.substring(0, renamingPath.lastIndexOf('/'));
+    const dir = renamingPath.substring(0, Math.max(renamingPath.lastIndexOf('/'), renamingPath.lastIndexOf('\\')));
     const dest = `${dir}/${renameValue.trim()}`;
     if (dest === renamingPath) {
       setRenamingPath(null);
@@ -508,7 +508,7 @@ export function FileExplorer() {
           <div className="min-w-0">
             <span className="text-xs font-semibold text-text-primary
               truncate block">
-              {workingDirectory.split('/').pop()}
+              {workingDirectory.split(/[\\/]/).pop()}
             </span>
           </div>
           {changedCount > 0 && (
@@ -626,7 +626,7 @@ export function FileExplorer() {
             <p className="text-sm text-text-primary mb-4">
               {deleteTarget.isDir ? t('files.deleteConfirmDir') : t('files.deleteConfirm')}
             </p>
-            <p className="text-xs text-text-muted mb-4 truncate">{deleteTarget.path.split('/').pop()}</p>
+            <p className="text-xs text-text-muted mb-4 truncate">{deleteTarget.path.split(/[\\/]/).pop()}</p>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setDeleteTarget(null)}

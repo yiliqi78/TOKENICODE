@@ -11,6 +11,9 @@ use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 use std::collections::HashMap;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 /// Manages active file watchers
 #[derive(Default)]
 struct WatcherManager {
@@ -20,69 +23,158 @@ struct WatcherManager {
 /// Find the claude binary by checking common installation paths
 fn find_claude_binary() -> Option<String> {
     // 1. Check if `claude` is already on the system PATH
-    if let Ok(output) = std::process::Command::new("sh")
-        .args(["-l", "-c", "which claude"])
-        .output()
+    #[cfg(target_os = "windows")]
     {
-        if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path.is_empty() && std::path::Path::new(&path).exists() {
-                return Some(path);
+        // Windows: use `where claude` via cmd
+        if let Ok(output) = std::process::Command::new("cmd")
+            .args(["/C", "where", "claude"])
+            .output()
+        {
+            if output.status.success() {
+                // `where` may return multiple lines; take the first one
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if let Some(path) = stdout.lines().next() {
+                    let path = path.trim().to_string();
+                    if !path.is_empty() && std::path::Path::new(&path).exists() {
+                        return Some(path);
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(output) = std::process::Command::new("sh")
+            .args(["-l", "-c", "which claude"])
+            .output()
+        {
+            if output.status.success() {
+                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !path.is_empty() && std::path::Path::new(&path).exists() {
+                    return Some(path);
+                }
             }
         }
     }
 
-    // 2. Check ~/Library/Application Support/Claude/claude-code/*/claude (macOS)
     if let Some(home) = dirs::home_dir() {
-        let claude_code_dir = home.join("Library/Application Support/Claude/claude-code");
-        if claude_code_dir.exists() {
-            if let Ok(entries) = std::fs::read_dir(&claude_code_dir) {
-                let mut versions: Vec<_> = entries
-                    .flatten()
-                    .filter(|e| e.path().is_dir())
-                    .collect();
-                // Sort by semantic version (descending) so newest version comes first.
-                // Plain string sort gets "2.1.9" > "2.1.41" wrong.
-                versions.sort_by(|a, b| {
-                    let parse = |name: &std::ffi::OsStr| -> Vec<u64> {
-                        name.to_string_lossy()
-                            .split('.')
-                            .filter_map(|s| s.parse::<u64>().ok())
-                            .collect()
-                    };
-                    parse(&b.file_name()).cmp(&parse(&a.file_name()))
-                });
-                // Try each version directory until we find one with a working binary
-                for entry in &versions {
-                    let bin = entry.path().join("claude");
-                    if bin.exists() {
-                        return Some(bin.to_string_lossy().to_string());
-                    }
+        // 2. Platform-specific Claude desktop app bundled CLI
+        #[cfg(target_os = "windows")]
+        {
+            // %LOCALAPPDATA%\Claude\claude-code\*\claude.exe
+            if let Some(local_app) = dirs::data_local_dir() {
+                let claude_code_dir = local_app.join("Claude").join("claude-code");
+                if let Some(bin) = find_newest_version_bin(&claude_code_dir, "claude.exe") {
+                    return Some(bin);
+                }
+            }
+            // %APPDATA%\Claude\claude-code\*\claude.exe
+            if let Some(app_data) = dirs::data_dir() {
+                let claude_code_dir = app_data.join("Claude").join("claude-code");
+                if let Some(bin) = find_newest_version_bin(&claude_code_dir, "claude.exe") {
+                    return Some(bin);
+                }
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let claude_code_dir = home.join("Library/Application Support/Claude/claude-code");
+            if let Some(bin) = find_newest_version_bin(&claude_code_dir, "claude") {
+                return Some(bin);
+            }
+        }
+        #[cfg(target_os = "linux")]
+        {
+            // ~/.local/share/Claude/claude-code/*/claude
+            if let Some(data_dir) = dirs::data_dir() {
+                let claude_code_dir = data_dir.join("Claude").join("claude-code");
+                if let Some(bin) = find_newest_version_bin(&claude_code_dir, "claude") {
+                    return Some(bin);
                 }
             }
         }
 
         // 3. Common global install paths
-        for candidate in [
-            home.join(".npm-global/bin/claude"),
-            home.join(".local/bin/claude"),
-        ] {
-            if candidate.exists() {
-                return Some(candidate.to_string_lossy().to_string());
+        #[cfg(target_os = "windows")]
+        {
+            // npm global: %APPDATA%\npm\claude.cmd
+            if let Some(app_data) = dirs::data_dir() {
+                for name in ["claude.cmd", "claude.exe", "claude.ps1"] {
+                    let candidate = app_data.join("npm").join(name);
+                    if candidate.exists() {
+                        return Some(candidate.to_string_lossy().to_string());
+                    }
+                }
+            }
+            // Scoop: ~/scoop/shims/claude.cmd
+            let scoop_candidate = home.join("scoop").join("shims").join("claude.cmd");
+            if scoop_candidate.exists() {
+                return Some(scoop_candidate.to_string_lossy().to_string());
+            }
+            // nvm-windows / fnm / volta node paths
+            for sub in ["AppData\\Roaming\\nvm", ".volta\\bin", "AppData\\Local\\fnm_multishells"] {
+                let candidate = home.join(sub).join("claude.cmd");
+                if candidate.exists() {
+                    return Some(candidate.to_string_lossy().to_string());
+                }
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            for candidate in [
+                home.join(".npm-global/bin/claude"),
+                home.join(".local/bin/claude"),
+            ] {
+                if candidate.exists() {
+                    return Some(candidate.to_string_lossy().to_string());
+                }
             }
         }
     }
 
-    // 4. System-wide paths
-    for candidate in [
-        "/usr/local/bin/claude",
-        "/opt/homebrew/bin/claude",
-    ] {
-        if std::path::Path::new(candidate).exists() {
-            return Some(candidate.to_string());
+    // 4. System-wide paths (Unix only)
+    #[cfg(not(target_os = "windows"))]
+    {
+        for candidate in [
+            "/usr/local/bin/claude",
+            "/opt/homebrew/bin/claude",
+        ] {
+            if std::path::Path::new(candidate).exists() {
+                return Some(candidate.to_string());
+            }
         }
     }
 
+    None
+}
+
+/// Search a versioned directory for the newest version containing the given binary name
+fn find_newest_version_bin(base_dir: &std::path::Path, bin_name: &str) -> Option<String> {
+    if !base_dir.exists() {
+        return None;
+    }
+    if let Ok(entries) = std::fs::read_dir(base_dir) {
+        let mut versions: Vec<_> = entries
+            .flatten()
+            .filter(|e| e.path().is_dir())
+            .collect();
+        // Sort by semantic version (descending) so newest version comes first
+        versions.sort_by(|a, b| {
+            let parse = |name: &std::ffi::OsStr| -> Vec<u64> {
+                name.to_string_lossy()
+                    .split('.')
+                    .filter_map(|s| s.parse::<u64>().ok())
+                    .collect()
+            };
+            parse(&b.file_name()).cmp(&parse(&a.file_name()))
+        });
+        for entry in &versions {
+            let bin = entry.path().join(bin_name);
+            if bin.exists() {
+                return Some(bin.to_string_lossy().to_string());
+            }
+        }
+    }
     None
 }
 
@@ -91,17 +183,40 @@ fn build_enriched_path() -> String {
     let current = std::env::var("PATH").unwrap_or_default();
     let mut paths = vec![];
 
-    if let Some(home) = dirs::home_dir() {
-        paths.push(home.join(".cargo/bin").to_string_lossy().to_string());
-        paths.push(home.join(".local/bin").to_string_lossy().to_string());
-        paths.push(home.join(".npm-global/bin").to_string_lossy().to_string());
-    }
-    paths.push("/opt/homebrew/bin".to_string());
-    paths.push("/usr/local/bin".to_string());
+    #[cfg(target_os = "windows")]
+    let separator = ";";
+    #[cfg(not(target_os = "windows"))]
+    let separator = ":";
 
-    let mut result = paths.join(":");
+    if let Some(home) = dirs::home_dir() {
+        #[cfg(target_os = "windows")]
+        {
+            if let Some(app_data) = dirs::data_dir() {
+                paths.push(app_data.join("npm").to_string_lossy().to_string());
+            }
+            if let Some(local_app) = dirs::data_local_dir() {
+                paths.push(local_app.join("Programs").join("claude-code").to_string_lossy().to_string());
+            }
+            paths.push(home.join("scoop").join("shims").to_string_lossy().to_string());
+            paths.push(home.join(".cargo").join("bin").to_string_lossy().to_string());
+            paths.push(home.join(".volta").join("bin").to_string_lossy().to_string());
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            paths.push(home.join(".cargo/bin").to_string_lossy().to_string());
+            paths.push(home.join(".local/bin").to_string_lossy().to_string());
+            paths.push(home.join(".npm-global/bin").to_string_lossy().to_string());
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        paths.push("/opt/homebrew/bin".to_string());
+        paths.push("/usr/local/bin".to_string());
+    }
+
+    let mut result = paths.join(separator);
     if !current.is_empty() {
-        result.push(':');
+        result.push_str(separator);
         result.push_str(&current);
     }
     result
@@ -168,6 +283,30 @@ async fn start_claude_session(
     // Build an enriched PATH for the child process
     let enriched_path = build_enriched_path();
 
+    // On Windows, .cmd/.bat files must be launched via cmd /C
+    #[cfg(target_os = "windows")]
+    let mut child = {
+        let needs_cmd = claude_bin.ends_with(".cmd") || claude_bin.ends_with(".bat");
+        let mut cmd = if needs_cmd {
+            let mut c = Command::new("cmd");
+            c.arg("/C").arg(&claude_bin);
+            c
+        } else {
+            Command::new(&claude_bin)
+        };
+        cmd.args(&args)
+            .current_dir(&params.cwd)
+            .env("PATH", &enriched_path)
+            .env_remove("CLAUDECODE")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            // Hide console window on Windows
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .spawn()
+            .map_err(|e| format!("Failed to spawn claude (tried '{}'): {}", claude_bin, e))?
+    };
+    #[cfg(not(target_os = "windows"))]
     let mut child = Command::new(&claude_bin)
         .args(&args)
         .current_dir(&params.cwd)
@@ -551,8 +690,23 @@ fn extract_session_info(path: &std::path::Path) -> (String, String) {
 /// original `-`, then ` ` (space), then `.` — whichever produces a path
 /// that actually exists on disk wins.
 fn decode_project_name(encoded: &str) -> String {
-    // Strip leading '-' (corresponds to root '/')
-    let trimmed = encoded.strip_prefix('-').unwrap_or(encoded);
+    // Detect Windows-style encoded paths: "C-Users-..." (drive letter prefix without leading dash)
+    // vs Unix-style: "-Users-..." (leading dash = root /)
+    let is_windows_path = encoded.len() >= 2
+        && encoded.as_bytes()[0].is_ascii_alphabetic()
+        && encoded.as_bytes()[1] == b'-';
+
+    let (trimmed, root, sep) = if is_windows_path {
+        // Windows: "C-Users-foo" → root = "C:\", rest = "Users-foo"
+        let drive = &encoded[0..1];
+        let rest = &encoded[2..]; // skip "C-"
+        (rest, format!("{}:\\", drive), "\\")
+    } else {
+        // Unix: "-Users-foo" → root = "/", rest = "Users-foo"
+        let rest = encoded.strip_prefix('-').unwrap_or(encoded);
+        (rest, "/".to_string(), "/")
+    };
+
     let parts: Vec<&str> = trimmed.split('-').collect();
 
     if parts.is_empty() {
@@ -568,9 +722,9 @@ fn decode_project_name(encoded: &str) -> String {
 
         // Build the parent path for existence checking
         let parent = if decoded_segments.is_empty() {
-            "/".to_string()
+            root.clone()
         } else {
-            format!("/{}", decoded_segments.join("/"))
+            format!("{}{}", root, decoded_segments.join(sep))
         };
 
         // Try combining parts[i..j], longest first.
@@ -580,9 +734,10 @@ fn decode_project_name(encoded: &str) -> String {
         'outer: for j in (i + 1..=max_j).rev() {
             let slice = &parts[i..j];
             // Separators to try: hyphen (original name), space, dot
-            for sep in ["-", " ", "."] {
-                let candidate = slice.join(sep);
-                let full_path = format!("{}/{}", parent, candidate);
+            for join_sep in ["-", " ", "."] {
+                let candidate = slice.join(join_sep);
+                let full_path = format!("{}{}{}", parent,
+                    if parent.ends_with(sep) { "" } else { sep }, candidate);
                 if std::path::Path::new(&full_path).exists() {
                     best_len = j - i;
                     best_segment = candidate;
@@ -611,10 +766,11 @@ fn decode_project_name(encoded: &str) -> String {
                 let remaining_max = parts.len().min(i + 10);
                 let mut dot_found = false;
                 for j in (i + 1..=remaining_max).rev() {
-                    for sep in ["-", " ", "."] {
-                        let after = parts[i..j].join(sep);
+                    for join_sep in ["-", " ", "."] {
+                        let after = parts[i..j].join(join_sep);
                         let candidate = format!("{}{}", prefix, after);
-                        let full_path = format!("{}/{}", parent, candidate);
+                        let full_path = format!("{}{}{}", parent,
+                            if parent.ends_with(sep) { "" } else { sep }, candidate);
                         if std::path::Path::new(&full_path).exists() {
                             decoded_segments.push(candidate);
                             i = j;
@@ -643,7 +799,7 @@ fn decode_project_name(encoded: &str) -> String {
         i += best_len;
     }
 
-    format!("/{}", decoded_segments.join("/"))
+    format!("{}{}", root, decoded_segments.join(sep))
 }
 
 #[tauri::command]
@@ -1990,8 +2146,8 @@ async fn check_claude_auth() -> Result<AuthStatus, String> {
     let enriched_path = build_enriched_path();
 
     // First try a quick credential file check (instant, no subprocess)
-    if let Some(home) = std::env::var_os("HOME") {
-        let cred_path = std::path::Path::new(&home).join(".claude").join("credentials.json");
+    if let Some(home) = dirs::home_dir() {
+        let cred_path = home.join(".claude").join("credentials.json");
         if cred_path.exists() {
             // Credentials file exists — assume authenticated
             return Ok(AuthStatus { authenticated: true });

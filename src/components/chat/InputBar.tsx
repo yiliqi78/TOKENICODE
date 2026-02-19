@@ -1443,7 +1443,7 @@ export function InputBar() {
             onClose={() => setSlashVisible(false)}
           />
           <div
-            className={`flex items-end gap-2 bg-bg-input border rounded-2xl px-4 py-3
+            className={`flex items-center gap-2 bg-bg-input border rounded-2xl px-4 py-2.5
               focus-within:border-border-focus focus-within:shadow-glow
               transition-smooth group/input
               ${isDragging
@@ -1493,7 +1493,7 @@ export function InputBar() {
               rows={1}
               className="flex-1 bg-transparent text-sm text-text-primary
                 placeholder:text-text-tertiary resize-none outline-none
-                leading-relaxed overflow-y-auto min-w-0"
+                leading-normal overflow-y-auto min-w-0 py-0.5"
               style={{
                 height: 'auto',
                 minHeight: '24px',
@@ -1531,7 +1531,7 @@ export function InputBar() {
                 useChatStore.getState().setActivityStatus({ phase: 'completed' });
                 useChatStore.getState().setSessionMeta({});
               }}
-              className="flex-shrink-0 w-8 h-8 rounded-[10px]
+              className="flex-shrink-0 self-end w-8 h-8 rounded-[10px]
                 bg-red-500/15 text-red-500
                 flex items-center justify-center
                 hover:bg-red-500/25 transition-smooth"
@@ -1546,7 +1546,7 @@ export function InputBar() {
           <button
             onClick={handleSubmit}
             disabled={!input.trim() && !activePrefix}
-            className="flex-shrink-0 w-8 h-8 rounded-[10px]
+            className="flex-shrink-0 self-end w-8 h-8 rounded-[10px]
               bg-accent hover:bg-accent-hover text-text-inverse
               flex items-center justify-center
               hover:shadow-glow transition-smooth

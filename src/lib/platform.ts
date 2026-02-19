@@ -48,3 +48,18 @@ export function fileManagerNameEn(): string {
     default: return 'Files';
   }
 }
+
+/* ================================================================
+   Cross-platform path utilities
+   ================================================================ */
+
+/** Extract filename from a Unix or Windows path */
+export function getFileName(path: string): string {
+  return path.split(/[\\/]/).pop() || path;
+}
+
+/** Extract directory portion from a Unix or Windows path */
+export function getDirName(path: string): string {
+  const lastSep = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  return lastSep >= 0 ? path.substring(0, lastSep + 1) : '';
+}

@@ -11,6 +11,14 @@ function getModelDisplayName(modelId: string): string {
   return option?.short || modelId;
 }
 
+/** Format token count: 1234 → "1.2k", 123456 → "123k", 1234567 → "1.2M" */
+function formatTokenCount(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 100_000) return (n / 1000).toFixed(1) + 'k';
+  if (n < 1_000_000) return Math.round(n / 1000) + 'k';
+  return (n / 1_000_000).toFixed(1) + 'M';
+}
+
 export function Sidebar() {
   const toggleSidebar = useSettingsStore((s) => s.toggleSidebar);
   const toggleSettings = useSettingsStore((s) => s.toggleSettings);
@@ -21,10 +29,10 @@ export function Sidebar() {
   // Window dragging handled via CSS -webkit-app-region: drag on the top strip
 
   return (
-    <div className="flex flex-col h-full pt-8 pb-4 px-3">
+    <div className="flex flex-col h-full pt-8 pb-4">
       {/* Logo area */}
       <div
-        className="flex items-center justify-between mb-6 px-2 cursor-default">
+        className="flex items-center justify-between mb-6 px-5 cursor-default">
         <div className="flex items-center pointer-events-none">
           {/* Text logo — TOKEN/CODE, slash uses theme accent */}
           <svg viewBox="0 0 689 90" fill="none"
@@ -52,6 +60,7 @@ export function Sidebar() {
       </div>
 
       {/* New Chat — navigate to WelcomeScreen where user picks a folder */}
+      <div className="px-3">
       <button onClick={() => {
         // Save current session to cache before switching
         const currentTabId = useSessionStore.getState().selectedSessionId;
@@ -88,30 +97,33 @@ export function Sidebar() {
           <div className="text-sm font-medium text-text-primary truncate">
             {sessionMeta.model ? getModelDisplayName(sessionMeta.model) : 'Claude'}
           </div>
-          <div className="flex items-center gap-2 mt-2">
-            <span className={`w-2 h-2 rounded-full transition-smooth
+          <div className="flex items-center gap-2 mt-1.5">
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 transition-smooth
               ${sessionStatus === 'running'
                 ? 'bg-success shadow-[0_0_8px_var(--color-accent-glow)] animate-pulse-soft'
                 : sessionStatus === 'completed' ? 'bg-success'
                 : sessionStatus === 'error' ? 'bg-error'
                 : 'bg-text-tertiary'}`} />
-            <span className="text-xs text-text-muted capitalize">{sessionStatus}</span>
-            {sessionMeta.cost != null && (
-              <span className="text-xs text-text-tertiary ml-auto font-mono">
-                ${sessionMeta.cost.toFixed(4)}
+            {(sessionMeta.inputTokens || sessionMeta.outputTokens) ? (
+              <span className="text-[10px] text-text-tertiary font-mono flex items-center gap-1.5">
+                <span title="Input tokens">↑{formatTokenCount(sessionMeta.inputTokens || 0)}</span>
+                <span title="Output tokens">↓{formatTokenCount(sessionMeta.outputTokens || 0)}</span>
               </span>
+            ) : (
+              <span className="text-[10px] text-text-tertiary capitalize">{sessionStatus}</span>
             )}
           </div>
         </div>
       )}
+      </div>
 
       {/* Conversation History */}
-      <div className="flex-1 overflow-y-auto min-h-0 scrollbar-autohide pr-0.5">
+      <div className="flex-1 overflow-y-auto min-h-0 -mr-1.5 pr-1.5">
         <ConversationList />
       </div>
 
       {/* Footer */}
-      <div className="pt-3 mt-3 border-t border-border-subtle">
+      <div className="pt-3 mt-3 border-t border-border-subtle px-3">
         <button onClick={toggleSettings}
           className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl
             text-sm text-text-muted hover:bg-bg-secondary hover:text-text-primary

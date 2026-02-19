@@ -6,6 +6,42 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.4.4] - 2026-02-20
+
+### New Features / 新功能
+
+- **Windows CLI Detection** — Auto-detect Claude CLI on Windows via `where`, %LOCALAPPDATA%, npm global, Scoop, nvm-windows, and Volta paths. Windows `.cmd` files now spawn correctly via `cmd /C` with `CREATE_NO_WINDOW` flag.
+
+- **Windows 全面适配** — 自动检测 Windows 上的 Claude CLI 安装路径，支持 npm 全局、Scoop、nvm-windows、Volta 等安装方式。修复 `.cmd` 文件启动和路径分隔符问题。
+
+- **Cross-platform Path Handling** — All path operations (`split`, `pop`, `dirname`) now handle both `/` and `\` separators. Windows drive letter paths (`C:\...`) recognized throughout.
+
+- **跨平台路径处理** — 所有路径操作兼容 `/` 和 `\` 分隔符，识别 Windows 盘符路径。
+
+- **Token Usage Display** — Sidebar now shows input/output token counts (↑/↓) instead of dollar cost, with a status dot indicator.
+
+- **Token 用量显示** — 侧栏显示输入/输出 token 数量（↑/↓），替代原先的美元消费显示。
+
+- **YAML Frontmatter Preview** — Markdown file preview now renders YAML frontmatter as a styled metadata block instead of plain text.
+
+- **YAML Frontmatter 渲染** — 文件预览中的 YAML frontmatter 以独立样式块展示，不再显示为纯文本。
+
+### Bug Fixes / 修复
+
+- **Scrollbar Styling** — Thin theme-aware scrollbars (5px) with consistent behavior regardless of OS "show scrollbar" setting. Removed aggressive global `overflow-x: clip` that was clipping ring/border effects.
+
+- **滚动条样式优化** — 统一细滚动条（5px），主题色适配，修复因全局裁切导致的选中框/色彩圆形截断问题。
+
+- **Session List Clipping** — Active session highlight no longer clips at container edge; switched from `border` to `ring` (box-shadow based).
+
+- **会话列表截断修复** — 当前选中会话的高亮边框不再被容器裁切。
+
+- **Input Bar Text Alignment** — Single-line input text now vertically centers within the input field.
+
+- **输入框文字居中** — 单行输入文字在输入框内垂直居中。
+
+---
+
 ## [0.4.3] - 2026-02-19
 
 ### Bug Fixes / 修复

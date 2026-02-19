@@ -10,21 +10,32 @@ import { save } from '@tauri-apps/plugin-dialog';
 import { t as tStatic, useT } from '../../lib/i18n';
 
 /** Resolve a project path to an absolute path.
- *  Handles: absolute (/…), tilde (~/…), and dash-encoded (-Users-…). */
-/** Resolve a project path to an absolute path.
- *  Handles: absolute (/…), tilde (~/…), and dash-encoded (-Users-…). */
+ *  Handles: absolute (/… or C:\…), tilde (~/…), and dash-encoded (-Users-… or C-Users-…). */
 let _cachedHomeDir: string | null = null;
 // Eagerly cache home directory for tilde expansion
 bridge.getHomeDir().then((h) => { _cachedHomeDir = h; }).catch(() => {});
 
+/** Check if a string looks like a Windows absolute path (e.g. "C:\..." or "C:/...") */
+function isWindowsAbsolutePath(p: string): boolean {
+  return /^[A-Za-z]:[/\\]/.test(p);
+}
+
 function resolveProjectPath(raw: string): string {
-  if (raw.startsWith('/')) return raw;
+  // Already absolute (Unix or Windows)
+  if (raw.startsWith('/') || isWindowsAbsolutePath(raw)) return raw;
   if (raw.startsWith('~/') || raw === '~') {
     if (_cachedHomeDir) return raw.replace('~', _cachedHomeDir);
     // Fallback: can't expand yet, return as-is (will be fixed on next load)
     return raw;
   }
-  // Dash-encoded: "-Users-foo-bar" → "/Users/foo/bar"
+  // Dash-encoded: detect Windows ("C-Users-...") vs Unix ("-Users-...")
+  // Windows: single letter followed by dash → drive letter
+  if (/^[A-Za-z]-/.test(raw)) {
+    const drive = raw[0];
+    const rest = raw.slice(2); // skip "C-"
+    return `${drive}:\\${rest.replace(/-/g, '\\')}`;
+  }
+  // Unix: "-Users-foo-bar" → "/Users/foo/bar"
   return raw.replace(/-/g, '/');
 }
 
@@ -245,7 +256,7 @@ export function ConversationList() {
             content = content.slice(0, attachMatch.index!).trimEnd();
             const paths = attachMatch[1].split('\n').map(p => p.trim()).filter(Boolean);
             for (const p of paths) {
-              const name = p.split('/').pop() || p;
+              const name = p.split(/[\\/]/).pop() || p;
               const ext = name.split('.').pop()?.toLowerCase() || '';
               const isImage = ['png','jpg','jpeg','gif','webp','bmp','svg'].includes(ext);
               attachments.push({ name, path: p, isImage });
@@ -464,12 +475,12 @@ export function ConversationList() {
   }, [filtered, normalizeProjectKey]);
 
   const projectLabel = (project: string) => {
-    const parts = project.replace(/^~\//, '').split('/');
+    const parts = project.replace(/^~[\\/]/, '').split(/[\\/]/);
     return parts[parts.length - 1] || project;
   };
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1 px-3">
       {/* Search */}
       <div className="px-1 mb-2">
         <div className="flex items-center gap-2 px-3 py-2 rounded-xl
@@ -544,13 +555,12 @@ export function ConversationList() {
                   handleRenameStart(session);
                 }}
                 onContextMenu={(e) => handleContextMenu(e, session)}
-                className={`w-full text-left px-3 py-1.5 ml-2 rounded-xl
+                className={`w-full text-left px-3 py-1.5 rounded-xl
                   transition-smooth group
                   ${selectedId === session.id
-                    ? 'bg-accent/10 border border-accent/20'
-                    : 'hover:bg-bg-secondary border border-transparent'
+                    ? 'bg-accent/10 ring-1 ring-accent/20'
+                    : 'hover:bg-bg-secondary'
                   }`}
-                style={{ width: 'calc(100% - 8px)' }}
               >
                 <div className="flex items-center gap-2">
                   {renamingId === session.id ? (
