@@ -6,6 +6,9 @@ import { modKey, fileManagerName, fileManagerNameEn } from './platform';
 
 const messages: Record<Locale, Record<string, string>> = {
   zh: {
+    // Common
+    'common.cancel': '取消',
+
     // Sidebar
     'sidebar.hide': '收起侧栏',
     'sidebar.newChat': '新任务',
@@ -111,6 +114,14 @@ const messages: Record<Locale, Record<string, string>> = {
     'files.discard': '放弃',
     'files.unsavedChanges': '未保存的更改',
     'files.openExternal': '在系统查看器中打开',
+    'files.insertToChat': '插入到聊天',
+    'files.copyPath': '复制路径',
+    'files.copyFile': '拷贝',
+    'files.paste': '粘贴',
+    'files.rename': '重命名',
+    'files.delete': '删除',
+    'files.deleteConfirm': '确定要删除 "{name}" 吗？此操作不可撤销。',
+    'files.deleteConfirmDir': '确定要删除文件夹 "{name}" 及其所有内容吗？此操作不可撤销。',
 
     // ProjectSelector
     'project.selectFolder': '选择项目文件夹',
@@ -446,6 +457,9 @@ const messages: Record<Locale, Record<string, string>> = {
   },
 
   en: {
+    // Common
+    'common.cancel': 'Cancel',
+
     // Sidebar
     'sidebar.hide': 'Hide sidebar',
     'sidebar.newChat': 'New Task',
@@ -551,6 +565,14 @@ const messages: Record<Locale, Record<string, string>> = {
     'files.discard': 'Discard',
     'files.unsavedChanges': 'Unsaved changes',
     'files.openExternal': 'Open in system viewer',
+    'files.insertToChat': 'Insert to chat',
+    'files.copyPath': 'Copy path',
+    'files.copyFile': 'Copy',
+    'files.paste': 'Paste',
+    'files.rename': 'Rename',
+    'files.delete': 'Delete',
+    'files.deleteConfirm': 'Are you sure you want to delete "{name}"? This cannot be undone.',
+    'files.deleteConfirmDir': 'Are you sure you want to delete folder "{name}" and all its contents? This cannot be undone.',
 
     // ProjectSelector
     'project.selectFolder': 'Select Project Folder',

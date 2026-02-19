@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { bridge } from '../../lib/tauri-bridge';
+import { save } from '@tauri-apps/plugin-dialog';
 import { useT } from '../../lib/i18n';
 
 interface Props {
@@ -39,9 +40,18 @@ export function ExportMenu({ sessionPath }: Props) {
 
   const handleExport = async (format: 'markdown' | 'json') => {
     if (!sessionPath) return;
+    setOpen(false);
+
     const ext = format === 'markdown' ? 'md' : 'json';
+    const filterName = format === 'markdown' ? 'Markdown' : 'JSON';
     const timestamp = new Date().toISOString().slice(0, 10);
-    const outputPath = `${sessionPath.replace('.jsonl', '')}_export_${timestamp}.${ext}`;
+    const defaultName = `${(sessionPath.split('/').pop() || 'export').replace('.jsonl', '')}_${timestamp}.${ext}`;
+
+    const outputPath = await save({
+      defaultPath: defaultName,
+      filters: [{ name: filterName, extensions: [ext] }],
+    });
+    if (!outputPath) return;
 
     try {
       if (format === 'markdown') {
@@ -55,7 +65,6 @@ export function ExportMenu({ sessionPath }: Props) {
       setStatus(`Error: ${err}`);
       setTimeout(() => setStatus(null), 3000);
     }
-    setOpen(false);
   };
 
   return (

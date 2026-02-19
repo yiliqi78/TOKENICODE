@@ -9,6 +9,25 @@ import { bridge, SessionListItem } from '../../lib/tauri-bridge';
 import { save } from '@tauri-apps/plugin-dialog';
 import { t as tStatic, useT } from '../../lib/i18n';
 
+/** Resolve a project path to an absolute path.
+ *  Handles: absolute (/…), tilde (~/…), and dash-encoded (-Users-…). */
+/** Resolve a project path to an absolute path.
+ *  Handles: absolute (/…), tilde (~/…), and dash-encoded (-Users-…). */
+let _cachedHomeDir: string | null = null;
+// Eagerly cache home directory for tilde expansion
+bridge.getHomeDir().then((h) => { _cachedHomeDir = h; }).catch(() => {});
+
+function resolveProjectPath(raw: string): string {
+  if (raw.startsWith('/')) return raw;
+  if (raw.startsWith('~/') || raw === '~') {
+    if (_cachedHomeDir) return raw.replace('~', _cachedHomeDir);
+    // Fallback: can't expand yet, return as-is (will be fixed on next load)
+    return raw;
+  }
+  // Dash-encoded: "-Users-foo-bar" → "/Users/foo/bar"
+  return raw.replace(/-/g, '/');
+}
+
 function formatRelativeTime(ms: number): string {
   const now = Date.now();
   const diff = now - ms;
@@ -124,7 +143,7 @@ export function ConversationList() {
   const handleLoadSession = useCallback(async (
     sessionPath: string,
     sessionId: string,
-    projectDir: string,
+    projectOrDir: string,
   ) => {
     const currentTabId = selectedId;
 
@@ -149,9 +168,8 @@ export function ConversationList() {
       // Restore agents for this session
       useAgentStore.getState().restoreFromCache(sessionId);
       // Restore working directory for cached session
-      if (projectDir) {
-        const actualPath = projectDir.replace(/-/g, '/');
-        useSettingsStore.getState().setWorkingDirectory(actualPath);
+      if (projectOrDir) {
+        useSettingsStore.getState().setWorkingDirectory(resolveProjectPath(projectOrDir));
       }
       return;
     }
@@ -164,8 +182,7 @@ export function ConversationList() {
     }
 
     // 5) Load historical session from disk (first time opening)
-    const actualPath = projectDir.replace(/-/g, '/');
-    useSettingsStore.getState().setWorkingDirectory(actualPath);
+    useSettingsStore.getState().setWorkingDirectory(resolveProjectPath(projectOrDir));
 
     const { clearMessages, addMessage, setSessionStatus, setSessionMeta } = useChatStore.getState();
     const agentActions = useAgentStore.getState();
@@ -192,12 +209,35 @@ export function ConversationList() {
         isMain: true,
       });
 
+      // Detect system-injected content that should not be shown to users
+      const isSystemText = (text: string): boolean => {
+        const t = text.trimStart();
+        return t.startsWith('<')                            // XML tags like <system-reminder>
+          || t.startsWith('This session is being continued') // continuation summaries
+          || /^Analysis:\s*\n/.test(t)                       // continuation analysis blocks
+          || /^Summary:\s*\n/.test(t)                        // continuation summary blocks
+          || t.startsWith('In this environment you have access to') // tool definitions
+          || t.startsWith('Human:')                          // raw conversation format leaks
+          || t.includes('<system-reminder>')                 // embedded system reminders
+          || t.includes('</system-reminder>');
+      };
+
       for (const msg of rawMessages) {
         if (msg.type === 'human' || msg.type === 'user' || msg.role === 'user') {
-          const content = Array.isArray(msg.message?.content)
-            ? msg.message.content.map((b: any) => b.text || '').join('')
-            : msg.message?.content || '';
-          if (content) {
+          // Extract text blocks, filtering out system-injected content
+          const blocks = Array.isArray(msg.message?.content) ? msg.message.content : [];
+          const userTexts: string[] = [];
+          for (const b of blocks) {
+            const text = typeof b === 'string' ? b : b?.type === 'text' ? b.text : '';
+            if (text && !isSystemText(text)) userTexts.push(text);
+          }
+          // Fallback for plain string content
+          if (blocks.length === 0 && typeof msg.message?.content === 'string') {
+            const text = msg.message.content;
+            if (!isSystemText(text)) userTexts.push(text);
+          }
+          const content = userTexts.join('');
+          if (content.trim()) {
             addMessage({
               id: msg.uuid || generateMessageId(),
               role: 'user',
@@ -211,6 +251,8 @@ export function ConversationList() {
           if (Array.isArray(blocks)) {
             for (const block of blocks) {
               if (block.type === 'text') {
+                // Filter out system-injected content
+                if (isSystemText(block.text || '')) continue;
                 addMessage({
                   id: msg.uuid || generateMessageId(),
                   role: 'assistant',
@@ -435,8 +477,8 @@ export function ConversationList() {
         </div>
       </div>
 
-      {/* Loading */}
-      {isLoading && (
+      {/* Loading — only shown on initial load when no data yet */}
+      {isLoading && sessions.length === 0 && (
         <div className="flex items-center justify-center py-6">
           <div className="w-5 h-5 border-2 border-accent/30
             border-t-accent rounded-full animate-spin" />
@@ -444,7 +486,7 @@ export function ConversationList() {
       )}
 
       {/* Project groups */}
-      {!isLoading && projectGroups.map(([project, items]) => {
+      {projectGroups.map(([project, items]) => {
         const isCollapsed = collapsed.has(project);
         return (
           <div key={project} className="mb-1">
@@ -480,7 +522,7 @@ export function ConversationList() {
             {!isCollapsed && items.map((session) => (
               <button
                 key={session.id}
-                onClick={() => handleLoadSession(session.path, session.id, session.projectDir)}
+                onClick={() => handleLoadSession(session.path, session.id, session.project || session.projectDir)}
                 onDoubleClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -508,12 +550,12 @@ export function ConversationList() {
                       }}
                       onBlur={handleRenameConfirm}
                       onClick={(e) => e.stopPropagation()}
-                      className="text-[13px] text-text-primary leading-snug font-medium
+                      className="text-sm text-text-primary leading-snug font-medium
                         flex-1 min-w-0 bg-bg-secondary border border-border-focus rounded-md
                         px-1.5 py-0.5 outline-none"
                     />
                   ) : (
-                    <div className={`text-[13px] truncate leading-snug font-medium flex-1 min-w-0
+                    <div className={`text-sm truncate leading-snug font-medium flex-1 min-w-0
                       ${displayName(session) ? 'text-text-primary' : 'text-text-muted italic'}`}>
                       {displayName(session)
                         || (session.path === '' ? t('conv.newChat') : t('conv.empty'))}

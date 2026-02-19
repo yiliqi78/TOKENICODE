@@ -1,7 +1,7 @@
 {
   "name": "tokenicode",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -24,6 +24,7 @@
     "@codemirror/lang-yaml": "^6.1.2",
     "@codemirror/language": "^6.12.1",
     "@codemirror/legacy-modes": "^6.5.2",
+    "@codemirror/view": "^6.39.14",
     "@tailwindcss/typography": "^0.5.19",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.6.0",

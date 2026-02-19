@@ -36,15 +36,25 @@ fn find_claude_binary() -> Option<String> {
     if let Some(home) = dirs::home_dir() {
         let claude_code_dir = home.join("Library/Application Support/Claude/claude-code");
         if claude_code_dir.exists() {
-            // Find the latest version directory
             if let Ok(entries) = std::fs::read_dir(&claude_code_dir) {
                 let mut versions: Vec<_> = entries
                     .flatten()
                     .filter(|e| e.path().is_dir())
                     .collect();
-                versions.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
-                if let Some(latest) = versions.first() {
-                    let bin = latest.path().join("claude");
+                // Sort by semantic version (descending) so newest version comes first.
+                // Plain string sort gets "2.1.9" > "2.1.41" wrong.
+                versions.sort_by(|a, b| {
+                    let parse = |name: &std::ffi::OsStr| -> Vec<u64> {
+                        name.to_string_lossy()
+                            .split('.')
+                            .filter_map(|s| s.parse::<u64>().ok())
+                            .collect()
+                    };
+                    parse(&b.file_name()).cmp(&parse(&a.file_name()))
+                });
+                // Try each version directory until we find one with a working binary
+                for entry in &versions {
+                    let bin = entry.path().join("claude");
                     if bin.exists() {
                         return Some(bin.to_string_lossy().to_string());
                     }
@@ -536,16 +546,7 @@ fn decode_project_name(encoded: &str) -> String {
         i += best_len;
     }
 
-    let decoded = format!("/{}", decoded_segments.join("/"));
-
-    // Shorten home directory prefix to ~
-    if let Some(home) = dirs::home_dir() {
-        let home_str = home.to_string_lossy();
-        if decoded.starts_with(&*home_str) {
-            return format!("~{}", &decoded[home_str.len()..]);
-        }
-    }
-    decoded
+    format!("/{}", decoded_segments.join("/"))
 }
 
 #[tauri::command]
@@ -759,6 +760,32 @@ async fn write_file_content(path: String, content: String) -> Result<(), String>
 }
 
 #[tauri::command]
+async fn copy_file(src: String, dest: String) -> Result<(), String> {
+    std::fs::copy(&src, &dest)
+        .map(|_| ())
+        .map_err(|e| format!("Cannot copy file: {}", e))
+}
+
+#[tauri::command]
+async fn rename_file(src: String, dest: String) -> Result<(), String> {
+    std::fs::rename(&src, &dest)
+        .map_err(|e| format!("Cannot rename file: {}", e))
+}
+
+#[tauri::command]
+async fn delete_file(path: String) -> Result<(), String> {
+    let meta = std::fs::metadata(&path)
+        .map_err(|e| format!("Cannot read file: {}", e))?;
+    if meta.is_dir() {
+        std::fs::remove_dir_all(&path)
+            .map_err(|e| format!("Cannot delete directory: {}", e))
+    } else {
+        std::fs::remove_file(&path)
+            .map_err(|e| format!("Cannot delete file: {}", e))
+    }
+}
+
+#[tauri::command]
 async fn export_session_markdown(path: String, output_path: String) -> Result<(), String> {
     use std::io::{BufRead, Write};
     let file = std::fs::File::open(&path)
@@ -773,10 +800,14 @@ async fn export_session_markdown(path: String, output_path: String) -> Result<()
             if let Ok(json) = serde_json::from_str::<Value>(&line) {
                 let msg_type = json["type"].as_str().unwrap_or("");
                 match msg_type {
-                    "human" => {
+                    "user" | "human" => {
                         md.push_str("## User\n\n");
-                        if let Some(content) = json["message"]["content"].as_array() {
-                            for block in content {
+                        let content = &json["message"]["content"];
+                        if let Some(text) = content.as_str() {
+                            md.push_str(text);
+                            md.push_str("\n\n");
+                        } else if let Some(arr) = content.as_array() {
+                            for block in arr {
                                 if let Some(text) = block["text"].as_str() {
                                     md.push_str(text);
                                     md.push_str("\n\n");
@@ -982,12 +1013,28 @@ async fn get_file_size(path: String) -> Result<u64, String> {
     Ok(metadata.len())
 }
 
-/// Save a file to a temp directory and return its path
+/// Save a file to a temp directory and return its path.
+/// Uses a unique suffix to avoid name collisions (e.g. multiple pasted images all named "image.png").
 #[tauri::command]
 async fn save_temp_file(name: String, data: Vec<u8>) -> Result<String, String> {
     let tmp = std::env::temp_dir().join("tokenicode");
     std::fs::create_dir_all(&tmp).map_err(|e| format!("Failed to create temp dir: {}", e))?;
-    let path = tmp.join(&name);
+
+    // Split name into stem + extension, append timestamp + counter for uniqueness
+    let path_buf = std::path::PathBuf::from(&name);
+    let stem = path_buf.file_stem().unwrap_or_default().to_string_lossy().to_string();
+    let ext = path_buf.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let count = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+
+    let unique_name = format!("{}_{}{}{}", stem, ts, count, ext);
+    let path = tmp.join(&unique_name);
     std::fs::write(&path, &data).map_err(|e| format!("Failed to write temp file: {}", e))?;
     Ok(path.to_string_lossy().to_string())
 }
@@ -1845,12 +1892,23 @@ async fn check_claude_auth() -> Result<AuthStatus, String> {
     let claude_bin = find_claude_binary().unwrap_or_else(|| "claude".to_string());
     let enriched_path = build_enriched_path();
 
-    // Run `claude auth status` (or `claude --version` as a lightweight probe).
-    // The most reliable approach: try `claude -p "hi" --output-format json` with a timeout.
-    // If it returns a valid response (exit 0), the user is authenticated.
-    // Simpler: run `claude doctor` and check exit code.
+    // First try a quick credential file check (instant, no subprocess)
+    if let Some(home) = std::env::var_os("HOME") {
+        let cred_path = std::path::Path::new(&home).join(".claude").join("credentials.json");
+        if cred_path.exists() {
+            // Credentials file exists — assume authenticated
+            return Ok(AuthStatus { authenticated: true });
+        }
+        // Also check .claude.json (older format)
+        let alt_path = std::path::Path::new(&home).join(".claude.json");
+        if alt_path.exists() {
+            return Ok(AuthStatus { authenticated: true });
+        }
+    }
+
+    // Fallback: run `claude doctor` with a shorter timeout
     let result = tokio::time::timeout(
-        std::time::Duration::from_secs(15),
+        std::time::Duration::from_secs(8),
         Command::new(&claude_bin)
             .args(["doctor"])
             .env("PATH", &enriched_path)
@@ -1861,12 +1919,10 @@ async fn check_claude_auth() -> Result<AuthStatus, String> {
 
     match result {
         Ok(Ok(output)) => {
-            // Check both exit code and output for authentication hints
             let stdout = String::from_utf8_lossy(&output.stdout).to_lowercase();
             let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
             let combined = format!("{} {}", stdout, stderr);
 
-            // If doctor succeeds and doesn't mention auth issues, user is authenticated
             let has_auth_issue = combined.contains("not authenticated")
                 || combined.contains("not logged in")
                 || combined.contains("login required")
@@ -1879,8 +1935,8 @@ async fn check_claude_auth() -> Result<AuthStatus, String> {
         }
         Ok(Err(e)) => Err(format!("Failed to run auth check: {}", e)),
         Err(_) => {
-            // Timeout — assume not authenticated
-            Ok(AuthStatus { authenticated: false })
+            // Timeout — if CLI exists, assume authenticated (auth issues will surface at runtime)
+            Ok(AuthStatus { authenticated: true })
         }
     }
 }
@@ -2024,6 +2080,9 @@ pub fn run() {
             read_file_tree,
             read_file_content,
             write_file_content,
+            copy_file,
+            rename_file,
+            delete_file,
             open_in_vscode,
             reveal_in_finder,
             open_with_default_app,

@@ -150,6 +150,15 @@ export const bridge = {
   writeFileContent: (path: string, content: string) =>
     invoke<void>('write_file_content', { path, content }),
 
+  copyFile: (src: string, dest: string) =>
+    invoke<void>('copy_file', { src, dest }),
+
+  renameFile: (src: string, dest: string) =>
+    invoke<void>('rename_file', { src, dest }),
+
+  deleteFile: (path: string) =>
+    invoke<void>('delete_file', { path }),
+
   getHomeDir: () =>
     invoke<string>('get_home_dir'),
 

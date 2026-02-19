@@ -12,6 +12,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { useT } from '../../lib/i18n';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
 import { SetupWizard } from '../setup/SetupWizard';
+import { endTreeDrag } from '../../lib/drag-state';
 
 /** Map raw model ID to friendly display name */
 function getModelDisplayName(modelId: string): string {
@@ -99,6 +100,23 @@ export function ChatPanel() {
 
   const [showPlanPanel, setShowPlanPanel] = useState(false);
 
+  // Listen for internal file tree drag-drop (mouse-based, not HTML5 drag-and-drop)
+  // HTML5 drag events don't work in Tauri because dragDropEnabled: true intercepts them
+  useEffect(() => {
+    const onTreeDrop = () => {
+      const treePath = endTreeDrag();
+      if (treePath) {
+        const currentDraft = useChatStore.getState().inputDraft;
+        const prefix = currentDraft && !currentDraft.endsWith('\n') && !currentDraft.endsWith(' ') ? ' ' : '';
+        useChatStore.getState().setInputDraft(currentDraft + prefix + treePath);
+      }
+    };
+    window.addEventListener('tree-drag-drop', onTreeDrop);
+    return () => {
+      window.removeEventListener('tree-drag-drop', onTreeDrop);
+    };
+  }, []);
+
   // --- Tool grouping: group 3+ consecutive tool_use messages ---
   type DisplayItem =
     | { kind: 'message'; msg: ChatMessage; idx: number }
@@ -137,11 +155,19 @@ export function ChatPanel() {
   )?.path;
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
 
-  // Window dragging handled via CSS -webkit-app-region: drag on the top strip
+  // Track whether user is near the bottom of the scroll container
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // Consider "near bottom" if within 80px of the end
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }, []);
 
+  // Auto-scroll to bottom only when already near bottom (sticky behavior)
   useEffect(() => {
-    if (scrollRef.current) {
+    if (isNearBottomRef.current && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, partialText, activityStatus]);
@@ -257,7 +283,7 @@ export function ChatPanel() {
         </div>
       )}
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-6 selectable">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-5 py-6 selectable">
         {!workingDirectory && messages.length === 0 && !isStreaming ? (
           <WelcomeScreen />
         ) : messages.length === 0 && !isStreaming ? (

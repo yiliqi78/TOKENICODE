@@ -25,8 +25,8 @@ interface FileState {
   changedFiles: Map<string, FileChangeKind>;
 
   loadTree: (path: string) => Promise<void>;
-  /** Refresh the tree without clearing change markers */
-  refreshTree: () => Promise<void>;
+  /** Refresh the tree without clearing change markers. Optional path overrides rootPath. */
+  refreshTree: (overridePath?: string) => Promise<void>;
   selectFile: (path: string) => Promise<void>;
   clearSelection: () => void;
   closePreview: () => void;
@@ -36,6 +36,8 @@ interface FileState {
   discardEdits: () => void;
   setRootPath: (path: string) => void;
   fetchRecentProjects: () => Promise<void>;
+  /** Reload the currently previewed file content without toggling selection */
+  reloadContent: () => Promise<void>;
   markFileChanged: (path: string, kind: FileChangeKind) => void;
   clearChangedFiles: () => void;
 }
@@ -55,22 +57,40 @@ export const useFileStore = create<FileState>()((set, get) => ({
   changedFiles: new Map(),
 
   loadTree: async (path: string) => {
-    set({ isLoading: true, rootPath: path });
+    if (!path) return;
+    const prevRoot = get().rootPath;
+    const isNewDir = path !== prevRoot;
+    // Always show loading on first load or directory change
+    set({
+      rootPath: path,
+      isLoading: true,
+      // Clear stale tree immediately when switching directories
+      ...(isNewDir ? { tree: [] } : {}),
+    });
     try {
       const tree = await bridge.readFileTree(path, 3);
-      set({ tree, isLoading: false, changedFiles: new Map() });
+      // Guard: only apply if rootPath hasn't changed during async load
+      if (get().rootPath === path) {
+        set({ tree, isLoading: false, changedFiles: new Map() });
+      }
     } catch {
-      set({ isLoading: false });
+      if (get().rootPath === path) {
+        set({ isLoading: false });
+      }
     }
   },
 
-  refreshTree: async () => {
-    const { rootPath } = get();
-    if (!rootPath) return;
+  refreshTree: async (overridePath?: string) => {
+    const dir = overridePath || get().rootPath;
+    if (!dir) return;
     try {
-      const tree = await bridge.readFileTree(rootPath, 3);
-      // Preserve changedFiles — only update tree structure
-      set({ tree });
+      const tree = await bridge.readFileTree(dir, 3);
+      // Sync rootPath if override was used and differs
+      if (overridePath && overridePath !== get().rootPath) {
+        set({ tree, rootPath: overridePath });
+      } else {
+        set({ tree });
+      }
     } catch {
       // Silently fail — tree stays as-is
     }
@@ -162,6 +182,30 @@ export const useFileStore = create<FileState>()((set, get) => ({
       set({ recentProjects: projects, isLoadingProjects: false });
     } catch {
       set({ isLoadingProjects: false });
+    }
+  },
+
+  reloadContent: async () => {
+    const path = get().selectedFile;
+    if (!path) return;
+    // Don't reload while user is editing
+    if (get().editContent !== null) return;
+    try {
+      const ext = path.split('.').pop()?.toLowerCase() || '';
+      const BINARY_PREVIEW = new Set([
+        'png','jpg','jpeg','gif','webp','bmp','ico',
+        'pdf','mp4','webm','mov','avi',
+        'mp3','wav','ogg','aac','m4a',
+      ]);
+      if (BINARY_PREVIEW.has(ext)) {
+        const dataUrl = await bridge.readFileBase64(path);
+        if (get().selectedFile === path) set({ fileContent: dataUrl });
+      } else {
+        const content = await bridge.readFileContent(path);
+        if (get().selectedFile === path) set({ fileContent: content });
+      }
+    } catch {
+      // Silently fail — keep existing content
     }
   },
 

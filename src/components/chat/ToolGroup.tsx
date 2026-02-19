@@ -35,7 +35,7 @@ export function ToolGroup({ messages }: Props) {
     [messages],
   );
 
-  const [expanded, setExpanded] = useState(!allHaveResults);
+  const [expanded, setExpanded] = useState(false);
 
   const summary = useMemo(() => buildToolSummary(messages), [messages]);
   const count = messages.length;

@@ -64,7 +64,8 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   stdinToTab: {},
 
   fetchSessions: async () => {
-    set({ isLoading: true });
+    const isFirstLoad = get().sessions.length === 0;
+    if (isFirstLoad) set({ isLoading: true });
     try {
       const diskSessions = await bridge.listSessions();
       // Preserve draft sessions (path === '') that haven't been written to disk yet

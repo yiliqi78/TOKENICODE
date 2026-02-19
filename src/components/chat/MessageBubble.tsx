@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { type ChatMessage } from '../../stores/chatStore';
 import { useFileStore } from '../../stores/fileStore';
 import { useLightboxStore } from '../shared/ImageLightbox';
@@ -14,7 +14,7 @@ interface Props {
   isFirstInGroup?: boolean;
 }
 
-export function MessageBubble({ message, isFirstInGroup = true }: Props) {
+export const MessageBubble = memo(function MessageBubble({ message, isFirstInGroup = true }: Props) {
   if (message.role === 'user') return <UserMsg message={message} />;
   if (message.role === 'system' && message.commandType === 'processing') return <CommandProcessingCard message={message} />;
   if (message.role === 'system' && message.commandType) return <CommandFeedbackMsg message={message} />;
@@ -27,7 +27,7 @@ export function MessageBubble({ message, isFirstInGroup = true }: Props) {
   if (message.type === 'permission') return <PermissionCard message={message} />;
   if (message.type === 'plan') return <PlanMsg message={message} />;
   return <AssistantMsg message={message} isFirstInGroup={isFirstInGroup} />;
-}
+});
 
 /* ================================================================
    UserMsg — bubble on the right
@@ -38,7 +38,7 @@ function UserMsg({ message }: Props) {
     <div className="flex justify-end">
       <div className="max-w-[80%] px-4 py-3 rounded-2xl rounded-br-md
         bg-bg-user-msg text-text-inverse
-        text-sm leading-relaxed shadow-md">
+        text-base leading-relaxed shadow-md whitespace-pre-wrap">
         {message.content}
         {attachments && attachments.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-2">
@@ -268,7 +268,7 @@ function AssistantMsg({ message, isFirstInGroup = true }: Props) {
       ) : (
         <div className="w-8 flex-shrink-0" />
       )}
-      <div className="flex-1 min-w-0 text-sm text-text-primary leading-relaxed">
+      <div className="flex-1 min-w-0 text-base text-text-primary leading-relaxed">
         <MarkdownRenderer content={message.content} />
       </div>
     </div>
@@ -391,7 +391,7 @@ function getToolLabel(name: string, t: (key: string) => string): string {
   }
 }
 
-export function ToolUseMsg({ message }: Props) {
+export const ToolUseMsg = memo(function ToolUseMsg({ message }: Props) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
   const toolName = message.toolName || 'Tool';
@@ -567,7 +567,7 @@ export function ToolUseMsg({ message }: Props) {
       )}
     </div>
   );
-}
+});
 
 /* ================================================================
    ToolResultMsg — inline result

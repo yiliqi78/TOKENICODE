@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { bridge } from '../lib/tauri-bridge';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { isTreeDragActive } from '../lib/drag-state';
 
 // --- Types ---
 
@@ -179,14 +180,23 @@ export function useFileAttachments() {
   const addFilePathsRef = useRef(addFilePaths);
   addFilePathsRef.current = addFilePaths;
 
+  // Debounce guard: Tauri may fire onDragDropEvent multiple times per drop
+  const lastDropRef = useRef<{ time: number; key: string }>({ time: 0, key: '' });
+
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     getCurrentWindow().onDragDropEvent((event) => {
       if (event.payload.type === 'drop') {
+        // Skip if this is an internal file tree drag
+        if (isTreeDragActive()) return;
         const paths = event.payload.paths;
-        if (paths && paths.length > 0) {
-          addFilePathsRef.current(paths);
-        }
+        if (!paths || paths.length === 0) return;
+        // Deduplicate: skip if same paths within 500ms
+        const now = Date.now();
+        const key = paths.sort().join('|');
+        if (now - lastDropRef.current.time < 500 && key === lastDropRef.current.key) return;
+        lastDropRef.current = { time: now, key };
+        addFilePathsRef.current(paths);
       }
     }).then((fn) => { unlisten = fn; });
     return () => { unlisten?.(); };

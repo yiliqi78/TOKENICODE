@@ -14,6 +14,7 @@ import { useT } from '../../lib/i18n';
 import { SlashCommandPopover, getFilteredCommandList } from './SlashCommandPopover';
 import { useCommandStore } from '../../stores/commandStore';
 import { useSnapshotStore } from '../../stores/snapshotStore';
+// drag-state import removed — tree drag handled by ChatPanel
 
 /** Think mode toggle button for the toolbar */
 function ThinkToggle({ disabled }: { disabled: boolean }) {
@@ -892,14 +893,11 @@ export function InputBar() {
         if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
           const text = evt.delta.text || '';
           if (text) {
-            setActivityStatus({ phase: 'writing' });
-            agentActions.updatePhase(agentId, 'writing');
+            // updatePartialMessage now also sets activityStatus to 'writing'
             updatePartialMessage(text);
           }
         } else if (evt.type === 'content_block_delta' && evt.delta?.type === 'thinking_delta') {
-          // Thinking deltas — could show as streaming thinking indicator
           setActivityStatus({ phase: 'thinking' });
-          agentActions.updatePhase(agentId, 'thinking');
         }
         // Track input tokens from message_start
         if (evt.type === 'message_start' && evt.message?.usage?.input_tokens) {
@@ -1264,8 +1262,7 @@ export function InputBar() {
         if (msg.type === 'content_block_delta') {
           const text = msg.delta?.text || '';
           if (text) {
-            setActivityStatus({ phase: 'writing' });
-            agentActions.updatePhase(agentId, 'writing');
+            // updatePartialMessage now also sets activityStatus to 'writing'
             updatePartialMessage(text);
           }
         }
@@ -1413,10 +1410,9 @@ export function InputBar() {
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      addFiles(e.dataTransfer.files);
-    }
-  }, [addFiles]);
+    // Internal file tree drag uses mouse events (not HTML5 drag), so won't reach here.
+    // OS file drops are handled by Tauri onDragDropEvent in useFileAttachments.
+  }, []);
 
   return (
     <div className="p-4 relative">

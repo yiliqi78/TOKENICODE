@@ -5,6 +5,8 @@ import { useFileStore, FileChangeKind } from '../../stores/fileStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { bridge } from '../../lib/tauri-bridge';
 import { useT } from '../../lib/i18n';
+import { startTreeDrag, moveTreeDrag } from '../../lib/drag-state';
+import { useChatStore } from '../../stores/chatStore';
 
 function getFileIcon(name: string, isDir: boolean): string {
   if (isDir) return '📁';
@@ -47,15 +49,27 @@ interface ContextMenuState {
   isDir: boolean;
 }
 
-function ContextMenu({ menu, onClose }: {
+interface ContextMenuCallbacks {
+  onCopyPath: (path: string) => void;
+  onCopyFile: (path: string) => void;
+  onPaste: (targetDir: string) => void;
+  onRename: (path: string) => void;
+  onDelete: (path: string, isDir: boolean) => void;
+  onInsertToChat: (path: string) => void;
+  clipboardPath: string | null;
+}
+
+type MenuItem = { label: string; icon: React.ReactNode; action: () => void; danger?: boolean } | 'separator';
+
+function ContextMenu({ menu, onClose, callbacks }: {
   menu: ContextMenuState;
   onClose: () => void;
+  callbacks: ContextMenuCallbacks;
 }) {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x: menu.x, y: menu.y });
 
-  // Adjust position to keep menu within viewport
   useEffect(() => {
     if (!ref.current) return;
     const rect = ref.current.getBoundingClientRect();
@@ -72,62 +86,66 @@ function ContextMenu({ menu, onClose }: {
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        onClose();
-      }
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [onClose]);
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  const items = [
+  const items: MenuItem[] = [
+    ...(!menu.isDir ? [{
+      label: t('files.insertToChat'),
+      icon: <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M2 14l4-2 8-8-2-2-8 8-2 4z" /><path d="M10 4l2 2" /></svg>,
+      action: () => { callbacks.onInsertToChat(menu.path); onClose(); },
+    }] as MenuItem[] : []),
+    {
+      label: t('files.copyPath'),
+      icon: <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M5 2H2v12h8v-3" /><path d="M6 6h8v8H6V6z" /></svg>,
+      action: () => { callbacks.onCopyPath(menu.path); onClose(); },
+    },
+    ...(!menu.isDir ? [{
+      label: t('files.copyFile'),
+      icon: <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><rect x="5" y="5" width="9" height="9" rx="1.5" /><path d="M5 11H3.5A1.5 1.5 0 012 9.5v-6A1.5 1.5 0 013.5 2h6A1.5 1.5 0 0111 3.5V5" /></svg>,
+      action: () => { callbacks.onCopyFile(menu.path); onClose(); },
+    }] as MenuItem[] : []),
+    ...(menu.isDir && callbacks.clipboardPath ? [{
+      label: t('files.paste'),
+      icon: <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M10 2H6a1 1 0 00-1 1v1H3a1 1 0 00-1 1v8a1 1 0 001 1h10a1 1 0 001-1V5a1 1 0 00-1-1h-2V3a1 1 0 00-1-1z" /></svg>,
+      action: () => { callbacks.onPaste(menu.path); onClose(); },
+    }] as MenuItem[] : []),
+    'separator',
+    {
+      label: t('files.rename'),
+      icon: <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M11 2l3 3-9 9H2v-3l9-9z" /></svg>,
+      action: () => { callbacks.onRename(menu.path); onClose(); },
+    },
+    {
+      label: t('files.delete'),
+      icon: <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M3 4h10M6 4V2h4v2M5 4v9h6V4" /></svg>,
+      action: () => { callbacks.onDelete(menu.path, menu.isDir); onClose(); },
+      danger: true,
+    },
+    'separator',
     {
       label: t('files.revealInFinder'),
-      icon: (
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
-          stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-          <path d="M2 4h4l2 2h6v7H2V4z" />
-        </svg>
-      ),
-      action: () => {
-        bridge.revealInFinder(menu.path);
-        onClose();
-      },
+      icon: <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M2 4h4l2 2h6v7H2V4z" /></svg>,
+      action: () => { bridge.revealInFinder(menu.path); onClose(); },
     },
     {
       label: t('files.openDefault'),
-      icon: (
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
-          stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-          <path d="M12 9v4H4V5h4" />
-          <path d="M8 8l6-6M10 2h4v4" />
-        </svg>
-      ),
-      action: () => {
-        bridge.openWithDefaultApp(menu.path);
-        onClose();
-      },
+      icon: <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M12 9v4H4V5h4" /><path d="M8 8l6-6M10 2h4v4" /></svg>,
+      action: () => { bridge.openWithDefaultApp(menu.path); onClose(); },
     },
     {
       label: t('files.openVscodeShort'),
-      icon: (
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
-          stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-          <path d="M4 3l8 5-8 5V3z" />
-        </svg>
-      ),
-      action: () => {
-        bridge.openInVscode(menu.path);
-        onClose();
-      },
+      icon: <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M4 3l8 5-8 5V3z" /></svg>,
+      action: () => { bridge.openInVscode(menu.path); onClose(); },
     },
   ];
 
@@ -138,17 +156,24 @@ function ContextMenu({ menu, onClose }: {
         bg-bg-card shadow-lg animate-fade-in whitespace-nowrap"
       style={{ left: pos.x, top: pos.y }}
     >
-      {items.map((item, i) => (
-        <button
-          key={i}
-          onClick={item.action}
-          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary
-            hover:bg-bg-secondary transition-smooth text-left"
-        >
-          <span className="text-text-tertiary flex-shrink-0">{item.icon}</span>
-          {item.label}
-        </button>
-      ))}
+      {items.map((item, i) =>
+        item === 'separator' ? (
+          <div key={i} className="my-1 border-t border-border-subtle" />
+        ) : (
+          <button
+            key={i}
+            onClick={item.action}
+            className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs
+              hover:bg-bg-secondary transition-smooth text-left cursor-pointer
+              ${item.danger ? 'text-error hover:bg-error/10' : 'text-text-primary'}`}
+          >
+            <span className={`flex-shrink-0 ${item.danger ? 'text-error/60' : 'text-text-tertiary'}`}>
+              {item.icon}
+            </span>
+            {item.label}
+          </button>
+        ),
+      )}
     </div>,
     document.body,
   );
@@ -168,11 +193,21 @@ function TreeNode({
   depth,
   searchQuery,
   onContextMenu,
+  renamingPath,
+  renameValue,
+  onRenameChange,
+  onRenameSubmit,
+  onRenameCancel,
 }: {
   node: FileNode;
   depth: number;
   searchQuery: string;
   onContextMenu: (e: React.MouseEvent, path: string, isDir: boolean) => void;
+  renamingPath: string | null;
+  renameValue: string;
+  onRenameChange: (v: string) => void;
+  onRenameSubmit: () => void;
+  onRenameCancel: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const selectedFile = useFileStore((s) => s.selectedFile);
@@ -213,12 +248,48 @@ function TreeNode({
     <div>
       <button
         onClick={handleClick}
+        onMouseDown={(e) => {
+          if (node.is_dir || e.button !== 0) return;
+          const startX = e.clientX;
+          const startY = e.clientY;
+          let started = false;
+
+          const onMove = (me: MouseEvent) => {
+            if (!started) {
+              const dx = me.clientX - startX;
+              const dy = me.clientY - startY;
+              if (dx * dx + dy * dy < 25) return; // 5px threshold
+              started = true;
+              startTreeDrag(node.path);
+            }
+            moveTreeDrag(me.clientX, me.clientY);
+          };
+
+          const onUp = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            if (started) {
+              // Prevent the click event from firing after drag
+              const suppressClick = (ce: MouseEvent) => {
+                ce.stopPropagation();
+                ce.preventDefault();
+              };
+              // Capture phase to suppress before React sees it
+              document.addEventListener('click', suppressClick, { capture: true, once: true });
+              // Signal ChatPanel to consume the drag path
+              window.dispatchEvent(new CustomEvent('tree-drag-drop'));
+            }
+          };
+
+          document.addEventListener('mousemove', onMove);
+          document.addEventListener('mouseup', onUp);
+        }}
         onContextMenu={(e) => {
           e.preventDefault();
           onContextMenu(e, node.path, node.is_dir);
         }}
         className={`w-full flex items-center gap-1.5 py-1 px-2 rounded-lg
-          text-left text-[13px] transition-smooth group
+          text-left text-sm transition-smooth group
           ${isSelected
             ? 'bg-accent/10 text-accent'
             : changeKind
@@ -239,7 +310,23 @@ function TreeNode({
         <span className="text-xs leading-none">
           {getFileIcon(node.name, node.is_dir)}
         </span>
-        <span className="truncate">{node.name}</span>
+        {renamingPath === node.path ? (
+          <input
+            autoFocus
+            value={renameValue}
+            onChange={(e) => onRenameChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') onRenameSubmit();
+              if (e.key === 'Escape') onRenameCancel();
+            }}
+            onBlur={onRenameCancel}
+            onClick={(e) => e.stopPropagation()}
+            className="flex-1 min-w-0 text-sm bg-bg-input border border-border-focus
+              rounded px-1 py-0 outline-none text-text-primary"
+          />
+        ) : (
+          <span className="truncate">{node.name}</span>
+        )}
         {getChangeBadge(changeKind)}
         {!changeKind && hasChildChanges && (
           <span className="ml-auto w-1.5 h-1.5 rounded-full bg-yellow-500
@@ -255,6 +342,11 @@ function TreeNode({
               depth={depth + 1}
               searchQuery={searchQuery}
               onContextMenu={onContextMenu}
+              renamingPath={renamingPath}
+              renameValue={renameValue}
+              onRenameChange={onRenameChange}
+              onRenameSubmit={onRenameSubmit}
+              onRenameCancel={onRenameCancel}
             />
           ))}
         </div>
@@ -269,14 +361,21 @@ export function FileExplorer() {
   const tree = useFileStore((s) => s.tree);
   const isLoading = useFileStore((s) => s.isLoading);
   const rootPath = useFileStore((s) => s.rootPath);
-  const loadTree = useFileStore((s) => s.loadTree);
   const changedFiles = useFileStore((s) => s.changedFiles);
   const clearChangedFiles = useFileStore((s) => s.clearChangedFiles);
   const workingDirectory = useSettingsStore((s) => s.workingDirectory);
 
+  const refreshTree = useFileStore((s) => s.refreshTree);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+
+  // Right-click menu state
+  const [clipboardPath, setClipboardPath] = useState<string | null>(null);
+  const [renamingPath, setRenamingPath] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<{ path: string; isDir: boolean } | null>(null);
 
   const changedCount = changedFiles.size;
 
@@ -287,6 +386,89 @@ export function FileExplorer() {
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
   }, []);
+
+  // --- Right-click menu callbacks ---
+  const handleCopyPath = useCallback((path: string) => {
+    navigator.clipboard.writeText(path);
+  }, []);
+
+  const handleCopyFile = useCallback((path: string) => {
+    setClipboardPath(path);
+  }, []);
+
+  const handlePaste = useCallback(async (targetDir: string) => {
+    if (!clipboardPath) return;
+    const fileName = clipboardPath.split('/').pop() || 'file';
+    const dest = `${targetDir}/${fileName}`;
+    try {
+      await bridge.copyFile(clipboardPath, dest);
+      setClipboardPath(null);
+      refreshTree();
+    } catch {
+      // Silently fail
+    }
+  }, [clipboardPath, refreshTree]);
+
+  const handleStartRename = useCallback((path: string) => {
+    const name = path.split('/').pop() || '';
+    setRenamingPath(path);
+    setRenameValue(name);
+  }, []);
+
+  const handleRenameSubmit = useCallback(async () => {
+    if (!renamingPath || !renameValue.trim()) {
+      setRenamingPath(null);
+      return;
+    }
+    const dir = renamingPath.substring(0, renamingPath.lastIndexOf('/'));
+    const dest = `${dir}/${renameValue.trim()}`;
+    if (dest === renamingPath) {
+      setRenamingPath(null);
+      return;
+    }
+    try {
+      await bridge.renameFile(renamingPath, dest);
+      setRenamingPath(null);
+      refreshTree();
+    } catch {
+      setRenamingPath(null);
+    }
+  }, [renamingPath, renameValue, refreshTree]);
+
+  const handleRenameCancel = useCallback(() => {
+    setRenamingPath(null);
+  }, []);
+
+  const handleRequestDelete = useCallback((path: string, isDir: boolean) => {
+    setDeleteTarget({ path, isDir });
+  }, []);
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!deleteTarget) return;
+    try {
+      await bridge.deleteFile(deleteTarget.path);
+      setDeleteTarget(null);
+      refreshTree();
+    } catch {
+      setDeleteTarget(null);
+    }
+  }, [deleteTarget, refreshTree]);
+
+  const handleInsertToChat = useCallback((path: string) => {
+    const currentDraft = useChatStore.getState().inputDraft;
+    const prefix = currentDraft && !currentDraft.endsWith('\n') && !currentDraft.endsWith(' ') ? ' ' : '';
+    useChatStore.getState().setInputDraft(currentDraft + prefix + path);
+  }, []);
+
+  const contextMenuCallbacks: ContextMenuCallbacks = useMemo(() => ({
+    onCopyPath: handleCopyPath,
+    onCopyFile: handleCopyFile,
+    onPaste: handlePaste,
+    onRename: handleStartRename,
+    onDelete: handleRequestDelete,
+    onInsertToChat: handleInsertToChat,
+    clipboardPath,
+  }), [handleCopyPath, handleCopyFile, handlePaste, handleStartRename, handleRequestDelete, handleInsertToChat, clipboardPath]);
 
   // No project selected
   if (!workingDirectory) {
@@ -348,7 +530,10 @@ export function FileExplorer() {
               </svg>
             </button>
           )}
-          <button onClick={() => rootPath && loadTree(rootPath)}
+          <button onClick={() => {
+              const dir = workingDirectory || rootPath;
+              if (dir) refreshTree(dir);
+            }}
             className="p-1 rounded hover:bg-bg-secondary
               text-text-tertiary transition-smooth" title={t('files.refresh')}>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
@@ -399,7 +584,7 @@ export function FileExplorer() {
 
       {/* File tree */}
       <div className="flex-1 overflow-y-auto py-1">
-        {isLoading ? (
+        {isLoading && tree.length === 0 ? (
           <div className="flex items-center justify-center py-8">
             <div className="w-5 h-5 border-2 border-accent/30
               border-t-accent rounded-full animate-spin" />
@@ -412,6 +597,11 @@ export function FileExplorer() {
               depth={0}
               searchQuery={searchQuery}
               onContextMenu={handleContextMenu}
+              renamingPath={renamingPath}
+              renameValue={renameValue}
+              onRenameChange={setRenameValue}
+              onRenameSubmit={handleRenameSubmit}
+              onRenameCancel={handleRenameCancel}
             />
           ))
         ) : (
@@ -423,7 +613,37 @@ export function FileExplorer() {
 
       {/* Context menu */}
       {contextMenu && (
-        <ContextMenu menu={contextMenu} onClose={closeContextMenu} />
+        <ContextMenu menu={contextMenu} onClose={closeContextMenu} callbacks={contextMenuCallbacks} />
+      )}
+
+      {/* Delete confirmation dialog */}
+      {deleteTarget && createPortal(
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40"
+          onClick={() => setDeleteTarget(null)}>
+          <div className="bg-bg-card border border-border-subtle rounded-xl p-5
+            shadow-lg max-w-sm w-full mx-4 animate-fade-in"
+            onClick={(e) => e.stopPropagation()}>
+            <p className="text-sm text-text-primary mb-4">
+              {deleteTarget.isDir ? t('files.deleteConfirmDir') : t('files.deleteConfirm')}
+            </p>
+            <p className="text-xs text-text-muted mb-4 truncate">{deleteTarget.path.split('/').pop()}</p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                className="px-3 py-1.5 text-xs rounded-lg bg-bg-secondary
+                  text-text-muted hover:bg-bg-tertiary transition-smooth cursor-pointer">
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                className="px-3 py-1.5 text-xs rounded-lg bg-error/10
+                  text-error hover:bg-error/20 transition-smooth cursor-pointer">
+                {t('files.delete')}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

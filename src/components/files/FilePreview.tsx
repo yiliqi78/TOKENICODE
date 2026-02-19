@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useEffect, useRef } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { vscodeDark, vscodeLight } from '@uiw/codemirror-theme-vscode';
 import { javascript } from '@codemirror/lang-javascript';
@@ -14,6 +14,7 @@ import { sql } from '@codemirror/lang-sql';
 import { xml } from '@codemirror/lang-xml';
 import { yaml } from '@codemirror/lang-yaml';
 import { StreamLanguage } from '@codemirror/language';
+import { EditorView } from '@codemirror/view';
 import { go } from '@codemirror/legacy-modes/mode/go';
 import { shell } from '@codemirror/legacy-modes/mode/shell';
 import { ruby } from '@codemirror/legacy-modes/mode/ruby';
@@ -127,6 +128,19 @@ export function FilePreview() {
   const saveFile = useFileStore((s) => s.saveFile);
   const discardEdits = useFileStore((s) => s.discardEdits);
   const isSaving = useFileStore((s) => s.isSaving);
+  const changedFiles = useFileStore((s) => s.changedFiles);
+  const reloadContent = useFileStore((s) => s.reloadContent);
+
+  // Auto-refresh preview when the selected file is modified externally
+  const reloadRef = useRef(reloadContent);
+  reloadRef.current = reloadContent;
+  useEffect(() => {
+    if (!selectedFile) return;
+    const change = changedFiles.get(selectedFile);
+    if (change === 'modified') {
+      reloadRef.current();
+    }
+  }, [selectedFile, changedFiles]);
 
   const appTheme = useSettingsStore((s) => s.theme);
   const isDark = useMemo(() => {
@@ -256,6 +270,20 @@ export function FilePreview() {
             </div>
           )}
 
+          {/* Refresh button */}
+          <button
+            onClick={reloadContent}
+            className="p-2 rounded-lg hover:bg-bg-tertiary
+              text-text-tertiary transition-smooth cursor-pointer"
+            title={t('files.refresh')}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
+              stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <path d="M2.5 8a5.5 5.5 0 019.3-4M13.5 8a5.5 5.5 0 01-9.3 4" />
+              <path d="M12 1v3h-3M4 12v3h3" />
+            </svg>
+          </button>
+
           {/* Close button — larger hit area for easy clicking */}
           <button
             onClick={closePreview}
@@ -342,7 +370,7 @@ export function FilePreview() {
           /* Edit mode: CodeMirror 6 editor */
           <CodeMirror
             value={editContent ?? fileContent ?? ''}
-            extensions={Array.isArray(langExtension) ? langExtension : [langExtension]}
+            extensions={[...(Array.isArray(langExtension) ? langExtension : [langExtension]), EditorView.lineWrapping]}
             theme={isDark ? vscodeDark : vscodeLight}
             onChange={(value) => setEditContent(value)}
             height="100%"
@@ -387,7 +415,7 @@ export function FilePreview() {
           /* Source view: read-only CodeMirror */
           <CodeMirror
             value={fileContent}
-            extensions={Array.isArray(langExtension) ? langExtension : [langExtension]}
+            extensions={[...(Array.isArray(langExtension) ? langExtension : [langExtension]), EditorView.lineWrapping]}
             theme={isDark ? vscodeDark : vscodeLight}
             editable={false}
             readOnly={true}

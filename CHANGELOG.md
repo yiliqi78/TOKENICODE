@@ -6,6 +6,98 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.4.0] - 2026-02-19
+
+### Added / 新增功能
+
+#### File Context Menu / 文件右键菜单
+
+Full context menu for the file explorer: Copy Path, Copy File, Paste, Rename, Delete, and Insert to Chat. Directory operations (paste into, delete recursively) are supported.
+
+文件管理器完整右键菜单：复制路径、拷贝文件、粘贴、重命名、删除、插入到聊天。支持文件夹操作（粘贴到目录、递归删除）。
+
+#### File Tree Drag to Chat / 文件树拖拽到聊天
+
+Drag files from the file tree directly into the chat input to attach them. Uses a custom mouse-based drag implementation to work around Tauri WKWebView's HTML5 drag-and-drop limitation.
+
+从文件树拖拽文件到聊天输入框即可附加文件。采用自定义鼠标拖拽实现，绕过 Tauri WKWebView 的 HTML5 拖放限制。
+
+#### Mode Selector Dropdown / 模式选择器下拉菜单
+
+Replaced the horizontal button group with a compact dropdown selector for Code/Ask/Plan/Bypass modes. Opens upward from the input toolbar.
+
+将水平按钮组替换为紧凑的下拉选择器，集成 Code/Ask/Plan/Bypass 模式。从输入工具栏向上弹出。
+
+#### Editor Word Wrap / 编辑器自动折行
+
+File preview and editor now wrap long lines automatically using `EditorView.lineWrapping`, both in edit and read-only mode.
+
+文件预览和编辑器现在通过 `EditorView.lineWrapping` 自动折行，编辑和只读模式均生效。
+
+### Fixed / 修复
+
+#### File Tree Not Loading on Session Switch / 切换会话后文件树不加载
+
+Fixed a critical bug where switching to a historical session showed an empty file tree. Root cause: `decode_project_name` in Rust shortened absolute paths to `~/...` format, which the frontend couldn't resolve. Now returns full absolute paths. Added `resolveProjectPath()` on the frontend as a safety net for tilde, absolute, and dash-encoded path formats.
+
+修复切换到历史会话后文件树为空的严重 Bug。根因：Rust 端 `decode_project_name` 将绝对路径缩短为 `~/...` 格式，前端无法识别。现在始终返回完整绝对路径。前端新增 `resolveProjectPath()` 统一处理波浪号、绝对路径和 dash 编码路径。
+
+#### Claude CLI Binary Path Resolution / Claude CLI 路径解析
+
+Fixed "Failed to spawn claude" error after CLI updates. The version directory sorter used string comparison (`"2.1.9" > "2.1.41"`), now uses semantic version sorting. Also iterates all version directories instead of only checking the first one.
+
+修复 CLI 更新后出现 "Failed to spawn claude" 错误。版本目录排序使用字符串比较导致排序错误（`"2.1.9" > "2.1.41"`），改为语义版本排序。同时遍历所有版本目录，而非仅检查第一个。
+
+#### Export Missing User Messages / 导出缺少用户发言
+
+Fixed exported markdown only containing Assistant messages. The JSONL parser matched `"human"` but actual CLI format uses `"user"`. Also handles both string and array content formats.
+
+修复导出的 Markdown 只包含助手消息。JSONL 解析器匹配 `"human"` 但实际 CLI 格式为 `"user"`。同时处理字符串和数组两种内容格式。
+
+#### Multi-Image Paste Collision / 多图粘贴文件名冲突
+
+`save_temp_file` now generates unique filenames with timestamp + counter suffix, preventing multiple pasted images from overwriting each other.
+
+`save_temp_file` 现在生成带时间戳和计数器后缀的唯一文件名，防止多张粘贴图片相互覆盖。
+
+#### External File Drop Deduplication / 外部文件拖放去重
+
+Added debounce guard and internal-drag detection to `onDragDropEvent`, preventing duplicate attachments from Tauri's multi-fire behavior and internal file tree drags.
+
+为 `onDragDropEvent` 添加防抖保护和内部拖拽检测，防止 Tauri 多次触发和文件树内部拖拽导致的重复附件。
+
+### Changed / 变更
+
+#### Performance Optimization / 性能优化
+
+- `MessageBubble` and `ToolUseMsg` wrapped with `React.memo` to prevent unnecessary re-renders
+- `MarkdownRenderer` wrapped with `React.memo`; plugin arrays and components object stabilized with module-level constants and `useMemo`
+- Merged `activityStatus` update into `updatePartialMessage` — reduced from 3 store `set()` calls to 1 per streaming text delta
+- Auto-scroll changed from forced scroll-to-bottom to sticky-to-bottom pattern (only scrolls when user is within 80px of bottom)
+- Auth check now tries instant credential file detection before falling back to `claude doctor` subprocess
+
+- `MessageBubble` 和 `ToolUseMsg` 使用 `React.memo` 包裹，避免不必要的重渲染
+- `MarkdownRenderer` 使用 `React.memo` 包裹；插件数组和组件对象通过模块级常量和 `useMemo` 稳定化
+- `activityStatus` 更新合并到 `updatePartialMessage`——每次流式文本增量从 3 次 store `set()` 减少到 1 次
+- 自动滚动从强制滚动到底部改为粘性滚动（仅当用户距底部 80px 以内时才滚动）
+- 认证检查优先尝试即时的凭证文件检测，再回退到 `claude doctor` 子进程
+
+#### Other / 其他
+
+- Chat font size increased for better readability
+- File tree and task list font size increased
+- Session list loading spinner only shown on first load (not on background refresh)
+- History system messages filtered out (no longer displayed as user bubbles)
+- File preview auto-refreshes on external changes; manual refresh button added
+
+- 聊天区正文字体加大
+- 文件树和任务列表字体增大
+- 会话列表加载动画仅在首次加载时显示（后台刷新不再显示）
+- 历史记录系统消息已过滤（不再显示为用户气泡）
+- 文件预览支持外部变更自动刷新，新增手动刷新按钮
+
+---
+
 ## [0.3.0] - 2026-02-19
 
 ### Added / 新增功能

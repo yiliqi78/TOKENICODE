@@ -203,6 +203,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     set((state) => ({
       partialText: state.partialText + text,
       isStreaming: true,
+      activityStatus: { phase: 'writing' as ActivityPhase },
     })),
 
   setSessionStatus: (status) => {
