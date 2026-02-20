@@ -10,6 +10,9 @@ use std::process::Stdio;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 use std::collections::HashMap;
+use std::io::Write as IoWrite;
+use sha2::{Sha256, Digest};
+use futures_util::StreamExt;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -20,23 +23,42 @@ struct WatcherManager {
     watchers: Arc<TokioMutex<HashMap<String, notify::RecommendedWatcher>>>,
 }
 
+/// Path to the CLI download directory under the app's local data dir.
+fn cli_download_dir() -> Option<std::path::PathBuf> {
+    dirs::data_local_dir().map(|d| d.join("com.tinyzhuang.tokenicode").join("cli"))
+}
+
 /// Find the claude binary by checking common installation paths
 fn find_claude_binary() -> Option<String> {
+    // 0. Check app-local download directory (our own downloaded CLI)
+    if let Some(cli_dir) = cli_download_dir() {
+        #[cfg(target_os = "windows")]
+        let bin_name = "claude.exe";
+        #[cfg(not(target_os = "windows"))]
+        let bin_name = "claude";
+        let path = cli_dir.join(bin_name);
+        if path.exists() {
+            return Some(path.to_string_lossy().to_string());
+        }
+    }
+
     // 1. Check if `claude` is already on the system PATH
     #[cfg(target_os = "windows")]
     {
-        // Windows: use `where claude` via cmd
-        if let Ok(output) = std::process::Command::new("cmd")
-            .args(["/C", "where", "claude"])
-            .output()
-        {
-            if output.status.success() {
-                // `where` may return multiple lines; take the first one
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                if let Some(path) = stdout.lines().next() {
-                    let path = path.trim().to_string();
-                    if !path.is_empty() && std::path::Path::new(&path).exists() {
-                        return Some(path);
+        // Windows: use `where claude` via cmd, then fallback to `where claude.cmd`
+        for query in ["claude", "claude.cmd"] {
+            if let Ok(output) = std::process::Command::new("cmd")
+                .args(["/C", "where", query])
+                .output()
+            {
+                if output.status.success() {
+                    // `where` may return multiple lines; take the first one
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    if let Some(path) = stdout.lines().next() {
+                        let path = path.trim().to_string();
+                        if !path.is_empty() && std::path::Path::new(&path).exists() {
+                            return Some(path);
+                        }
                     }
                 }
             }
@@ -278,7 +300,12 @@ async fn start_claude_session(
     }
 
     // Resolve claude binary — it may not be on the default PATH
-    let claude_bin = find_claude_binary().unwrap_or_else(|| "claude".to_string());
+    let claude_bin = find_claude_binary().unwrap_or_else(|| {
+        #[cfg(target_os = "windows")]
+        { "claude.cmd".to_string() }
+        #[cfg(not(target_os = "windows"))]
+        { "claude".to_string() }
+    });
 
     // Build an enriched PATH for the child process
     let enriched_path = build_enriched_path();
@@ -286,7 +313,11 @@ async fn start_claude_session(
     // On Windows, .cmd/.bat files must be launched via cmd /C
     #[cfg(target_os = "windows")]
     let mut child = {
-        let needs_cmd = claude_bin.ends_with(".cmd") || claude_bin.ends_with(".bat");
+        // Also wrap bare names (no path separator, no extension) via cmd /C
+        // so that Windows can resolve .cmd shims on PATH
+        let needs_cmd = claude_bin.ends_with(".cmd")
+            || claude_bin.ends_with(".bat")
+            || (!claude_bin.contains('\\') && !claude_bin.contains('/') && !claude_bin.contains('.'));
         let mut cmd = if needs_cmd {
             let mut c = Command::new("cmd");
             c.arg("/C").arg(&claude_bin);
@@ -1987,86 +2018,133 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
     }
 }
 
-/// Run the Claude CLI install script and stream output to the frontend.
+/// GCS bucket base URL for Claude Code releases.
+const CLI_DIST_BASE: &str = "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases";
+
+/// Determine the platform identifier for CLI downloads.
+fn get_cli_platform() -> Result<(&'static str, &'static str), String> {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("macos", "aarch64") => Ok(("darwin-arm64", "claude")),
+        ("macos", "x86_64")  => Ok(("darwin-x64", "claude")),
+        ("windows", "x86_64") => Ok(("win32-x64", "claude.exe")),
+        ("windows", "aarch64") => Ok(("win32-arm64", "claude.exe")),
+        ("linux", "x86_64")  => Ok(("linux-x64", "claude")),
+        ("linux", "aarch64") => Ok(("linux-arm64", "claude")),
+        (os, arch) => Err(format!("Unsupported platform: {}-{}", os, arch)),
+    }
+}
+
+/// Download the Claude CLI binary directly via HTTP.
+///
+/// Flow: fetch latest version → download manifest → download binary → verify SHA256 → run `claude install`.
 #[tauri::command]
 async fn install_claude_cli(app: AppHandle) -> Result<(), String> {
-    fn emit_to_frontend(app: &AppHandle, event: &str, payload: Value) -> Result<(), String> {
-        if let Err(e1) = app.emit_to("main", event, payload.clone()) {
-            if let Err(e2) = app.emit(event, payload) {
-                return Err(format!("emit_to failed: {}, emit failed: {}", e1, e2));
-            }
-        }
-        Ok(())
+    let (platform, bin_name) = get_cli_platform()?;
+
+    // 1. Fetch latest version
+    let client = reqwest::Client::new();
+    let version = client.get(format!("{}/latest", CLI_DIST_BASE))
+        .send().await.map_err(|e| format!("Failed to fetch latest version: {}", e))?
+        .text().await.map_err(|e| format!("Failed to read version: {}", e))?
+        .trim().to_string();
+
+    let _ = app.emit("setup:download:progress", serde_json::json!({
+        "downloaded": 0, "total": 0, "percent": 0, "phase": "version"
+    }));
+
+    // 2. Download manifest for checksum
+    let manifest_url = format!("{}/{}/manifest.json", CLI_DIST_BASE, version);
+    let manifest: Value = client.get(&manifest_url)
+        .send().await.map_err(|e| format!("Failed to fetch manifest: {}", e))?
+        .json::<Value>().await.map_err(|e| format!("Failed to parse manifest: {}", e))?;
+
+    let expected_sha: Option<String> = manifest.get(platform)
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    // 3. Download binary with streaming progress
+    let binary_url = format!("{}/{}/{}/{}", CLI_DIST_BASE, version, platform, bin_name);
+    let resp = client.get(&binary_url)
+        .send().await.map_err(|e| format!("Failed to download CLI: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Download failed with HTTP {}", resp.status()));
     }
 
-    #[cfg(target_os = "windows")]
-    let mut child = Command::new("powershell")
-        .args(["-Command", "irm https://claude.ai/install.ps1 | iex"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to start installer: {}", e))?;
+    let total = resp.content_length().unwrap_or(0);
+    let mut downloaded: u64 = 0;
 
-    #[cfg(not(target_os = "windows"))]
-    let mut child = Command::new("sh")
-        .args(["-c", "curl -fsSL https://claude.ai/install.sh | sh"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to start installer: {}", e))?;
+    let install_dir = cli_download_dir()
+        .ok_or_else(|| "Cannot determine app data directory".to_string())?;
+    std::fs::create_dir_all(&install_dir)
+        .map_err(|e| format!("Failed to create install dir: {}", e))?;
 
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
+    let target_path = install_dir.join(bin_name);
+    let mut file = std::fs::File::create(&target_path)
+        .map_err(|e| format!("Failed to create binary file: {}", e))?;
 
-    // Stream stdout
-    let app1 = app.clone();
-    let stdout_handle = tokio::spawn(async move {
-        if let Some(out) = stdout {
-            let reader = BufReader::new(out);
-            let mut lines = reader.lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                let _ = emit_to_frontend(
-                    &app1,
-                    "setup:install:output",
-                    serde_json::json!({ "stream": "stdout", "line": line }),
-                );
-            }
-        }
-    });
+    let mut hasher = Sha256::new();
+    let mut stream = resp.bytes_stream();
 
-    // Stream stderr
-    let app2 = app.clone();
-    let stderr_handle = tokio::spawn(async move {
-        if let Some(err) = stderr {
-            let reader = BufReader::new(err);
-            let mut lines = reader.lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                let _ = emit_to_frontend(
-                    &app2,
-                    "setup:install:output",
-                    serde_json::json!({ "stream": "stderr", "line": line }),
-                );
-            }
-        }
-    });
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Download stream error: {}", e))?;
+        file.write_all(&chunk).map_err(|e| format!("Failed to write chunk: {}", e))?;
+        hasher.update(&chunk);
+        downloaded += chunk.len() as u64;
 
-    // Wait for process to finish
-    let status = child.wait().await
-        .map_err(|e| format!("Installer process error: {}", e))?;
-
-    let _ = stdout_handle.await;
-    let _ = stderr_handle.await;
-
-    let code = status.code().unwrap_or(-1);
-    let _ = app.emit_to(
-        "main",
-        "setup:install:exit",
-        serde_json::json!({ "code": code }),
-    );
-
-    if code != 0 {
-        return Err(format!("Install script exited with code {}", code));
+        let percent = if total > 0 { (downloaded * 100 / total) as u8 } else { 0 };
+        let _ = app.emit("setup:download:progress", serde_json::json!({
+            "downloaded": downloaded, "total": total, "percent": percent, "phase": "downloading"
+        }));
     }
+    drop(file);
+
+    // 4. Verify SHA256 checksum
+    if let Some(expected) = expected_sha {
+        let actual = format!("{:x}", hasher.finalize());
+        if actual != expected {
+            // Clean up the bad download
+            let _ = std::fs::remove_file(&target_path);
+            return Err(format!("Checksum mismatch: expected {}, got {}", expected, actual));
+        }
+    }
+
+    // 5. Set executable permission (Unix)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&target_path, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("Failed to set permissions: {}", e))?;
+    }
+
+    let _ = app.emit("setup:download:progress", serde_json::json!({
+        "downloaded": downloaded, "total": total, "percent": 100, "phase": "installing"
+    }));
+
+    // 6. Run `claude install` to complete setup (creates symlinks, PATH entries, etc.)
+    let enriched_path = build_enriched_path();
+    let install_result = Command::new(target_path.to_string_lossy().to_string())
+        .arg("install")
+        .env("PATH", &enriched_path)
+        .output()
+        .await;
+
+    match install_result {
+        Ok(output) if output.status.success() => {},
+        Ok(output) => {
+            // Non-zero exit from `claude install` is non-fatal — the binary itself works
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            eprintln!("claude install warning: {}", stderr);
+        },
+        Err(e) => {
+            eprintln!("claude install failed to run: {} (non-fatal)", e);
+        }
+    }
+
+    let _ = app.emit("setup:download:progress", serde_json::json!({
+        "downloaded": downloaded, "total": total, "percent": 100, "phase": "complete"
+    }));
+
     Ok(())
 }
 
@@ -2082,7 +2160,12 @@ async fn start_claude_login(app: AppHandle) -> Result<(), String> {
         Ok(())
     }
 
-    let claude_bin = find_claude_binary().unwrap_or_else(|| "claude".to_string());
+    let claude_bin = find_claude_binary().unwrap_or_else(|| {
+        #[cfg(target_os = "windows")]
+        { "claude.cmd".to_string() }
+        #[cfg(not(target_os = "windows"))]
+        { "claude".to_string() }
+    });
     let enriched_path = build_enriched_path();
 
     let mut child = Command::new(&claude_bin)
@@ -2154,7 +2237,12 @@ struct AuthStatus {
 /// Check whether the Claude CLI is authenticated by running a lightweight check.
 #[tauri::command]
 async fn check_claude_auth() -> Result<AuthStatus, String> {
-    let claude_bin = find_claude_binary().unwrap_or_else(|| "claude".to_string());
+    let claude_bin = find_claude_binary().unwrap_or_else(|| {
+        #[cfg(target_os = "windows")]
+        { "claude.cmd".to_string() }
+        #[cfg(not(target_os = "windows"))]
+        { "claude".to_string() }
+    });
     let enriched_path = build_enriched_path();
 
     // First try a quick credential file check (instant, no subprocess)
@@ -2241,7 +2329,12 @@ async fn save_custom_previews(data: Value) -> Result<(), String> {
 /// On Windows: opens cmd.exe.
 #[tauri::command]
 async fn open_terminal_login() -> Result<(), String> {
-    let claude_bin = find_claude_binary().unwrap_or_else(|| "claude".to_string());
+    let claude_bin = find_claude_binary().unwrap_or_else(|| {
+        #[cfg(target_os = "windows")]
+        { "claude.cmd".to_string() }
+        #[cfg(not(target_os = "windows"))]
+        { "claude".to_string() }
+    });
 
     #[cfg(target_os = "macos")]
     {

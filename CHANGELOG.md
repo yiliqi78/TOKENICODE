@@ -6,6 +6,30 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.5.1] - 2026-02-20
+
+### Changed / 变更
+
+- **Code Block Syntax Colors (TK-211)** — Introduced dedicated `--syntax-*` CSS variables for syntax highlighting, decoupled from semantic colors (success/warning/error). Each of the 8 theme combinations (4 color themes × light/dark) now has a tailored palette that avoids color collisions with the theme accent.
+
+- **代码块语法配色优化 (TK-211)** — 引入独立的 `--syntax-*` CSS 变量用于语法高亮，与语义色（success/warning/error）解耦。8 种主题组合（4 色 × 明暗）各有定制配色，避免与主题强调色撞色。
+
+- **CLI Direct Download (TK-302 v3)** — Replaced shell-script-based CLI installation (`curl | sh` / `irm | iex`) with Rust HTTP client direct download from Anthropic CDN. Streams binary with real-time progress, verifies SHA256 checksum, and runs `claude install` post-download. Works on all 6 platforms without requiring npm/curl/PowerShell.
+
+- **CLI 直接下载安装 (TK-302 v3)** — 将基于脚本的 CLI 安装方式替换为 Rust HTTP 客户端直接从 Anthropic CDN 下载二进制文件。流式下载并实时显示进度，验证 SHA256 校验和，下载后自动运行 `claude install`。无需 npm/curl/PowerShell，支持全部 6 个平台。
+
+- **Plan Panel Floating Overlay (TK-306)** — Plan panel is now a floating overlay with glassmorphism effect (backdrop blur, rounded corners, shadow) instead of a flex child that pushes main content. Button hidden when no plan content exists.
+
+- **Plan 面板浮动覆盖 (TK-306)** — Plan 面板改为磨砂玻璃效果的浮动覆盖层（背景模糊、圆角、阴影），不再挤压主聊天内容。无 Plan 内容时按钮自动隐藏。
+
+### Fixed / 修复
+
+- **Windows Spawn Error 193 (TK-305)** — Fixed Claude CLI failing to launch on Windows when installed via npm. The fallback binary name now uses `claude.cmd` on Windows, and the `where` lookup also searches for `claude.cmd`. Bare binary names without extensions are also wrapped via `cmd /C`.
+
+- **Windows 启动错误 193 (TK-305)** — 修复通过 npm 安装时 Windows 上无法启动 Claude CLI 的问题。回退二进制名在 Windows 下改为 `claude.cmd`，`where` 查找也会搜索 `claude.cmd`。无扩展名的裸二进制名也通过 `cmd /C` 启动。
+
+---
+
 ## [0.5.0] - 2026-02-20
 
 ### New Features / 新功能

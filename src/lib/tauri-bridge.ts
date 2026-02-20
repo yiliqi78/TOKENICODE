@@ -91,6 +91,13 @@ export interface SetupExitEvent {
   code: number;
 }
 
+export interface DownloadProgressEvent {
+  downloaded: number;
+  total: number;
+  percent: number;
+  phase: 'version' | 'downloading' | 'installing' | 'complete';
+}
+
 export interface UnifiedCommand {
   name: string;
   description: string;
@@ -322,6 +329,15 @@ export function onSetupLoginExit(
 ): Promise<UnlistenFn> {
   return listen<SetupExitEvent>(
     'setup:login:exit',
+    (event) => callback(event.payload),
+  );
+}
+
+export function onDownloadProgress(
+  callback: (event: DownloadProgressEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<DownloadProgressEvent>(
+    'setup:download:progress',
     (event) => callback(event.payload),
   );
 }

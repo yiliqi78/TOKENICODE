@@ -99,6 +99,8 @@ export interface SessionSnapshot {
   activityStatus: ActivityStatus;
   inputDraft: string;
   pendingAttachments: FileAttachment[];
+  /** User messages queued while AI is actively processing (not yet sent to stdin) */
+  pendingUserMessages: string[];
 }
 
 // --- Store State & Actions ---
@@ -115,6 +117,8 @@ interface ChatState {
   inputDraft: string;
   /** Pending file attachments for the current session (saved/restored on tab switch) */
   pendingAttachments: FileAttachment[];
+  /** User messages queued while AI is actively processing (not yet sent to stdin) */
+  pendingUserMessages: string[];
 
   /** Per-session snapshot cache: tabId → snapshot */
   sessionCache: Map<string, SessionSnapshot>;
@@ -141,6 +145,13 @@ interface ChatState {
   setInputDraft: (text: string) => void;
   /** Set pending attachments for the current session */
   setPendingAttachments: (files: FileAttachment[]) => void;
+
+  /** Queue a user message to be sent after the current turn completes */
+  addPendingMessage: (text: string) => void;
+  /** Return and clear all pending user messages */
+  flushPendingMessages: () => string[];
+  /** Clear pending user messages without returning them */
+  clearPendingMessages: () => void;
 
   /** Rewind conversation to a specific message index (truncates messages[]) */
   rewindToTurn: (startMsgIdx: number) => void;
@@ -180,6 +191,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   activityStatus: { phase: 'idle' },
   inputDraft: '',
   pendingAttachments: [],
+  pendingUserMessages: [],
   sessionCache: new Map(),
 
   addMessage: (message) =>
@@ -258,6 +270,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       activityStatus: { phase: 'idle' },
       inputDraft: '',
       pendingAttachments: [],
+      pendingUserMessages: [],
     })),
 
   setSessionMeta: (meta) =>
@@ -267,6 +280,17 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
   setInputDraft: (text) => set({ inputDraft: text }),
   setPendingAttachments: (files) => set({ pendingAttachments: files }),
+
+  addPendingMessage: (text) =>
+    set((state) => ({ pendingUserMessages: [...state.pendingUserMessages, text] })),
+
+  flushPendingMessages: () => {
+    const msgs = get().pendingUserMessages;
+    set({ pendingUserMessages: [] });
+    return msgs;
+  },
+
+  clearPendingMessages: () => set({ pendingUserMessages: [] }),
 
   rewindToTurn: (startMsgIdx) =>
     set((state) => {
@@ -293,7 +317,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   // --- Session cache operations ---
 
   saveToCache: (tabId) => {
-    const { messages, isStreaming, partialText, partialThinking, sessionStatus, sessionMeta, activityStatus, inputDraft, pendingAttachments, sessionCache } = get();
+    const { messages, isStreaming, partialText, partialThinking, sessionStatus, sessionMeta, activityStatus, inputDraft, pendingAttachments, pendingUserMessages, sessionCache } = get();
     const next = new Map(sessionCache);
     next.set(tabId, {
       messages: [...messages],
@@ -305,6 +329,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       activityStatus: { ...activityStatus },
       inputDraft,
       pendingAttachments: [...pendingAttachments],
+      pendingUserMessages: [...pendingUserMessages],
     });
     set({ sessionCache: next });
   },
@@ -322,6 +347,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       activityStatus: { ...snapshot.activityStatus },
       inputDraft: snapshot.inputDraft || '',
       pendingAttachments: snapshot.pendingAttachments ? [...snapshot.pendingAttachments] : [],
+      pendingUserMessages: snapshot.pendingUserMessages ? [...snapshot.pendingUserMessages] : [],
     });
     return true;
   },
@@ -352,6 +378,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         activityStatus: { phase: 'idle' as ActivityPhase },
         inputDraft: '',
         pendingAttachments: [],
+        pendingUserMessages: [],
       });
       set({ sessionCache: next });
       return;
@@ -385,6 +412,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         activityStatus: { phase: 'idle' as ActivityPhase },
         inputDraft: '',
         pendingAttachments: [],
+        pendingUserMessages: [],
       });
       set({ sessionCache: next });
       return;
@@ -415,6 +443,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         activityStatus: { phase: (status === 'running' ? 'thinking' : status) as ActivityPhase },
         inputDraft: '',
         pendingAttachments: [],
+        pendingUserMessages: [],
       });
       set({ sessionCache: next });
       return;

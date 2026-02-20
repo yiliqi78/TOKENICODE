@@ -1,56 +1,37 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { useSetupStore } from '../../stores/setupStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useT } from '../../lib/i18n';
 import {
   bridge,
-  onSetupInstallOutput,
-  onSetupInstallExit,
+  onDownloadProgress,
 } from '../../lib/tauri-bridge';
 
+/**
+ * SetupWizard — lightweight CLI detection & direct download install.
+ *
+ * Simplified flow (TK-302 v3):
+ *   checking → (CLI found? skip to main) | not_installed
+ *   not_installed → user clicks Install → installing (download with progress)
+ *   installing → installed → auto-complete
+ *   install_failed → retry | skip
+ *
+ * Auth/login is handled separately in Settings (TK-303).
+ */
 export function SetupWizard() {
   const t = useT();
   const step = useSetupStore((s) => s.step);
-  const installOutput = useSetupStore((s) => s.installOutput);
   const error = useSetupStore((s) => s.error);
   const cliVersion = useSetupStore((s) => s.cliVersion);
   const setStep = useSetupStore((s) => s.setStep);
-  const appendInstallOutput = useSetupStore((s) => s.appendInstallOutput);
   const setError = useSetupStore((s) => s.setError);
   const setCliInfo = useSetupStore((s) => s.setCliInfo);
   const setSetupCompleted = useSettingsStore((s) => s.setSetupCompleted);
 
-  const outputRef = useRef<HTMLDivElement>(null);
+  const [downloadPercent, setDownloadPercent] = useState(0);
+  const [downloadPhase, setDownloadPhase] = useState<string>('');
 
-  // Auto-scroll output to bottom
-  useEffect(() => {
-    if (outputRef.current) {
-      outputRef.current.scrollTop = outputRef.current.scrollHeight;
-    }
-  }, [installOutput]);
-
-  // Poll auth status while in logging_in state (user is logging in via terminal)
-  useEffect(() => {
-    if (step !== 'logging_in') return;
-    let cancelled = false;
-    const interval = setInterval(async () => {
-      try {
-        const auth = await bridge.checkClaudeAuth();
-        if (cancelled) return;
-        if (auth.authenticated) {
-          setStep('ready');
-        }
-      } catch {
-        // Ignore — keep polling
-      }
-    }, 3000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [step]);
-
-  // Step 1: Auto-detect CLI on mount
+  // Auto-detect CLI on mount — skip wizard entirely if found
   useEffect(() => {
     let cancelled = false;
     async function detect() {
@@ -59,23 +40,10 @@ export function SetupWizard() {
         if (cancelled) return;
         if (status.installed) {
           setCliInfo(status.version ?? null, status.path ?? null);
-          // Check auth before showing anything
-          try {
-            const auth = await bridge.checkClaudeAuth();
-            if (cancelled) return;
-            if (auth.authenticated) {
-              // CLI installed + authenticated → skip wizard entirely
-              setSetupCompleted(true);
-              return;
-            } else {
-              setStep('login_needed');
-            }
-          } catch {
-            if (!cancelled) setStep('login_needed');
-          }
-        } else {
-          setStep('not_installed');
+          setSetupCompleted(true);
+          return;
         }
+        setStep('not_installed');
       } catch {
         if (!cancelled) setStep('not_installed');
       }
@@ -84,82 +52,48 @@ export function SetupWizard() {
     return () => { cancelled = true; };
   }, []);
 
+  // Download-based install: Rust HTTP client downloads binary directly
   const handleInstall = useCallback(async () => {
     setStep('installing');
     setError(null);
-    useSetupStore.getState().installOutput.length = 0; // clear
+    setDownloadPercent(0);
+    setDownloadPhase('');
 
-    const unlistenOutput = await onSetupInstallOutput((event) => {
-      appendInstallOutput(event.line);
+    const unlistenProgress = await onDownloadProgress((event) => {
+      setDownloadPercent(event.percent);
+      setDownloadPhase(event.phase);
     });
-    const unlistenExit = await onSetupInstallExit(async (event) => {
-      unlistenOutput();
-      unlistenExit();
-      if (event.code === 0) {
-        // Verify installation
-        try {
-          const status = await bridge.checkClaudeCli();
-          if (status.installed) {
-            setCliInfo(status.version ?? null, status.path ?? null);
-            setStep('installed');
-            // Auto-advance: check auth
-            try {
-              const auth = await bridge.checkClaudeAuth();
-              if (auth.authenticated) {
-                setStep('ready');
-              } else {
-                setStep('login_needed');
-              }
-            } catch {
-              setStep('login_needed');
-            }
-          } else {
-            setError('CLI not found after installation');
-            setStep('install_failed');
-          }
-        } catch {
-          setError('Failed to verify installation');
-          setStep('install_failed');
-        }
-      } else {
-        setError(`Install script exited with code ${event.code}`);
-        setStep('install_failed');
-      }
-    });
-
-    // Fire and forget — events handle the result
-    bridge.installClaudeCli().catch((err) => {
-      unlistenOutput();
-      unlistenExit();
-      setError(String(err));
-      setStep('install_failed');
-    });
-  }, []);
-
-  const handleLogin = useCallback(async () => {
-    setStep('logging_in');
-    setError(null);
 
     try {
-      // Open a native terminal window with `claude login`
-      await bridge.openTerminalLogin();
-      // Terminal opened — wait a moment then start polling for auth
-      setStep('logging_in');
+      await bridge.installClaudeCli();
+      unlistenProgress();
+
+      // Verify installation
+      const status = await bridge.checkClaudeCli();
+      if (status.installed) {
+        setCliInfo(status.version ?? null, status.path ?? null);
+        setStep('installed');
+        setTimeout(() => setSetupCompleted(true), 1200);
+      } else {
+        setError('CLI not found after download');
+        setStep('install_failed');
+      }
     } catch (err) {
+      unlistenProgress();
       setError(String(err));
-      setStep('login_failed');
+      setStep('install_failed');
     }
   }, []);
 
   const handleSkip = useCallback(() => {
-    setStep('skipped');
     setSetupCompleted(true);
   }, []);
 
-  const handleComplete = useCallback(() => {
-    setStep('ready');
-    setSetupCompleted(true);
-  }, []);
+  // Phase label for download progress
+  const phaseLabel = downloadPhase === 'version' ? t('setup.fetchingVersion') || 'Fetching version...'
+    : downloadPhase === 'downloading' ? t('setup.downloading') || 'Downloading...'
+    : downloadPhase === 'installing' ? t('setup.finalizing') || 'Finalizing...'
+    : '';
 
   return (
     <div className="flex flex-col items-center justify-center h-full text-center">
@@ -202,7 +136,7 @@ export function SetupWizard() {
               className="px-6 py-3 rounded-xl text-sm font-medium
                 bg-accent hover:bg-accent-hover text-text-inverse
                 hover:shadow-glow transition-smooth
-                flex items-center gap-2 mx-auto"
+                flex items-center gap-2 mx-auto cursor-pointer"
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
                 stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -211,46 +145,35 @@ export function SetupWizard() {
               {t('setup.install')}
             </button>
 
-            {/* Manual install collapsible */}
-            <details className="text-left mt-4">
-              <summary className="text-xs text-text-tertiary cursor-pointer
-                hover:text-text-muted transition-smooth">
-                {t('setup.manualInstall')}
-              </summary>
-              <div className="mt-2 p-3 rounded-lg bg-bg-tertiary">
-                <p className="text-xs text-text-muted mb-2">{t('setup.manualInstallCmd')}</p>
-                <code className="text-xs font-mono text-accent block break-all">
-                  curl -fsSL https://claude.ai/install.sh | sh
-                </code>
-              </div>
-            </details>
-
             <button onClick={handleSkip}
               className="text-xs text-text-tertiary hover:text-text-muted
-                transition-smooth mt-2">
+                transition-smooth mt-2 cursor-pointer">
               {t('setup.skip')}
             </button>
           </div>
         )}
 
-        {/* Step: Installing */}
+        {/* Step: Installing (download progress) */}
         {step === 'installing' && (
           <div className="space-y-4">
             <div className="flex items-center justify-center gap-2">
               <span className="text-base leading-none animate-spin-slow text-accent">
                 &#x2731;
               </span>
-              <span className="text-sm text-text-muted">{t('setup.installing')}</span>
+              <span className="text-sm text-text-muted">
+                {phaseLabel || t('setup.installing')}
+              </span>
             </div>
-            <div
-              ref={outputRef}
-              className="h-48 overflow-y-auto rounded-lg bg-bg-tertiary p-3
-                text-left font-mono text-xs text-text-muted leading-relaxed"
-            >
-              {installOutput.map((line, i) => (
-                <div key={i} className="whitespace-pre-wrap break-all">{line}</div>
-              ))}
+            {/* Precise progress bar */}
+            <div className="h-1.5 rounded-full bg-bg-tertiary overflow-hidden">
+              <div
+                className="h-full rounded-full bg-accent transition-all duration-300 ease-out"
+                style={{ width: `${Math.max(downloadPercent, 2)}%` }}
+              />
             </div>
+            {downloadPercent > 0 && (
+              <span className="text-xs text-text-tertiary">{downloadPercent}%</span>
+            )}
           </div>
         )}
 
@@ -268,188 +191,39 @@ export function SetupWizard() {
                 {error}
               </p>
             )}
-            {installOutput.length > 0 && (
-              <div
-                ref={outputRef}
-                className="h-32 overflow-y-auto rounded-lg bg-bg-tertiary p-3
-                  text-left font-mono text-xs text-text-muted leading-relaxed"
-              >
-                {installOutput.slice(-20).map((line, i) => (
-                  <div key={i} className="whitespace-pre-wrap break-all">{line}</div>
-                ))}
-              </div>
-            )}
             <div className="flex gap-3 justify-center">
               <button onClick={handleInstall}
                 className="px-4 py-2 rounded-xl text-sm font-medium
                   bg-accent hover:bg-accent-hover text-text-inverse
-                  transition-smooth">
+                  transition-smooth cursor-pointer">
                 {t('setup.retry')}
               </button>
               <button onClick={handleSkip}
                 className="px-4 py-2 rounded-xl text-sm font-medium
                   border border-border-subtle text-text-muted
-                  hover:bg-bg-tertiary transition-smooth">
+                  hover:bg-bg-tertiary transition-smooth cursor-pointer">
                 {t('setup.skip')}
               </button>
             </div>
-
-            <details className="text-left mt-2">
-              <summary className="text-xs text-text-tertiary cursor-pointer
-                hover:text-text-muted transition-smooth">
-                {t('setup.manualInstall')}
-              </summary>
-              <div className="mt-2 p-3 rounded-lg bg-bg-tertiary">
-                <p className="text-xs text-text-muted mb-2">{t('setup.manualInstallCmd')}</p>
-                <code className="text-xs font-mono text-accent block break-all">
-                  curl -fsSL https://claude.ai/install.sh | sh
-                </code>
-              </div>
-            </details>
           </div>
         )}
 
-        {/* Step: Installed (brief, auto-advances) */}
+        {/* Step: Installed (brief confirmation, auto-completes) */}
         {step === 'installed' && (
-          <div className="space-y-3">
+          <div className="space-y-3 animate-scale-in">
             <div className="flex items-center justify-center gap-2">
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className="text-green-500">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className="text-success">
                 <circle cx="10" cy="10" r="9" stroke="currentColor" strokeWidth="1.5" />
                 <path d="M6 10l3 3 5-6" stroke="currentColor" strokeWidth="1.5"
                   strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              <span className="text-sm text-text-muted">{t('setup.installed')}</span>
+              <span className="text-sm text-text-primary font-medium">{t('setup.installed')}</span>
             </div>
             {cliVersion && (
               <p className="text-xs text-text-tertiary">
                 {t('setup.version')}: {cliVersion}
               </p>
             )}
-            <div className="flex items-center justify-center gap-2">
-              <span className="text-base leading-none animate-spin-slow text-accent">
-                &#x2731;
-              </span>
-              <span className="text-xs text-text-tertiary">{t('setup.checking')}</span>
-            </div>
-          </div>
-        )}
-
-        {/* Step: Login Needed */}
-        {step === 'login_needed' && (
-          <div className="space-y-4">
-            <h2 className="text-xl font-semibold text-accent">
-              {t('setup.loginNeeded')}
-            </h2>
-            <p className="text-sm text-text-muted leading-relaxed">
-              {t('setup.loginNeededDesc')}
-            </p>
-            {cliVersion && (
-              <p className="text-xs text-text-tertiary">
-                CLI {t('setup.version')}: {cliVersion}
-              </p>
-            )}
-            <button
-              onClick={handleLogin}
-              className="px-6 py-3 rounded-xl text-sm font-medium
-                bg-accent hover:bg-accent-hover text-text-inverse
-                hover:shadow-glow transition-smooth
-                flex items-center gap-2 mx-auto"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
-                stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                <path d="M6 2h4M8 2v5M5 8a3 3 0 006 0M3 14h10" />
-              </svg>
-              {t('setup.login')}
-            </button>
-            <button onClick={handleSkip}
-              className="text-xs text-text-tertiary hover:text-text-muted
-                transition-smooth block mx-auto">
-              {t('setup.skip')}
-            </button>
-          </div>
-        )}
-
-        {/* Step: Logging In (via native terminal) */}
-        {step === 'logging_in' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-center gap-2">
-              <span className="text-base leading-none animate-spin-slow text-accent">
-                &#x2731;
-              </span>
-              <span className="text-sm text-text-muted">{t('setup.loggingIn')}</span>
-            </div>
-            <p className="text-xs text-text-tertiary leading-relaxed">
-              {t('setup.loggingInTerminalDesc')}
-            </p>
-            <button onClick={handleSkip}
-              className="text-xs text-text-tertiary hover:text-text-muted
-                transition-smooth block mx-auto">
-              {t('setup.skip')}
-            </button>
-          </div>
-        )}
-
-        {/* Step: Login Failed */}
-        {step === 'login_failed' && (
-          <div className="space-y-4">
-            <h2 className="text-xl font-semibold text-red-500">
-              {t('setup.loginFailed')}
-            </h2>
-            <p className="text-sm text-text-muted leading-relaxed">
-              {t('setup.loginFailedDesc')}
-            </p>
-            {error && (
-              <p className="text-xs text-red-400 font-mono bg-red-500/10 p-2 rounded-lg">
-                {error}
-              </p>
-            )}
-            <div className="flex gap-3 justify-center">
-              <button onClick={handleLogin}
-                className="px-4 py-2 rounded-xl text-sm font-medium
-                  bg-accent hover:bg-accent-hover text-text-inverse
-                  transition-smooth">
-                {t('setup.retry')}
-              </button>
-              <button onClick={handleSkip}
-                className="px-4 py-2 rounded-xl text-sm font-medium
-                  border border-border-subtle text-text-muted
-                  hover:bg-bg-tertiary transition-smooth">
-                {t('setup.skip')}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Step: Ready */}
-        {step === 'ready' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-center gap-2">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-green-500">
-                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.5" />
-                <path d="M7 12l4 4 6-7" stroke="currentColor" strokeWidth="1.5"
-                  strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              <h2 className="text-xl font-semibold text-accent">
-                {t('setup.ready')}
-              </h2>
-            </div>
-            <p className="text-sm text-text-muted leading-relaxed">
-              {t('setup.readyDesc')}
-            </p>
-            {cliVersion && (
-              <p className="text-xs text-text-tertiary">
-                {t('setup.version')}: {cliVersion}
-              </p>
-            )}
-            <button
-              onClick={handleComplete}
-              className="px-6 py-3 rounded-xl text-sm font-medium
-                bg-accent hover:bg-accent-hover text-text-inverse
-                hover:shadow-glow transition-smooth
-                flex items-center gap-2 mx-auto"
-            >
-              {t('setup.start')}
-            </button>
           </div>
         )}
       </div>

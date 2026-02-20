@@ -50,19 +50,21 @@ function PlanToggleButton() {
   const t = useT();
   const isOpen = usePlanPanelStore((s) => s.open);
   const toggle = usePlanPanelStore((s) => s.toggle);
-  const planCount = useChatStore((s) => s.messages.filter((m) => m.type === 'plan_review').length);
+  const hasPlanMessages = useChatStore((s) =>
+    s.messages.some((m) => m.type === 'plan_review' || m.type === 'plan' || m.planContent),
+  );
+  const inPlanMode = useSettingsStore((s) => s.sessionMode) === 'plan';
+
+  // Only show when in plan mode or there are plan-related messages
+  if (!inPlanMode && !hasPlanMessages) return null;
 
   return (
     <button
       onClick={toggle}
-      disabled={planCount === 0}
-      className={`p-1.5 rounded-lg transition-smooth relative flex items-center gap-1
-        ${planCount === 0 ? 'opacity-30 cursor-not-allowed text-text-tertiary' : ''}
+      className={`p-1.5 rounded-lg transition-smooth flex items-center gap-1
         ${isOpen
           ? 'bg-accent/10 text-accent'
-          : planCount > 0
-            ? 'text-text-tertiary hover:text-text-primary hover:bg-bg-secondary'
-            : ''
+          : 'text-text-tertiary hover:text-text-primary hover:bg-bg-secondary'
         }`}
       title={t('msg.viewPlan')}
     >
@@ -71,13 +73,6 @@ function PlanToggleButton() {
         <path d="M3 4h10M3 8h8M3 12h5" />
       </svg>
       <span className="text-[10px]">Plan</span>
-      {planCount > 0 && (
-        <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full
-          bg-accent text-[8px] text-text-inverse font-bold
-          flex items-center justify-center">
-          {planCount}
-        </span>
-      )}
     </button>
   );
 }
@@ -554,6 +549,22 @@ export function InputBar() {
     });
 
     clearFiles();
+
+    // Gate: if AI is actively processing (running but not awaiting user input),
+    // queue this follow-up message instead of sending it to stdin immediately.
+    // This prevents the follow-up from being consumed as an answer to an
+    // upcoming AskUserQuestion or PlanReview interaction.
+    const existingStdinId = useChatStore.getState().sessionMeta.stdinId;
+    const { sessionStatus: currentStatus, activityStatus: currentActivity } = useChatStore.getState();
+    const isActivelyProcessing = existingStdinId
+      && currentStatus === 'running'
+      && currentActivity.phase !== 'awaiting';
+
+    if (isActivelyProcessing) {
+      useChatStore.getState().addPendingMessage(text);
+      return;
+    }
+
     setSessionStatus('running');
     setSessionMeta({ turnStartTime: Date.now(), inputTokens: 0, outputTokens: 0 });
     useChatStore.getState().setActivityStatus({ phase: 'thinking' });
@@ -709,6 +720,29 @@ export function InputBar() {
         if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
           const text = evt.delta.text || '';
           if (text) cache.updatePartialInCache(tabId, text);
+        }
+        // Early detection: create plan_review card for background tab
+        if (evt.type === 'content_block_start'
+            && evt.content_block?.type === 'tool_use'
+            && evt.content_block?.name === 'ExitPlanMode') {
+          const bgSnapshot = cache.sessionCache.get(tabId);
+          let bgPlanContent = '';
+          if (bgSnapshot) {
+            for (let i = bgSnapshot.messages.length - 1; i >= 0; i--) {
+              const m = bgSnapshot.messages[i];
+              if (m.type === 'tool_use' && m.toolName === 'Write' && m.toolInput?.content) {
+                bgPlanContent = m.toolInput.content;
+                break;
+              }
+            }
+          }
+          cache.addMessageToCache(tabId, {
+            id: 'plan_review_current',
+            role: 'assistant', type: 'plan_review',
+            content: bgPlanContent, planContent: bgPlanContent,
+            resolved: false, timestamp: Date.now(),
+          });
+          cache.setActivityInCache(tabId, { phase: 'awaiting' });
         }
         // Track tokens in background sessions
         if (evt.type === 'message_start' && evt.message?.usage?.input_tokens) {
@@ -979,6 +1013,34 @@ export function InputBar() {
             setActivityStatus({ phase: 'thinking' });
           }
         }
+        // Early detection: create plan_review card as soon as ExitPlanMode
+        // starts streaming, before the full assistant message arrives.
+        // This breaks the deadlock where the CLI waits for stdin approval
+        // but the frontend waits for the full assistant message to show the card.
+        if (evt.type === 'content_block_start'
+            && evt.content_block?.type === 'tool_use'
+            && evt.content_block?.name === 'ExitPlanMode') {
+          const currentMessages = useChatStore.getState().messages;
+          let planContent = '';
+          for (let i = currentMessages.length - 1; i >= 0; i--) {
+            const m = currentMessages[i];
+            if (m.type === 'tool_use' && m.toolName === 'Write' && m.toolInput?.content) {
+              planContent = m.toolInput.content;
+              break;
+            }
+          }
+          addMessage({
+            id: 'plan_review_current',
+            role: 'assistant',
+            type: 'plan_review',
+            content: planContent,
+            planContent: planContent,
+            resolved: false,
+            timestamp: Date.now(),
+          });
+          setActivityStatus({ phase: 'awaiting' });
+        }
+
         // Track input tokens from message_start
         if (evt.type === 'message_start' && evt.message?.usage?.input_tokens) {
           const current = useChatStore.getState().sessionMeta.inputTokens || 0;
@@ -1077,6 +1139,8 @@ export function InputBar() {
                 resolved: false,
                 timestamp: Date.now(),
               });
+              // Mark as awaiting user input (consistent with ExitPlanMode)
+              setActivityStatus({ phase: 'awaiting' });
             } else if (block.name === 'TodoWrite' && block.input?.todos) {
               addMessage({
                 id: block.id || generateMessageId(),
@@ -1362,6 +1426,32 @@ export function InputBar() {
         );
         useSessionStore.getState().fetchSessions();
         setTimeout(() => useSessionStore.getState().fetchSessions(), 1000);
+
+        // Flush any user messages that were queued while AI was processing.
+        // These follow-up messages were held to prevent them from being
+        // consumed as answers to AskUserQuestion / PlanReview interactions.
+        const pendingMsgs = useChatStore.getState().flushPendingMessages();
+        const flushStdinId = useChatStore.getState().sessionMeta.stdinId;
+        if (pendingMsgs.length > 0 && flushStdinId) {
+          const combinedText = pendingMsgs.join('\n\n');
+          setSessionStatus('running');
+          setSessionMeta({ turnStartTime: Date.now(), inputTokens: 0, outputTokens: 0 });
+          setActivityStatus({ phase: 'thinking' });
+          agentActions.clearAgents();
+          agentActions.upsertAgent({
+            id: 'main',
+            parentId: null,
+            description: combinedText.slice(0, 100),
+            phase: 'spawning',
+            startTime: Date.now(),
+            isMain: true,
+          });
+          bridge.sendStdin(flushStdinId, combinedText).catch((err) => {
+            console.error('[TOKENICODE] Failed to send pending messages:', err);
+            setSessionStatus('error');
+          });
+        }
+
         break;
       }
 
@@ -1369,6 +1459,7 @@ export function InputBar() {
         // The CLI process has exited — clear the stdin handle but keep sessionId for resume
         setSessionStatus('idle');
         setSessionMeta({ stdinId: undefined });
+        useChatStore.getState().clearPendingMessages();
         agentActions.completeAll();
         useSessionStore.getState().fetchSessions();
         break;
@@ -1390,6 +1481,33 @@ export function InputBar() {
   // Handle stderr lines — detect permission prompts and other interactive requests
   const handleStderrLine = useCallback((line: string, _sid: string) => {
     const { addMessage } = useChatStore.getState();
+
+    // Detect ExitPlanMode prompt — create plan_review card as fallback
+    // if the stream_event early detection didn't fire
+    if (/(?:Exit|Leave)\s+plan\s+mode/i.test(line)) {
+      const store = useChatStore.getState();
+      const pendingReview = store.messages.find(
+        (m) => m.id === 'plan_review_current' && m.type === 'plan_review' && !m.resolved,
+      );
+      if (!pendingReview) {
+        let planContent = '';
+        for (let i = store.messages.length - 1; i >= 0; i--) {
+          const m = store.messages[i];
+          if (m.type === 'tool_use' && m.toolName === 'Write' && m.toolInput?.content) {
+            planContent = m.toolInput.content;
+            break;
+          }
+        }
+        addMessage({
+          id: 'plan_review_current',
+          role: 'assistant', type: 'plan_review',
+          content: planContent, planContent: planContent,
+          resolved: false, timestamp: Date.now(),
+        });
+        store.setActivityStatus({ phase: 'awaiting' });
+      }
+      return;
+    }
 
     // Detect permission prompts from Claude CLI stderr
     // Common patterns: "Allow <tool>?", "Do you want to allow", "Permission requested"
