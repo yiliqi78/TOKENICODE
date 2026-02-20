@@ -13,6 +13,24 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.5.1',
+    date: '2026-02-20',
+    highlights: {
+      zh: [
+        '代码语法高亮配色优化 — 独立 --syntax-* 变量，8 套主题专属配色，不再与语义色撞色',
+        'CLI 直接下载安装 — Rust HTTP 从 Anthropic CDN 流式下载，无需 npm/curl/PowerShell',
+        'Plan 面板磨砂玻璃浮动 — 背景模糊 + 圆角 + 阴影，不再挤压主聊天区',
+        'Windows CLI 启动修复 — 修复 npm 安装时错误 193（claude.cmd 回退）',
+      ],
+      en: [
+        'Syntax highlighting — Dedicated --syntax-* variables, 8 theme-specific palettes',
+        'CLI direct download — Rust HTTP streaming from Anthropic CDN, no npm/curl/PowerShell needed',
+        'Plan panel glassmorphism — Floating overlay with backdrop blur, rounded corners, shadow',
+        'Windows CLI fix — Error 193 resolved with claude.cmd fallback for npm installs',
+      ],
+    },
+  },
+  {
     version: '0.5.0',
     date: '2026-02-20',
     highlights: {
