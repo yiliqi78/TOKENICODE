@@ -612,13 +612,8 @@ export function InputBar() {
       if (!sentViaStdin) {
         // ===== No running process: spawn a new persistent stream-json process =====
 
-        // Apply mode prefix only for new sessions (not follow-ups).
-        // Follow-up messages should not get the prefix because the session is
-        // already running in the correct mode, and the CLI may interpret
-        // /ask or /plan as an unknown skill invocation.
-        if (!text.startsWith('/') && (sessionMode === 'ask' || sessionMode === 'plan')) {
-          text = `/${sessionMode} ${text}`;
-        }
+        // Mode is now passed via --mode CLI arg in startSession, not text prefix.
+        // Text prefix (/ask, /plan) caused "Unknown skill" errors in stream-json mode.
 
         // If we have an existing sessionId (loaded historical session), resume it.
         // Only use it as resume_session_id if it looks like a real CLI session ID (UUID),
@@ -677,6 +672,7 @@ export function InputBar() {
           dangerously_skip_permissions: sessionMode === 'bypass',
           resume_session_id: existingSessionId || undefined,
           thinking_enabled: useSettingsStore.getState().thinkingEnabled,
+          session_mode: (sessionMode === 'ask' || sessionMode === 'plan') ? sessionMode : undefined,
         });
 
         // Store both: session_id for tracking, stdinId (preGeneratedId) for stdin communication

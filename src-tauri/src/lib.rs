@@ -293,6 +293,14 @@ async fn start_claude_session(
         args.push("acceptEdits".to_string());
     }
 
+    // Session mode: ask, plan, or auto (default)
+    if let Some(ref mode) = params.session_mode {
+        if mode == "ask" || mode == "plan" {
+            args.push("--mode".to_string());
+            args.push(mode.clone());
+        }
+    }
+
     // Extended thinking: inject via --settings JSON
     if params.thinking_enabled.unwrap_or(true) {
         args.push("--settings".to_string());

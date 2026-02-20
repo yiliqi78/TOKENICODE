@@ -92,4 +92,6 @@ pub struct StartSessionParams {
     pub resume_session_id: Option<String>,
     /// Enable extended thinking mode for the CLI process.
     pub thinking_enabled: Option<bool>,
+    /// Session mode: "ask", "plan", or "auto" (default).
+    pub session_mode: Option<String>,
 }

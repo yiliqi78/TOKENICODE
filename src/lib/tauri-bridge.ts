@@ -14,6 +14,8 @@ export interface StartSessionParams {
   resume_session_id?: string;
   /** Enable extended thinking mode */
   thinking_enabled?: boolean;
+  /** Session mode: "ask", "plan", or undefined for auto */
+  session_mode?: string;
 }
 
 export interface SessionInfo {
