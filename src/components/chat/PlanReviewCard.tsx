@@ -57,7 +57,7 @@ export function PlanReviewCard({ message }: Props) {
     if (!stdinId) return;
     setApproving(true);
     try {
-      await bridge.sendStdin(stdinId, 'y');
+      await bridge.sendRawStdin(stdinId, 'y');
       useChatStore.getState().updateMessage(message.id, { resolved: true });
       useChatStore.getState().setSessionStatus('running');
       useChatStore.getState().setActivityStatus({ phase: 'thinking' });

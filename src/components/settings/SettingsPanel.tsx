@@ -307,7 +307,14 @@ function UpdateSection() {
     <div className="pt-2 border-t border-border-subtle space-y-2">
       {/* Version row */}
       <div className="flex items-center justify-between">
-        <span className="text-[11px] text-text-muted">TOKENICODE</span>
+        <span className="text-[11px] text-text-muted flex items-center gap-1">
+          <svg width="11" height="11" viewBox="0 0 171 171" fill="none" className="flex-shrink-0 opacity-60">
+            <path d="M66.79 58.73L40.33 85.19L66.79 111.66L57.53 120.92L21.8 85.19L57.53 49.47Z" fill="currentColor" />
+            <path d="M111.5 49.47L147.22 85.19L111.5 120.92L102.24 111.66L128.7 85.19L102.24 58.73Z" fill="currentColor" />
+            <path d="M90.01 39.92L102.01 39.92L79.24 129.92L67.24 129.92L79.24 81.92Z" className="fill-accent" />
+          </svg>
+          TOKENICODE
+        </span>
         <span className="text-[11px] text-text-tertiary">
           {appVersion ? `v${appVersion}` : '...'}
         </span>

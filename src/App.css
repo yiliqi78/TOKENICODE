@@ -58,6 +58,9 @@
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08),
     0 4px 8px rgba(0, 0, 0, 0.04);
   --shadow-glow: 0 0 20px rgba(0, 0, 0, 0.06);
+
+  /* Icon slash color — same as brackets in default theme */
+  --color-icon-slash: white;
 }
 
 @variant dark (&:where(.dark, .dark *));
@@ -112,6 +115,9 @@
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4);
   --shadow-glow: 0 0 20px rgba(255, 255, 255, 0.06);
+
+  /* Icon slash color — same as brackets in default theme */
+  --color-icon-slash: black;
 }
 
 /* ================================================================
@@ -138,6 +144,8 @@
   --color-syntax-function: #0891B2;
 
   --shadow-glow: 0 0 20px rgba(78, 128, 247, 0.10);
+
+  --color-icon-slash: var(--color-accent);
 }
 
 /* Blue — dark mode */
@@ -162,6 +170,8 @@
   --color-syntax-function: #22D3EE;
 
   --shadow-glow: 0 0 20px rgba(107, 154, 255, 0.10);
+
+  --color-icon-slash: var(--color-accent);
 }
 
 /* ================================================================
@@ -189,6 +199,8 @@
   --color-syntax-function: #0891B2;
 
   --shadow-glow: 0 0 20px rgba(196, 114, 82, 0.10);
+
+  --color-icon-slash: var(--color-accent);
 }
 
 /* Orange — dark mode */
@@ -213,6 +225,8 @@
   --color-syntax-function: #22D3EE;
 
   --shadow-glow: 0 0 20px rgba(212, 133, 106, 0.10);
+
+  --color-icon-slash: var(--color-accent);
 }
 
 /* ================================================================
@@ -240,6 +254,8 @@
   --color-syntax-function: #0891B2;
 
   --shadow-glow: 0 0 20px rgba(87, 166, 75, 0.10);
+
+  --color-icon-slash: var(--color-accent);
 }
 
 /* Green — dark mode */
@@ -264,6 +280,8 @@
   --color-syntax-function: #22D3EE;
 
   --shadow-glow: 0 0 20px rgba(109, 191, 98, 0.10);
+
+  --color-icon-slash: var(--color-accent);
 }
 
 /* ================================================================

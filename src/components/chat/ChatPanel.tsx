@@ -140,6 +140,80 @@ function formatElapsed(ms: number): string {
   return `${m}m ${s}s`;
 }
 
+/** Cycling typewriter text for thinking phase — like Claude Code website "Built for > coders" */
+const THINKING_WORD_COUNT = 17;
+const TYPING_SPEED = 80;      // ms per character (typing)
+const DELETING_SPEED = 40;    // ms per character (deleting)
+const PAUSE_DURATION = 2500;  // ms to hold full word
+const TRANSITION_DELAY = 300; // ms between delete and next word
+
+/** Fisher-Yates shuffle, always starts with index 0 ("思考中"/"Thinking") */
+function shuffledOrder(count: number): number[] {
+  const arr = Array.from({ length: count }, (_, i) => i);
+  for (let i = arr.length - 1; i > 1; i--) {
+    const j = 1 + Math.floor(Math.random() * i); // skip index 0
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function CyclingThinkingText() {
+  const t = useT();
+  const [order, setOrder] = useState(() => shuffledOrder(THINKING_WORD_COUNT));
+  const [cursor, setCursor] = useState(0);
+  const [displayText, setDisplayText] = useState('');
+  const [phase, setPhase] = useState<'typing' | 'pausing' | 'deleting' | 'waiting'>('typing');
+
+  const wordIndex = order[cursor];
+  const fullWord = t(`chat.thinkingCycle.${wordIndex}`);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+
+    if (phase === 'typing') {
+      if (displayText.length < fullWord.length) {
+        timer = setTimeout(() => {
+          setDisplayText(fullWord.slice(0, displayText.length + 1));
+        }, TYPING_SPEED);
+      } else {
+        timer = setTimeout(() => setPhase('pausing'), 0);
+      }
+    } else if (phase === 'pausing') {
+      timer = setTimeout(() => setPhase('deleting'), PAUSE_DURATION);
+    } else if (phase === 'deleting') {
+      if (displayText.length > 0) {
+        timer = setTimeout(() => {
+          setDisplayText(displayText.slice(0, -1));
+        }, DELETING_SPEED);
+      } else {
+        const nextCursor = cursor + 1;
+        if (nextCursor >= THINKING_WORD_COUNT) {
+          // Reshuffle when all words shown
+          setOrder(shuffledOrder(THINKING_WORD_COUNT));
+          setCursor(0);
+        } else {
+          setCursor(nextCursor);
+        }
+        setPhase('waiting');
+      }
+    } else if (phase === 'waiting') {
+      timer = setTimeout(() => {
+        setDisplayText('');
+        setPhase('typing');
+      }, TRANSITION_DELAY);
+    }
+
+    return () => clearTimeout(timer);
+  }, [displayText, phase, fullWord, cursor]);
+
+  return (
+    <span className="inline-flex items-baseline">
+      <span>{displayText}</span>
+      <span className="text-text-tertiary">...</span>
+    </span>
+  );
+}
+
 /** Activity indicator with elapsed time and token count */
 function ActivityIndicator({ activityStatus, sessionMeta }: {
   activityStatus: { phase: string; toolName?: string };
@@ -165,19 +239,14 @@ function ActivityIndicator({ activityStatus, sessionMeta }: {
     ? tokens ? `(${elapsed} · ↓ ${tokens})` : `(${elapsed})`
     : null;
 
+  const isThinking = activityStatus.phase === 'thinking';
+
   return (
-    <div className="flex items-center gap-2 py-1">
-      <span className={`text-base leading-none animate-spin-slow
-        ${activityStatus.phase === 'thinking'
-          ? 'text-amber-400'
-          : activityStatus.phase === 'tool'
-            ? 'text-blue-400'
-            : activityStatus.phase === 'awaiting'
-              ? 'text-amber-400'
-              : 'text-accent'
-        }`}>✱</span>
+    <div className="flex items-center gap-1.5 py-1">
+      <span className={`text-sm font-medium leading-none text-accent
+        ${isThinking ? '' : 'animate-pulse-soft'}`}>/</span>
       <span className="text-sm text-text-muted">
-        {phaseText}
+        {isThinking ? <CyclingThinkingText /> : phaseText}
         {statsText && (
           <span className="text-text-tertiary ml-1.5">{statsText}</span>
         )}
@@ -584,12 +653,15 @@ function WelcomeScreen() {
 
   return (
     <div className="flex flex-col items-center justify-center h-full text-center">
-      <img
-        src="/app-icon.png"
-        alt="TOKENICODE"
-        className="w-20 h-20 rounded-3xl mb-6 shadow-glow"
-        draggable={false}
-      />
+      {/* App icon — inverts between light/dark, slash follows accent */}
+      <div className="w-20 h-20 rounded-3xl bg-black dark:bg-white
+        flex items-center justify-center mb-6 shadow-glow">
+        <svg width="80" height="80" viewBox="0 0 171 171" fill="none">
+          <path d="M66.79 58.73L40.33 85.19L66.79 111.66L57.53 120.92L21.8 85.19L57.53 49.47Z" className="fill-white dark:fill-black" />
+          <path d="M111.5 49.47L147.22 85.19L111.5 120.92L102.24 111.66L128.7 85.19L102.24 58.73Z" className="fill-white dark:fill-black" />
+          <path d="M90.01 39.92L102.01 39.92L79.24 129.92L67.24 129.92L79.24 81.92Z" fill="var(--color-icon-slash)" />
+        </svg>
+      </div>
       <h2 className="text-xl font-semibold text-accent mb-2">
         {t('chat.welcome')}
       </h2>
@@ -651,12 +723,15 @@ function EmptyReadyState() {
   const workingDirectory = useSettingsStore((s) => s.workingDirectory);
   return (
     <div className="flex flex-col items-center justify-center h-full text-center">
-      <img
-        src="/app-icon.png"
-        alt="TOKENICODE"
-        className="w-16 h-16 rounded-2xl mb-5 shadow-glow"
-        draggable={false}
-      />
+      {/* App icon — inverts between light/dark, slash follows accent */}
+      <div className="w-16 h-16 rounded-2xl bg-black dark:bg-white
+        flex items-center justify-center mb-5 shadow-glow">
+        <svg width="64" height="64" viewBox="0 0 171 171" fill="none">
+          <path d="M66.79 58.73L40.33 85.19L66.79 111.66L57.53 120.92L21.8 85.19L57.53 49.47Z" className="fill-white dark:fill-black" />
+          <path d="M111.5 49.47L147.22 85.19L111.5 120.92L102.24 111.66L128.7 85.19L102.24 58.73Z" className="fill-white dark:fill-black" />
+          <path d="M90.01 39.92L102.01 39.92L79.24 129.92L67.24 129.92L79.24 81.92Z" fill="var(--color-icon-slash)" />
+        </svg>
+      </div>
       <h2 className="text-lg font-semibold text-accent mb-1">
         {t('chat.welcome')}
       </h2>

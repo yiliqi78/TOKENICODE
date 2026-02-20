@@ -123,6 +123,9 @@ export const bridge = {
   sendStdin: (sessionId: string, message: string) =>
     invoke<void>('send_stdin', { sessionId, message }),
 
+  sendRawStdin: (sessionId: string, message: string) =>
+    invoke<void>('send_raw_stdin', { sessionId, message }),
+
   killSession: (sessionId: string) =>
     invoke<void>('kill_session', { sessionId }),
 

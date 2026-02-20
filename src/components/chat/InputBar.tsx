@@ -77,6 +77,47 @@ function PlanToggleButton() {
   );
 }
 
+/** Plan mode approval bar — shown above input when plan mode is active and Claude has replied */
+function PlanApprovalBar({ onApprove, onSwitchMode }: {
+  onApprove: () => void;
+  onSwitchMode: () => void;
+}) {
+  const t = useT();
+  return (
+    <div className="mb-2 flex items-center gap-2 px-3 py-2 rounded-xl
+      border border-accent/20 bg-accent/5 animate-scale-in">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
+        stroke="currentColor" strokeWidth="1.5" className="text-accent flex-shrink-0">
+        <path d="M2 3.5h10M2 7h8M2 10.5h5" />
+      </svg>
+      <span className="text-xs text-text-secondary flex-1">
+        {t('msg.planReady')}
+      </span>
+      <button
+        onClick={onApprove}
+        className="px-3 py-1.5 rounded-lg text-xs font-semibold
+          bg-accent text-text-inverse hover:bg-accent-hover
+          transition-smooth shadow-sm flex items-center gap-1"
+      >
+        <svg width="10" height="10" viewBox="0 0 12 12" fill="none"
+          stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M2.5 6l2.5 2.5 4.5-4.5" />
+        </svg>
+        {t('msg.planApproveAndExecute')}
+      </button>
+      <button
+        onClick={onSwitchMode}
+        className="px-3 py-1.5 rounded-lg text-xs font-medium
+          text-text-muted border border-border-subtle
+          hover:bg-bg-secondary hover:text-text-primary
+          transition-smooth"
+      >
+        {t('msg.switchToCode')}
+      </button>
+    </div>
+  );
+}
+
 export function InputBar() {
   const t = useT();
   const inputDraft = useChatStore((s) => s.inputDraft);
@@ -93,6 +134,45 @@ export function InputBar() {
   const workingDirectory = useSettingsStore((s) => s.workingDirectory);
   const selectedModel = useSettingsStore((s) => s.selectedModel);
   const sessionMode = useSettingsStore((s) => s.sessionMode);
+
+  // Plan approval bar state
+  const isStreaming = useChatStore((s) => s.isStreaming);
+  const hasLastAssistantMessage = useChatStore((s) =>
+    s.messages.some((m) => m.role === 'assistant'),
+  );
+  const hasPendingPlanReview = useChatStore((s) =>
+    s.messages.some((m) => m.type === 'plan_review' && !m.resolved),
+  );
+
+  const handlePlanApprove = useCallback(async () => {
+    const stdinId = useChatStore.getState().sessionMeta.stdinId;
+
+    // TK-306 fix: the current CLI process was started with --mode plan,
+    // and ExitPlanMode is broken at the SDK level. We can't switch modes
+    // mid-session. Instead: kill the plan-mode process, clear stdinId so
+    // handleSubmit spawns a new process in code mode (no --mode flag),
+    // and use resume_session_id to carry over conversation context.
+
+    // 1. Switch UI to code mode — next startSession won't pass --mode plan
+    useSettingsStore.getState().setSessionMode('code');
+
+    // 2. Kill the plan-mode process and clear stdinId
+    if (stdinId) {
+      useChatStore.getState().setSessionMeta({ stdinId: undefined });
+      bridge.killSession(stdinId).catch(() => {});
+    }
+
+    // 3. Fill input and submit — handleSubmit will see no stdinId,
+    //    spawn a new process with resume_session_id (code mode).
+    setInput('Execute the plan above.');
+    requestAnimationFrame(() => {
+      handleSubmitRef.current();
+    });
+  }, [setInput]);
+
+  const handleSwitchToCode = useCallback(() => {
+    useSettingsStore.getState().setSessionMode('code');
+  }, []);
 
   const { files, setFiles, isProcessing, addFiles, removeFile, clearFiles } = useFileAttachments();
 
@@ -459,7 +539,7 @@ export function InputBar() {
       const stdinId = useChatStore.getState().sessionMeta.stdinId;
       if (stdinId) {
         try {
-          await bridge.sendStdin(stdinId, 'y');
+          await bridge.sendRawStdin(stdinId, 'y');
           useChatStore.getState().updateMessage(pendingPlanReview.id, { resolved: true });
           setSessionStatus('running');
           useChatStore.getState().setActivityStatus({ phase: 'thinking' });
@@ -781,8 +861,16 @@ export function InputBar() {
           } else if (block.type === 'tool_use') {
             if (block.name === 'AskUserQuestion') {
               const questions = block.input?.questions;
+              const bgQuestionId = block.id || generateMessageId();
+              // Guard: skip re-delivered AskUserQuestion if already resolved in background cache
+              const bgSnap = cache.sessionCache.get(tabId);
+              const bgExisting = bgSnap?.messages.find(
+                (m) => m.id === bgQuestionId && m.type === 'question',
+              );
+              if (bgExisting?.resolved) break;
+
               cache.addMessageToCache(tabId, {
-                id: block.id || generateMessageId(),
+                id: bgQuestionId,
                 role: 'assistant', type: 'question',
                 content: '', toolName: block.name,
                 toolInput: block.input,
@@ -995,6 +1083,11 @@ export function InputBar() {
         const evt = msg.event;
         if (!evt) break;
 
+        // Diagnostic: log tool_use starts for debugging plan mode flow
+        if (evt.type === 'content_block_start' && evt.content_block?.type === 'tool_use') {
+          console.log('[TOKENICODE:stream] tool_use start:', evt.content_block.name);
+        }
+
         if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
           const text = evt.delta.text || '';
           if (text) {
@@ -1123,6 +1216,17 @@ export function InputBar() {
               // Use a stable sentinel ID so re-delivered blocks de-duplicate
               // instead of creating duplicate question cards (TK-103).
               const questionId = block.id || 'ask_question_current';
+
+              // Guard: skip re-delivered AskUserQuestion if already resolved
+              const currentMessages = useChatStore.getState().messages;
+              const existingQuestion = currentMessages.find(
+                (m) => m.id === questionId && m.type === 'question',
+              );
+              if (existingQuestion?.resolved) {
+                // Already answered — don't overwrite with resolved:false
+                break;
+              }
+
               const questions = block.input?.questions;
               addMessage({
                 id: questionId,
@@ -1476,6 +1580,7 @@ export function InputBar() {
 
   // Handle stderr lines — detect permission prompts and other interactive requests
   const handleStderrLine = useCallback((line: string, _sid: string) => {
+    console.log('[TOKENICODE:stderr]', line);
     const { addMessage } = useChatStore.getState();
 
     // Detect ExitPlanMode prompt — create plan_review card as fallback
@@ -1651,6 +1756,12 @@ export function InputBar() {
         {/* Rewind Panel — positioned above the input area */}
         {showRewindPanel && (
           <RewindPanel onClose={() => setShowRewindPanel(false)} />
+        )}
+
+        {/* Plan approval bar — shown when plan turn completed, not actively streaming */}
+        {sessionMode === 'plan' && !isStreaming && hasLastAssistantMessage && !hasPendingPlanReview
+          && (sessionStatus === 'completed' || sessionStatus === 'error') && (
+          <PlanApprovalBar onApprove={handlePlanApprove} onSwitchMode={handleSwitchToCode} />
         )}
 
         {/* File upload chips */}

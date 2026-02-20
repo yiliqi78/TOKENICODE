@@ -98,15 +98,13 @@ export function SetupWizard() {
   return (
     <div className="flex flex-col items-center justify-center h-full text-center">
       <div className="w-full max-w-md">
-        {/* Icon */}
-        <div className="w-20 h-20 rounded-3xl bg-accent/10
+        {/* Icon — brand </> */}
+        <div className="w-20 h-20 rounded-3xl bg-black dark:bg-white
           flex items-center justify-center mb-6 shadow-glow mx-auto">
-          <svg width="36" height="36" viewBox="0 0 36 36" fill="none"
-            className="text-accent">
-            <path d="M18 4C10.268 4 4 10.268 4 18s6.268 14 14 14 14-6.268 14-14S25.732 4 18 4z"
-              stroke="currentColor" strokeWidth="1.5" />
-            <path d="M13 17h10M13 21h6" stroke="currentColor" strokeWidth="1.5"
-              strokeLinecap="round" />
+          <svg width="44" height="44" viewBox="0 0 171 171" fill="none">
+            <path d="M66.79 58.73L40.33 85.19L66.79 111.66L57.53 120.92L21.8 85.19L57.53 49.47Z" className="fill-white dark:fill-black" />
+            <path d="M111.5 49.47L147.22 85.19L111.5 120.92L102.24 111.66L128.7 85.19L102.24 58.73Z" className="fill-white dark:fill-black" />
+            <path d="M90.01 39.92L102.01 39.92L79.24 129.92L67.24 129.92L79.24 81.92Z" fill="var(--color-icon-slash)" />
           </svg>
         </div>
 
@@ -114,8 +112,8 @@ export function SetupWizard() {
         {step === 'checking' && (
           <div className="space-y-3">
             <div className="flex items-center justify-center gap-2">
-              <span className="text-base leading-none animate-spin-slow text-accent">
-                &#x2731;
+              <span className="text-sm font-bold leading-none animate-pulse-soft text-accent">
+                /
               </span>
               <span className="text-sm text-text-muted">{t('setup.checking')}</span>
             </div>
@@ -157,8 +155,8 @@ export function SetupWizard() {
         {step === 'installing' && (
           <div className="space-y-4">
             <div className="flex items-center justify-center gap-2">
-              <span className="text-base leading-none animate-spin-slow text-accent">
-                &#x2731;
+              <span className="text-sm font-bold leading-none animate-pulse-soft text-accent">
+                /
               </span>
               <span className="text-sm text-text-muted">
                 {phaseLabel || t('setup.installing')}

@@ -6,6 +6,24 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.5.3] - 2026-02-21
+
+### Fixed / 修复
+
+- **Plan Mode Exit Fix (TK-306)** — Fixed "Approve & Execute" button not working in Plan mode. The root cause was that the CLI process was started with `--mode plan`, and ExitPlanMode is broken at the SDK level. The fix kills the plan-mode process and restarts a new session in code mode using `resume_session_id` to carry over conversation context. Claude can now actually execute tools after plan approval.
+
+- **Plan 模式退出修复 (TK-306)** — 修复 Plan 模式下"批准并执行"按钮无法正常工作的问题。根因是 CLI 进程以 `--mode plan` 启动，且 ExitPlanMode 在 SDK 层面存在 bug。修复方案：杀掉 plan 模式进程，以 code 模式重启新会话，通过 `resume_session_id` 继承对话上下文。批准后 Claude 现在能正常执行工具操作。
+
+- **Raw Stdin for Interactive Approvals** — Added `sendRawStdin` bridge command that sends plain text to CLI stdin without NDJSON wrapping. Used for interactive y/n prompts (PlanReview, ExitPlanMode) that require raw input instead of structured messages.
+
+- **交互式审批原始 Stdin** — 新增 `sendRawStdin` 桥接命令，发送纯文本到 CLI stdin 而非 NDJSON 包装。用于需要原始输入的交互式 y/n 提示（PlanReview、ExitPlanMode）。
+
+- **AskUserQuestion Duplicate Fix** — Fixed question forms appearing twice due to `--include-partial-messages` re-delivery overwriting `resolved: true` back to `false`.
+
+- **AskUserQuestion 重复表单修复** — 修复 `--include-partial-messages` 重新投递将已解决的问题重置为未解决，导致表单重复出现。
+
+---
+
 ## [0.5.1] - 2026-02-20
 
 ### Changed / 变更

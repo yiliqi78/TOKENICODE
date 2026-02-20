@@ -156,6 +156,24 @@ const messages: Record<Locale, Record<string, string>> = {
     'chat.thinking': '思考中...',
     'chat.writing': '输出中...',
     'chat.runningTool': '运行工具',
+    // Cycling thinking words (typewriter animation)
+    'chat.thinkingCycle.0': '思考中',
+    'chat.thinkingCycle.1': '计算中',
+    'chat.thinkingCycle.2': '优化中',
+    'chat.thinkingCycle.3': '迭代中',
+    'chat.thinkingCycle.4': '调试中',
+    'chat.thinkingCycle.5': '涂鸦中',
+    'chat.thinkingCycle.6': '摸鱼中',
+    'chat.thinkingCycle.7': '发呆中',
+    'chat.thinkingCycle.8': '找猫粮中',
+    'chat.thinkingCycle.9': '划水中',
+    'chat.thinkingCycle.10': '喝咖啡中',
+    'chat.thinkingCycle.11': '数羊中',
+    'chat.thinkingCycle.12': '搬砖中',
+    'chat.thinkingCycle.13': '冥想中',
+    'chat.thinkingCycle.14': '加载灵感中',
+    'chat.thinkingCycle.15': '挠头中',
+    'chat.thinkingCycle.16': '打盹中',
 
     // File upload
     'input.processingFiles': '处理中...',
@@ -345,6 +363,9 @@ const messages: Record<Locale, Record<string, string>> = {
     'msg.planStepCount': '{n} 个步骤',
     'msg.planApproveHint': '批准 (Enter)',
     'msg.planCollapsed': '计划已批准 — 点击展开',
+    'msg.planReady': '计划已就绪，等待审批',
+    'msg.planApproveAndExecute': '批准并执行',
+    'msg.switchToCode': '切换到 Code 模式',
 
     // Permission enhancements
     'msg.permissionAllowHint': '允许 (y)',
@@ -619,6 +640,24 @@ const messages: Record<Locale, Record<string, string>> = {
     'chat.thinking': 'Thinking...',
     'chat.writing': 'Writing...',
     'chat.runningTool': 'Running tool',
+    // Cycling thinking words (typewriter animation)
+    'chat.thinkingCycle.0': 'Thinking',
+    'chat.thinkingCycle.1': 'Computing',
+    'chat.thinkingCycle.2': 'Optimizing',
+    'chat.thinkingCycle.3': 'Iterating',
+    'chat.thinkingCycle.4': 'Debugging',
+    'chat.thinkingCycle.5': 'Doodling',
+    'chat.thinkingCycle.6': 'Procrastinating',
+    'chat.thinkingCycle.7': 'Daydreaming',
+    'chat.thinkingCycle.8': 'Feeding the cat',
+    'chat.thinkingCycle.9': 'Slacking off',
+    'chat.thinkingCycle.10': 'Sipping coffee',
+    'chat.thinkingCycle.11': 'Counting sheep',
+    'chat.thinkingCycle.12': 'Hauling bricks',
+    'chat.thinkingCycle.13': 'Meditating',
+    'chat.thinkingCycle.14': 'Loading inspiration',
+    'chat.thinkingCycle.15': 'Scratching head',
+    'chat.thinkingCycle.16': 'Napping',
 
     // File upload
     'input.processingFiles': 'Processing...',
@@ -808,6 +847,9 @@ const messages: Record<Locale, Record<string, string>> = {
     'msg.planStepCount': '{n} steps',
     'msg.planApproveHint': 'Approve (Enter)',
     'msg.planCollapsed': 'Plan approved — click to expand',
+    'msg.planReady': 'Plan ready for review',
+    'msg.planApproveAndExecute': 'Approve & Execute',
+    'msg.switchToCode': 'Switch to Code',
 
     // Permission enhancements
     'msg.permissionAllowHint': 'Allow (y)',

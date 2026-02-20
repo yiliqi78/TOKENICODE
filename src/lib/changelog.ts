@@ -13,6 +13,22 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.5.3',
+    date: '2026-02-21',
+    highlights: {
+      zh: [
+        'Plan 模式退出修复 (TK-306) — 批准后自动切换 code 模式重启会话，Claude 能正常执行工具',
+        '新增 sendRawStdin 原始输入通道 — 交互式审批不再用 NDJSON 包装',
+        'AskUserQuestion 表单去重 — 修复重新投递导致的重复问题',
+      ],
+      en: [
+        'Plan mode exit fix (TK-306) — Approve & Execute now restarts session in code mode, Claude can execute tools',
+        'Raw stdin for interactive approvals — No NDJSON wrapping for y/n prompts',
+        'AskUserQuestion dedup — Fixed re-delivery causing duplicate forms',
+      ],
+    },
+  },
+  {
     version: '0.5.1',
     date: '2026-02-20',
     highlights: {

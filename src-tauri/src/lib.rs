@@ -459,6 +459,15 @@ async fn send_stdin(
 }
 
 #[tauri::command]
+async fn send_raw_stdin(
+    stdin_mgr: State<'_, StdinManager>,
+    session_id: String,
+    message: String,
+) -> Result<(), String> {
+    stdin_mgr.send(&session_id, &message).await
+}
+
+#[tauri::command]
 async fn kill_session(
     state: State<'_, ProcessManager>,
     stdin_mgr: State<'_, StdinManager>,
@@ -2467,6 +2476,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             start_claude_session,
             send_stdin,
+            send_raw_stdin,
             kill_session,
             track_session,
             delete_session,
