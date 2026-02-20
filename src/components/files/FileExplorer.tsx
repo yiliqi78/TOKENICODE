@@ -249,7 +249,7 @@ function TreeNode({
       <button
         onClick={handleClick}
         onMouseDown={(e) => {
-          if (node.is_dir || e.button !== 0) return;
+          if (e.button !== 0) return;
           const startX = e.clientX;
           const startY = e.clientY;
           let started = false;
@@ -260,7 +260,7 @@ function TreeNode({
               const dy = me.clientY - startY;
               if (dx * dx + dy * dy < 25) return; // 5px threshold
               started = true;
-              startTreeDrag(node.path);
+              startTreeDrag(node.path, node.is_dir);
             }
             moveTreeDrag(me.clientX, me.clientY);
           };
@@ -289,7 +289,7 @@ function TreeNode({
           onContextMenu(e, node.path, node.is_dir);
         }}
         className={`w-full flex items-center gap-1.5 py-1 px-2 rounded-lg
-          text-left text-sm transition-smooth group
+          text-left text-xs transition-smooth group
           ${isSelected
             ? 'bg-accent/10 text-accent'
             : changeKind
@@ -321,7 +321,7 @@ function TreeNode({
             }}
             onBlur={onRenameCancel}
             onClick={(e) => e.stopPropagation()}
-            className="flex-1 min-w-0 text-sm bg-bg-input border border-border-focus
+            className="flex-1 min-w-0 text-xs bg-bg-input border border-border-focus
               rounded px-1 py-0 outline-none text-text-primary"
           />
         ) : (

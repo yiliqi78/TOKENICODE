@@ -962,6 +962,18 @@ async fn read_file_content(path: String) -> Result<String, String> {
         .map_err(|e| format!("Cannot read file: {}", e))
 }
 
+/// Check if the app has file system access to a given directory.
+/// Returns Ok(true) if readable, Ok(false) if not, Err on other failures.
+/// Used at startup to detect macOS TCC restrictions.
+#[tauri::command]
+async fn check_file_access(path: String) -> Result<bool, String> {
+    match std::fs::read_dir(&path) {
+        Ok(_) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => Ok(false),
+        Err(e) => Err(format!("Cannot check path: {}", e)),
+    }
+}
+
 /// Read a binary file and return it as a base64-encoded data URL.
 /// Used for previewing images, PDFs, and other binary files in the webview.
 /// Limit: 50MB to prevent memory issues.
@@ -2194,6 +2206,35 @@ async fn check_claude_auth() -> Result<AuthStatus, String> {
     }
 }
 
+/// Path to the session-names metadata file (~/.claude/tokenicode_session_names.json).
+fn session_names_path() -> Result<std::path::PathBuf, String> {
+    let home = dirs::home_dir().ok_or("Cannot find home dir")?;
+    Ok(home.join(".claude").join("tokenicode_session_names.json"))
+}
+
+/// Load custom session display names from disk.
+#[tauri::command]
+async fn load_custom_previews() -> Result<Value, String> {
+    let path = session_names_path()?;
+    if !path.exists() {
+        return Ok(serde_json::json!({}));
+    }
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read session names: {}", e))?;
+    serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse session names: {}", e))
+}
+
+/// Save custom session display names to disk.
+#[tauri::command]
+async fn save_custom_previews(data: Value) -> Result<(), String> {
+    let path = session_names_path()?;
+    let content = serde_json::to_string_pretty(&data)
+        .map_err(|e| format!("Failed to serialize session names: {}", e))?;
+    std::fs::write(&path, content)
+        .map_err(|e| format!("Failed to write session names: {}", e))
+}
+
 /// Open a native terminal window to run `claude login`.
 /// On macOS: uses osascript to open Terminal.app.
 /// On Linux: tries common terminal emulators.
@@ -2346,6 +2387,7 @@ pub fn run() {
             unwatch_directory,
             save_temp_file,
             get_file_size,
+            check_file_access,
             read_file_base64,
             list_slash_commands,
             list_skills,
@@ -2364,6 +2406,8 @@ pub fn run() {
             start_claude_login,
             check_claude_auth,
             open_terminal_login,
+            load_custom_previews,
+            save_custom_previews,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

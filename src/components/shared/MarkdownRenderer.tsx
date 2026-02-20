@@ -1,11 +1,88 @@
-import { memo, useState, useCallback, useMemo, type ReactNode } from 'react';
+import { memo, useState, useCallback, useMemo, useEffect, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import rehypeHighlight from 'rehype-highlight';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { useLightboxStore } from './ImageLightbox';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { bridge } from '../../lib/tauri-bridge';
 import { useT } from '../../lib/i18n';
+
+/* ================================================================
+   AsyncImage — loads local files via Rust base64 bridge
+   ================================================================ */
+function isLocalPath(src: string): boolean {
+  return (
+    src.startsWith('file://') ||
+    src.startsWith('/') ||
+    /^[A-Za-z]:[/\\]/.test(src)
+  );
+}
+
+function AsyncImage({ src, alt }: { src: string; alt?: string }) {
+  const t = useT();
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    const filePath = src.startsWith('file://') ? src.slice(7) : src;
+    bridge.readFileBase64(filePath).then(setDataUrl).catch(() => setError(true));
+  }, [src]);
+
+  const handleClick = useCallback(() => {
+    const filePath = src.startsWith('file://') ? src.slice(7) : src;
+    useLightboxStore.getState().openFile(filePath, alt);
+  }, [src, alt]);
+
+  if (error) {
+    return (
+      <div className="my-3 rounded-xl overflow-hidden border border-border-subtle
+        inline-block max-w-full">
+        <div className="flex items-center justify-center gap-2 py-6 px-4
+          text-xs text-text-muted bg-bg-secondary">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+            stroke="currentColor" strokeWidth="1.5">
+            <rect x="1" y="2" width="14" height="12" rx="2" />
+            <circle cx="5" cy="6" r="1.5" />
+            <path d="M1 11l4-4 3 3 2-2 5 5" />
+          </svg>
+          {t('msg.imgError')}
+        </div>
+        {alt && (
+          <div className="px-3 py-1.5 text-xs text-text-muted bg-bg-secondary
+            border-t border-border-subtle">{alt}</div>
+        )}
+      </div>
+    );
+  }
+
+  if (!dataUrl) {
+    return (
+      <div className="my-3 rounded-xl overflow-hidden border border-border-subtle
+        inline-block bg-bg-secondary px-6 py-4">
+        <span className="w-4 h-4 border-2 border-accent/30 border-t-accent
+          rounded-full animate-spin inline-block" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="my-3 rounded-xl overflow-hidden border border-border-subtle
+      shadow-sm inline-block max-w-full">
+      <img
+        src={dataUrl}
+        alt={alt || ''}
+        className="max-w-full max-h-96 object-contain cursor-zoom-in"
+        onClick={handleClick}
+      />
+      {alt && (
+        <div className="px-3 py-1.5 text-xs text-text-muted bg-bg-secondary
+          border-t border-border-subtle">{alt}</div>
+      )}
+    </div>
+  );
+}
 
 /* ================================================================
    CopyButton — hover-reveal copy for code blocks
@@ -50,16 +127,20 @@ function extractText(node: ReactNode): string {
 interface Props {
   content: string;
   className?: string;
+  /** Base path for resolving relative image paths (defaults to workingDirectory) */
+  basePath?: string;
 }
 
 // Stable plugin arrays — created once, never cause re-renders
 const REMARK_PLUGINS = [remarkGfm];
 const REHYPE_PLUGINS = [rehypeRaw, rehypeHighlight];
 
-export const MarkdownRenderer = memo(function MarkdownRenderer({ content, className }: Props) {
+export const MarkdownRenderer = memo(function MarkdownRenderer({ content, className, basePath }: Props) {
   const t = useT();
+  const workingDirectory = useSettingsStore((s) => s.workingDirectory);
+  const resolveBase = basePath || workingDirectory || '';
 
-  // Stable components object — only recreated if `t` changes (language switch)
+  // Stable components object — only recreated if `t` or resolveBase changes
   const components = useMemo(() => ({
     table: ({ children }: { children?: ReactNode }) => (
       <div className="my-3 overflow-x-auto rounded-lg border border-border-subtle">
@@ -96,22 +177,42 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
         </svg>
       </a>
     ),
-    img: ({ src, alt }: { src?: string; alt?: string }) => (
+    img: ({ src, alt }: { src?: string; alt?: string }) => {
+      // Resolve relative paths against the working directory
+      let resolvedSrc = src || '';
+      if (
+        resolvedSrc &&
+        !resolvedSrc.startsWith('file://') &&
+        !resolvedSrc.startsWith('/') &&
+        !resolvedSrc.startsWith('data:') &&
+        !resolvedSrc.startsWith('http://') &&
+        !resolvedSrc.startsWith('https://') &&
+        !/^[A-Za-z]:[/\\]/.test(resolvedSrc) &&
+        resolveBase
+      ) {
+        const base = resolveBase.endsWith('/') ? resolveBase : resolveBase + '/';
+        resolvedSrc = `${base}${resolvedSrc}`;
+      }
+
+      // Local files: load via Rust base64 bridge (file:// URLs don't work in Tauri webview)
+      if (isLocalPath(resolvedSrc)) {
+        return <AsyncImage src={resolvedSrc} alt={alt || undefined} />;
+      }
+
+      // Remote URLs & data URIs: render directly
+      return (
       <div className="my-3 rounded-xl overflow-hidden border border-border-subtle
         shadow-sm inline-block max-w-full">
         <img
-          src={src}
+          src={resolvedSrc}
           alt={alt || ''}
           className="max-w-full max-h-96 object-contain cursor-zoom-in"
           onClick={() => {
-            if (!src) return;
-            if (src.startsWith('file://') || src.startsWith('/') || /^[A-Za-z]:[/\\]/.test(src)) {
-              const path = src.startsWith('file://') ? src.slice(7) : src;
-              useLightboxStore.getState().openFile(path, alt);
-            } else if (src.startsWith('data:')) {
-              useLightboxStore.getState().open(src, undefined, alt);
+            if (!resolvedSrc) return;
+            if (resolvedSrc.startsWith('data:')) {
+              useLightboxStore.getState().open(resolvedSrc, undefined, alt);
             } else {
-              openUrl(src);
+              openUrl(resolvedSrc);
             }
           }}
           onError={(e) => {
@@ -138,7 +239,8 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
           </div>
         )}
       </div>
-    ),
+      );
+    },
     pre: ({ children }: { children?: ReactNode }) => {
       const codeText = extractText(children);
       return (
@@ -151,7 +253,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
         </div>
       );
     },
-  }), [t]);
+  }), [t, resolveBase]);
 
   return (
     <div className={`prose prose-sm max-w-none

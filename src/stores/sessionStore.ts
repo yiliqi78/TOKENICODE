@@ -1,10 +1,11 @@
 import { create } from 'zustand';
 import { bridge, SessionListItem } from '../lib/tauri-bridge';
 
-// Persist custom session names in localStorage
+// Persist custom session names in localStorage as fast cache,
+// and sync to disk via Tauri backend for durability.
 const CUSTOM_PREVIEWS_KEY = 'tokenicode_custom_previews';
 
-function loadCustomPreviews(): Record<string, string> {
+function loadCustomPreviewsSync(): Record<string, string> {
   try {
     return JSON.parse(localStorage.getItem(CUSTOM_PREVIEWS_KEY) || '{}');
   } catch {
@@ -12,7 +13,7 @@ function loadCustomPreviews(): Record<string, string> {
   }
 }
 
-function saveCustomPreviews(map: Record<string, string>) {
+function saveCustomPreviewsLocal(map: Record<string, string>) {
   localStorage.setItem(CUSTOM_PREVIEWS_KEY, JSON.stringify(map));
 }
 
@@ -21,7 +22,9 @@ interface SessionState {
   isLoading: boolean;
   searchQuery: string;
   selectedSessionId: string | null;
-  /** Custom display names keyed by session ID, persisted in localStorage */
+  /** Previously selected session ID, for Ctrl+Tab quick switch */
+  previousSessionId: string | null;
+  /** Custom display names keyed by session ID, persisted to disk */
   customPreviews: Record<string, string>;
   /** Track which sessions are actively running (streaming/working) */
   runningSessions: Set<string>;
@@ -52,6 +55,10 @@ interface SessionState {
   /** Promote a draft session to a real session ID (when CLI returns the actual UUID).
    *  Updates session id, selectedSessionId, stdinToTab mapping, and runningSessions. */
   promoteDraft: (oldDraftId: string, newRealId: string) => void;
+  /** Switch to the previously selected session (Ctrl+Tab) */
+  switchToPrevious: () => void;
+  /** Load custom previews from backend (called once on init) */
+  loadCustomPreviewsFromDisk: () => Promise<void>;
 }
 
 export const useSessionStore = create<SessionState>()((set, get) => ({
@@ -59,7 +66,8 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   isLoading: false,
   searchQuery: '',
   selectedSessionId: null,
-  customPreviews: loadCustomPreviews(),
+  previousSessionId: null,
+  customPreviews: loadCustomPreviewsSync(),
   runningSessions: new Set<string>(),
   stdinToTab: {},
 
@@ -80,7 +88,10 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
 
   setSearchQuery: (query) => set({ searchQuery: query }),
 
-  setSelectedSession: (id) => set({ selectedSessionId: id }),
+  setSelectedSession: (id) => set((state) => ({
+    selectedSessionId: id,
+    previousSessionId: state.selectedSessionId !== id ? state.selectedSessionId : state.previousSessionId,
+  })),
 
   addDraftSession: (id, projectPath) => set((state) => {
     const projectDir = projectPath.replace(/\//g, '-');
@@ -108,8 +119,11 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
 
   setCustomPreview: (sessionId, name) => {
     const updated = { ...get().customPreviews, [sessionId]: name };
-    saveCustomPreviews(updated);
+    // Fast local cache
+    saveCustomPreviewsLocal(updated);
     set({ customPreviews: updated });
+    // Persist to disk via backend (fire-and-forget)
+    bridge.saveCustomPreviews(updated).catch(() => {});
   },
 
   getDisplayName: (session) => {
@@ -160,6 +174,45 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       if (v === oldDraftId) stdinToTab[k] = newRealId;
     }
 
-    return { sessions, selectedSessionId, runningSessions, stdinToTab };
+    // 5) Migrate previousSessionId if it was the draft
+    const previousSessionId = state.previousSessionId === oldDraftId
+      ? newRealId
+      : state.previousSessionId;
+
+    // 6) Migrate customPreviews if the old draft had a custom name
+    const customPreviews = { ...state.customPreviews };
+    if (customPreviews[oldDraftId]) {
+      customPreviews[newRealId] = customPreviews[oldDraftId];
+      delete customPreviews[oldDraftId];
+      saveCustomPreviewsLocal(customPreviews);
+      bridge.saveCustomPreviews(customPreviews).catch(() => {});
+    }
+
+    return { sessions, selectedSessionId, previousSessionId, runningSessions, stdinToTab, customPreviews };
   }),
+
+  switchToPrevious: () => {
+    const { previousSessionId, selectedSessionId, sessions } = get();
+    if (!previousSessionId || previousSessionId === selectedSessionId) return;
+    // Verify the previous session still exists
+    const exists = sessions.some((s) => s.id === previousSessionId);
+    if (!exists) return;
+    set({
+      selectedSessionId: previousSessionId,
+      previousSessionId: selectedSessionId,
+    });
+  },
+
+  loadCustomPreviewsFromDisk: async () => {
+    try {
+      const diskPreviews = await bridge.loadCustomPreviews();
+      // Merge: disk data takes precedence, but keep any localStorage-only entries
+      const localPreviews = get().customPreviews;
+      const merged = { ...localPreviews, ...diskPreviews };
+      saveCustomPreviewsLocal(merged);
+      set({ customPreviews: merged });
+    } catch {
+      // Silently fall back to localStorage data
+    }
+  },
 }));

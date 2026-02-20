@@ -210,5 +210,5 @@ export function useFileAttachments() {
     setFiles([]);
   }, []);
 
-  return { files, isProcessing, addFiles, addFilePaths, removeFile, clearFiles };
+  return { files, setFiles, isProcessing, addFiles, addFilePaths, removeFile, clearFiles };
 }

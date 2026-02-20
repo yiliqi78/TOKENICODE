@@ -186,6 +186,10 @@ export const bridge = {
   readFileBase64: (path: string) =>
     invoke<string>('read_file_base64', { path }),
 
+  /** Check if app has file system access to a directory (macOS TCC detection) */
+  checkFileAccess: (path: string) =>
+    invoke<boolean>('check_file_access', { path }),
+
   // Slash commands
   listSlashCommands: (cwd?: string) =>
     invoke<SlashCommand[]>('list_slash_commands', { cwd }),
@@ -245,6 +249,13 @@ export const bridge = {
 
   openTerminalLogin: () =>
     invoke<void>('open_terminal_login'),
+
+  // Session custom names (persisted to ~/.claude/tokenicode_session_names.json)
+  loadCustomPreviews: () =>
+    invoke<Record<string, string>>('load_custom_previews'),
+
+  saveCustomPreviews: (data: Record<string, string>) =>
+    invoke<void>('save_custom_previews', { data }),
 };
 
 // --- Event Listeners ---

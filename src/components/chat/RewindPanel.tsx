@@ -1,7 +1,7 @@
 /**
  * RewindPanel — two-phase popover for conversation rewind.
  * Matches Claude Code CLI's rewind behavior:
- *   Phase 1: Turn list (newest first), ↑↓ navigate, Enter select
+ *   Phase 1: Turn list (oldest first, newest at bottom), ↑↓ navigate, Enter select
  *   Phase 2: 5 action options, ↑↓ or 1-5 navigate, Enter confirm
  *   Esc: back (phase 2→1) or close (phase 1→dismiss)
  *
@@ -25,8 +25,8 @@ export function RewindPanel({ onClose }: RewindPanelProps) {
   const t = useT();
   const { turns, executeRewind } = useRewind();
   const [selectedTurn, setSelectedTurn] = useState<Turn | null>(null);
-  // Start focused on the newest turn (index 0 in reversed list)
-  const [focusedIndex, setFocusedIndex] = useState(0);
+  // Start focused on the newest turn (last item in chronological list)
+  const [focusedIndex, setFocusedIndex] = useState(Math.max(turns.length - 1, 0));
   const [actionIndex, setActionIndex] = useState(1); // default to option 2 (restore conversation)
   // Track mouse hover separately: -1 means no hover, use keyboard focusedIndex
   const [hoveredTurnIdx, setHoveredTurnIdx] = useState(-1);
@@ -34,8 +34,16 @@ export function RewindPanel({ onClose }: RewindPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const reversedTurns = [...turns].reverse();
-  const currentTurnI = 0; // newest turn at index 0 in reversed list
+  // Chronological order: oldest first, newest last (standard chat layout)
+  const displayTurns = turns;
+  const currentTurnI = turns.length - 1; // newest turn at end
+
+  // --- Auto-scroll to bottom on mount (newest turns visible) ---
+  useEffect(() => {
+    if (listRef.current) {
+      listRef.current.scrollTop = listRef.current.scrollHeight;
+    }
+  }, []);
 
   // --- Close on outside click ---
   useEffect(() => {
@@ -100,7 +108,7 @@ export function RewindPanel({ onClose }: RewindPanelProps) {
           e.preventDefault();
           setHoveredTurnIdx(-1); // clear mouse hover on keyboard nav
           setFocusedIndex((i) => {
-            const next = Math.min(i + 1, reversedTurns.length - 1);
+            const next = Math.min(i + 1, displayTurns.length - 1);
             scrollItemIntoView(next);
             return next;
           });
@@ -115,7 +123,7 @@ export function RewindPanel({ onClose }: RewindPanelProps) {
         } else if (e.key === 'Enter') {
           e.preventDefault();
           const activeIdx = hoveredTurnIdx >= 0 ? hoveredTurnIdx : focusedIndex;
-          const turn = reversedTurns[activeIdx];
+          const turn = displayTurns[activeIdx];
           if (turn) {
             setSelectedTurn(turn);
             setActionIndex(1); // default to option 2
@@ -148,7 +156,7 @@ export function RewindPanel({ onClose }: RewindPanelProps) {
 
     window.addEventListener('keydown', handler, true);
     return () => window.removeEventListener('keydown', handler, true);
-  }, [selectedTurn, focusedIndex, actionIndex, hoveredTurnIdx, hoveredActionIdx, reversedTurns, doAction, onClose]);
+  }, [selectedTurn, focusedIndex, actionIndex, hoveredTurnIdx, hoveredActionIdx, displayTurns, doAction, onClose]);
 
   const scrollItemIntoView = (idx: number) => {
     if (!listRef.current) return;
@@ -299,7 +307,7 @@ export function RewindPanel({ onClose }: RewindPanelProps) {
       <div ref={listRef} className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5"
         onMouseLeave={() => setHoveredTurnIdx(-1)}
       >
-        {reversedTurns.map((turn, i) => {
+        {displayTurns.map((turn, i) => {
           const isCurrent = i === currentTurnI;
           // Mouse hover wins over keyboard focus; all turns are selectable
           const isActive = hoveredTurnIdx >= 0

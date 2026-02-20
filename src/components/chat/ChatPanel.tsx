@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState, useMemo, useCallback } from 'react';
+import { create } from 'zustand';
 import { useChatStore, type ChatMessage } from '../../stores/chatStore';
 import { MessageBubble } from './MessageBubble';
 import { ToolGroup } from './ToolGroup';
@@ -13,6 +14,17 @@ import { useT } from '../../lib/i18n';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
 import { SetupWizard } from '../setup/SetupWizard';
 import { endTreeDrag } from '../../lib/drag-state';
+
+/** Shared plan panel toggle — used by ChatPanel (panel) and InputBar (button) */
+export const usePlanPanelStore = create<{
+  open: boolean;
+  toggle: () => void;
+  close: () => void;
+}>()((set) => ({
+  open: false,
+  toggle: () => set((s) => ({ open: !s.open })),
+  close: () => set({ open: false }),
+}));
 
 /** Map raw model ID to friendly display name */
 function getModelDisplayName(modelId: string): string {
@@ -87,6 +99,7 @@ export function ChatPanel() {
   const messages = useChatStore((s) => s.messages);
   const isStreaming = useChatStore((s) => s.isStreaming);
   const partialText = useChatStore((s) => s.partialText);
+  const partialThinking = useChatStore((s) => s.partialThinking);
   const sessionStatus = useChatStore((s) => s.sessionStatus);
   const sessionMeta = useChatStore((s) => s.sessionMeta);
   const activityStatus = useChatStore((s) => s.activityStatus);
@@ -98,7 +111,9 @@ export function ChatPanel() {
   const sessions = useSessionStore((s) => s.sessions);
   const isFilePreviewMode = !!useFileStore((s) => s.selectedFile);
 
-  const [showPlanPanel, setShowPlanPanel] = useState(false);
+  const showPlanPanel = usePlanPanelStore((s) => s.open);
+  const closePlanPanel = usePlanPanelStore((s) => s.close);
+
 
   // Listen for internal file tree drag-drop (mouse-based, not HTML5 drag-and-drop)
   // HTML5 drag events don't work in Tauri because dragDropEnabled: true intercepts them
@@ -156,21 +171,42 @@ export function ChatPanel() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
+  // When user scrolls up via wheel, suppress auto-scroll until they return to bottom
+  const userScrollingUpRef = useRef(false);
 
   // Track whether user is near the bottom of the scroll container
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
     // Consider "near bottom" if within 80px of the end
-    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    isNearBottomRef.current = nearBottom;
+    // Reset the scroll-up lock once user returns to bottom
+    if (nearBottom) {
+      userScrollingUpRef.current = false;
+    }
   }, []);
 
-  // Auto-scroll to bottom only when already near bottom (sticky behavior)
+  // Detect intentional upward scroll via wheel event
   useEffect(() => {
-    if (isNearBottomRef.current && scrollRef.current) {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) {
+        // User is scrolling up — suppress auto-scroll
+        userScrollingUpRef.current = true;
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: true });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
+  // Auto-scroll to bottom only when already near bottom and user isn't scrolling up
+  useEffect(() => {
+    if (isNearBottomRef.current && !userScrollingUpRef.current && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, partialText, activityStatus]);
+  }, [messages, partialText, partialThinking, activityStatus]);
 
   return (
     <div className="flex flex-col h-full">
@@ -205,31 +241,6 @@ export function ChatPanel() {
           )}
         </div>
         <ExportMenu sessionPath={currentSessionPath} />
-        {/* Plan view button */}
-        <button
-          onClick={() => setShowPlanPanel(!showPlanPanel)}
-          className={`p-1.5 rounded-lg transition-smooth relative
-            ${showPlanPanel
-              ? 'bg-accent/10 text-accent'
-              : 'hover:bg-bg-tertiary text-text-tertiary'
-            }
-            ${planMessages.length === 0 ? 'opacity-40 cursor-not-allowed' : ''}
-          `}
-          disabled={planMessages.length === 0}
-          title={t('msg.viewPlan')}
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
-            stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-            <path d="M3 4h10M3 8h8M3 12h5" />
-          </svg>
-          {planMessages.length > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full
-              bg-accent text-[8px] text-text-inverse font-bold
-              flex items-center justify-center">
-              {planMessages.length}
-            </span>
-          )}
-        </button>
         <button onClick={toggleSecondaryPanel}
           className="p-1.5 rounded-lg hover:bg-bg-tertiary text-text-tertiary
             transition-smooth ml-auto" title={t('chat.toggleFiles')}>
@@ -241,48 +252,9 @@ export function ChatPanel() {
         </button>
       </div>
 
-      {/* Plan Panel (slide-down overlay) — shows full plan markdown */}
-      {showPlanPanel && (
-        <div className="border-b border-border-subtle bg-bg-card flex-shrink-0
-          max-h-80 overflow-y-auto animate-in slide-in-from-top duration-200">
-          <div className="flex items-center justify-between px-4 py-2.5
-            border-b border-border-subtle bg-accent/5 sticky top-0 z-10">
-            <div className="flex items-center gap-2">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
-                stroke="currentColor" strokeWidth="1.5" className="text-accent">
-                <path d="M2 3.5h10M2 7h8M2 10.5h5" />
-              </svg>
-              <span className="text-xs font-semibold text-text-primary">
-                {t('msg.planTitle')}
-              </span>
-            </div>
-            <button
-              onClick={() => setShowPlanPanel(false)}
-              className="p-1 rounded-md hover:bg-bg-tertiary text-text-tertiary
-                transition-smooth"
-            >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
-                stroke="currentColor" strokeWidth="1.5">
-                <path d="M3 3l6 6M9 3l-6 6" />
-              </svg>
-            </button>
-          </div>
-          <div className="px-4 py-3 space-y-4">
-            {planMessages.length === 0 ? (
-              <p className="text-xs text-text-muted text-center py-4">
-                {t('msg.noPlan')}
-              </p>
-            ) : (
-              planMessages.map((planMsg) => (
-                <div key={planMsg.id} className="text-sm leading-relaxed">
-                  <MarkdownRenderer content={planMsg.planContent || planMsg.content || ''} />
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-
+      <div className="flex flex-1 min-h-0">
+      {/* Main chat area */}
+      <div className="flex flex-col flex-1 min-w-0">
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-5 py-6 selectable">
         {!workingDirectory && messages.length === 0 && !isStreaming ? (
           <WelcomeScreen />
@@ -335,6 +307,29 @@ export function ChatPanel() {
                 </div>
               );
             })}
+            {/* Streaming thinking — collapsible like ThinkingMsg but with pulse cursor */}
+            {isStreaming && partialThinking && (
+              <div className="ml-11 mt-1">
+                <details open className="group">
+                  <summary className="flex items-center gap-1.5 py-1
+                    cursor-pointer text-[11px] text-text-tertiary list-none select-none">
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
+                      stroke="currentColor" strokeWidth="1.5"
+                      className="transition-transform duration-150 group-open:rotate-90">
+                      <path d="M3 2l4 3-4 3" />
+                    </svg>
+                    {t('msg.thinking')}
+                    <span className="inline-block w-1.5 h-3 bg-text-tertiary ml-0.5
+                      animate-pulse-soft rounded-sm" />
+                  </summary>
+                  <pre className="ml-5 mt-0.5 text-[11px] text-text-tertiary
+                    whitespace-pre-wrap max-h-48 overflow-y-auto
+                    font-mono leading-relaxed">
+                    {partialThinking}
+                  </pre>
+                </details>
+              </div>
+            )}
             {isStreaming && partialText && (() => {
               // Hide streaming text while an unresolved question is pending —
               // the CLI may keep sending text_delta events for the next turn's
@@ -362,7 +357,7 @@ export function ChatPanel() {
                 ) : (
                   <div className="w-8 flex-shrink-0" />
                 )}
-                <div className="flex-1 min-w-0 text-sm text-text-primary leading-relaxed">
+                <div className="flex-1 min-w-0 text-base text-text-primary leading-relaxed">
                   <MarkdownRenderer content={partialText} />
                   <span className="inline-block w-2 h-5 bg-accent ml-0.5
                     animate-pulse-soft rounded-sm shadow-[0_0_8px_var(--color-accent-glow)]" />
@@ -380,6 +375,50 @@ export function ChatPanel() {
 
       {/* Input — only show when a project folder is selected */}
       {workingDirectory && <InputBar />}
+      </div>{/* end main chat area */}
+
+      {/* Right-side plan panel */}
+      {showPlanPanel && (
+        <div className="w-72 flex-shrink-0 border-l border-border-subtle bg-bg-card
+          flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between px-3 py-2.5
+            border-b border-border-subtle bg-accent/5 flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
+                stroke="currentColor" strokeWidth="1.5" className="text-accent">
+                <path d="M2 3.5h10M2 7h8M2 10.5h5" />
+              </svg>
+              <span className="text-xs font-semibold text-text-primary">
+                {t('msg.planTitle')}
+              </span>
+            </div>
+            <button
+              onClick={closePlanPanel}
+              className="p-1 rounded-md hover:bg-bg-tertiary text-text-tertiary
+                transition-smooth"
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+                stroke="currentColor" strokeWidth="1.5">
+                <path d="M3 3l6 6M9 3l-6 6" />
+              </svg>
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
+            {planMessages.length === 0 ? (
+              <p className="text-xs text-text-muted text-center py-4">
+                {t('msg.noPlan')}
+              </p>
+            ) : (
+              planMessages.map((planMsg) => (
+                <div key={planMsg.id} className="text-xs leading-normal">
+                  <MarkdownRenderer content={planMsg.planContent || planMsg.content || ''} />
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+      </div>{/* end flex row */}
     </div>
   );
 }

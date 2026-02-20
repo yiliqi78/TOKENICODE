@@ -14,7 +14,7 @@ let _treeDragActive = false;
 /** Ghost element shown during drag */
 let _ghostEl: HTMLDivElement | null = null;
 
-export function startTreeDrag(path: string) {
+export function startTreeDrag(path: string, isDir = false) {
   _pendingTreeDragPath = path;
   _treeDragActive = true;
 
@@ -22,7 +22,7 @@ export function startTreeDrag(path: string) {
   _ghostEl = document.createElement('div');
   _ghostEl.id = 'tree-drag-ghost';
   const name = path.split(/[\\/]/).pop() || path;
-  _ghostEl.textContent = `📄 ${name}`;
+  _ghostEl.textContent = `${isDir ? '📁' : '📄'} ${name}`;
   Object.assign(_ghostEl.style, {
     position: 'fixed',
     pointerEvents: 'none',

@@ -575,18 +575,18 @@ export function ConversationList() {
                       }}
                       onBlur={handleRenameConfirm}
                       onClick={(e) => e.stopPropagation()}
-                      className="text-sm text-text-primary leading-snug font-medium
+                      className="text-xs text-text-primary leading-snug font-normal
                         flex-1 min-w-0 bg-bg-secondary border border-border-focus rounded-md
                         px-1.5 py-0.5 outline-none"
                     />
                   ) : (
-                    <div className={`text-sm truncate leading-snug font-medium flex-1 min-w-0
+                    <div className={`text-xs truncate leading-snug font-normal flex-1 min-w-0
                       ${displayName(session) ? 'text-text-primary' : 'text-text-muted italic'}`}>
                       {displayName(session)
                         || (session.path === '' ? t('conv.newChat') : t('conv.empty'))}
                     </div>
                   )}
-                  <span className="text-[12px] text-text-tertiary flex-shrink-0">
+                  <span className="text-[10px] text-text-tertiary flex-shrink-0">
                     {formatRelativeTime(session.modifiedAt)}
                   </span>
                   {/* Blinking working indicator — shown when session is running in background */}

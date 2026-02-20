@@ -22,6 +22,7 @@ function formatTokenCount(n: number): string {
 export function Sidebar() {
   const toggleSidebar = useSettingsStore((s) => s.toggleSidebar);
   const toggleSettings = useSettingsStore((s) => s.toggleSettings);
+  const updateAvailable = useSettingsStore((s) => s.updateAvailable);
   const sessionMeta = useChatStore((s) => s.sessionMeta);
   const sessionStatus = useChatStore((s) => s.sessionStatus);
   const t = useT();
@@ -128,11 +129,17 @@ export function Sidebar() {
           className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl
             text-sm text-text-muted hover:bg-bg-secondary hover:text-text-primary
             transition-smooth">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
-            stroke="currentColor" strokeWidth="1.5">
-            <circle cx="8" cy="8" r="2" />
-            <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" />
-          </svg>
+          <div className="relative">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+              stroke="currentColor" strokeWidth="1.5">
+              <circle cx="8" cy="8" r="2" />
+              <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" />
+            </svg>
+            {updateAvailable && (
+              <span className="absolute -top-1 -right-1.5 w-2 h-2 rounded-full
+                bg-green-500 border-[1.5px] border-bg-sidebar" />
+            )}
+          </div>
           {t('settings.title')}
         </button>
       </div>

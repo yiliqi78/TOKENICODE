@@ -3,6 +3,7 @@ import { useSettingsStore, MODEL_OPTIONS, ColorTheme } from '../../stores/settin
 import { useMcpStore } from '../../stores/mcpStore';
 import type { McpServer, McpServerConfig } from '../../stores/mcpStore';
 import { useT } from '../../lib/i18n';
+import { ChangelogModal } from '../shared/ChangelogModal';
 
 const COLOR_THEMES: { id: ColorTheme; labelKey: string; preview: string; previewDark: string }[] = [
   {
@@ -231,12 +232,28 @@ function UpdateSection() {
   const [updateInfo, setUpdateInfo] = useState<UpdateHandle>(null);
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
+  const [showChangelog, setShowChangelog] = useState(false);
+  const storeUpdateVersion = useSettingsStore((s) => s.updateVersion);
 
   useEffect(() => {
     import('@tauri-apps/api/app').then(({ getVersion }) =>
       getVersion().then(setAppVersion).catch(() => {})
     );
   }, []);
+
+  // Bridge auto-check result: if store has an update version, pre-fill
+  useEffect(() => {
+    if (storeUpdateVersion && status === 'idle') {
+      import('@tauri-apps/plugin-updater').then(({ check }) =>
+        check().then((update) => {
+          if (update) {
+            setUpdateInfo(update);
+            setStatus('available');
+          }
+        }).catch(() => {})
+      );
+    }
+  }, [storeUpdateVersion]);
 
   const handleCheck = useCallback(async () => {
     setStatus('checking');
@@ -295,6 +312,16 @@ function UpdateSection() {
           {appVersion ? `v${appVersion}` : '...'}
         </span>
       </div>
+
+      {/* View changelog */}
+      <button
+        onClick={() => setShowChangelog(true)}
+        className="w-full py-1.5 text-[11px] font-medium rounded-lg
+          border border-border-subtle text-text-muted
+          hover:bg-bg-secondary hover:text-text-primary transition-smooth"
+      >
+        {t('changelog.view')}
+      </button>
 
       {/* Update controls */}
       {status === 'idle' && (
@@ -393,6 +420,14 @@ function UpdateSection() {
             {t('update.check')}
           </button>
         </div>
+      )}
+
+      {/* Changelog modal */}
+      {showChangelog && appVersion && (
+        <ChangelogModal
+          version={appVersion}
+          onClose={() => setShowChangelog(false)}
+        />
       )}
     </div>
   );

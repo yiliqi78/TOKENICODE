@@ -13,6 +13,7 @@ import { useSessionStore } from '../../stores/sessionStore';
 import { useT } from '../../lib/i18n';
 import { SlashCommandPopover, getFilteredCommandList } from './SlashCommandPopover';
 import { useCommandStore } from '../../stores/commandStore';
+import { usePlanPanelStore } from './ChatPanel';
 import { useSnapshotStore } from '../../stores/snapshotStore';
 // drag-state import removed — tree drag handled by ChatPanel
 
@@ -45,6 +46,42 @@ function ThinkToggle({ disabled }: { disabled: boolean }) {
   );
 }
 
+function PlanToggleButton() {
+  const t = useT();
+  const isOpen = usePlanPanelStore((s) => s.open);
+  const toggle = usePlanPanelStore((s) => s.toggle);
+  const planCount = useChatStore((s) => s.messages.filter((m) => m.type === 'plan_review').length);
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={planCount === 0}
+      className={`p-1.5 rounded-lg transition-smooth relative flex items-center gap-1
+        ${planCount === 0 ? 'opacity-30 cursor-not-allowed text-text-tertiary' : ''}
+        ${isOpen
+          ? 'bg-accent/10 text-accent'
+          : planCount > 0
+            ? 'text-text-tertiary hover:text-text-primary hover:bg-bg-secondary'
+            : ''
+        }`}
+      title={t('msg.viewPlan')}
+    >
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
+        stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+        <path d="M3 4h10M3 8h8M3 12h5" />
+      </svg>
+      <span className="text-[10px]">Plan</span>
+      {planCount > 0 && (
+        <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full
+          bg-accent text-[8px] text-text-inverse font-bold
+          flex items-center justify-center">
+          {planCount}
+        </span>
+      )}
+    </button>
+  );
+}
+
 export function InputBar() {
   const t = useT();
   const inputDraft = useChatStore((s) => s.inputDraft);
@@ -62,7 +99,34 @@ export function InputBar() {
   const selectedModel = useSettingsStore((s) => s.selectedModel);
   const sessionMode = useSettingsStore((s) => s.sessionMode);
 
-  const { files, isProcessing, addFiles, removeFile, clearFiles } = useFileAttachments();
+  const { files, setFiles, isProcessing, addFiles, removeFile, clearFiles } = useFileAttachments();
+
+  // Sync files → store.pendingAttachments so tab switch can persist them
+  const setPendingAttachments = useChatStore((s) => s.setPendingAttachments);
+  useEffect(() => {
+    setPendingAttachments(files);
+  }, [files, setPendingAttachments]);
+
+  // Restore files from store when tab switches back (pendingAttachments → local files)
+  const pendingAttachments = useChatStore((s) => s.pendingAttachments);
+  const prevAttachmentsRef = useRef(pendingAttachments);
+  useEffect(() => {
+    // Only restore when store value changes externally (e.g. restoreFromCache)
+    // and differs from current files
+    if (prevAttachmentsRef.current !== pendingAttachments && pendingAttachments !== files) {
+      setFiles(pendingAttachments);
+    }
+    prevAttachmentsRef.current = pendingAttachments;
+  }, [pendingAttachments, setFiles]); // intentionally exclude `files` to avoid loop
+
+  // Auto-resize textarea whenever input changes (covers programmatic clears like send/cancel)
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const maxH = Math.max(128, Math.floor(window.innerHeight * 0.5));
+    el.style.height = `${Math.min(el.scrollHeight, maxH)}px`;
+  }, [input]);
 
   // Slash command state
   const [slashQuery, setSlashQuery] = useState('');
@@ -399,10 +463,16 @@ export function InputBar() {
     if (pendingPlanReview && !text && !useCommandStore.getState().activePrefix) {
       const stdinId = useChatStore.getState().sessionMeta.stdinId;
       if (stdinId) {
-        bridge.sendStdin(stdinId, 'y');
-        useChatStore.getState().updateMessage(pendingPlanReview.id, { resolved: true });
-        setSessionStatus('running');
-        useChatStore.getState().setActivityStatus({ phase: 'thinking' });
+        try {
+          await bridge.sendStdin(stdinId, 'y');
+          useChatStore.getState().updateMessage(pendingPlanReview.id, { resolved: true });
+          setSessionStatus('running');
+          useChatStore.getState().setActivityStatus({ phase: 'thinking' });
+        } catch (err) {
+          console.error('[TOKENICODE] Plan approval stdin failed:', err);
+        }
+      } else {
+        console.warn('[TOKENICODE] Plan approval: no stdinId available');
       }
       return;
     }
@@ -658,7 +728,7 @@ export function InputBar() {
         const snapshot = cache.sessionCache.get(tabId);
         if (snapshot && (snapshot.isStreaming || snapshot.partialText)) {
           const next = new Map(cache.sessionCache);
-          next.set(tabId, { ...snapshot, partialText: '', isStreaming: false });
+          next.set(tabId, { ...snapshot, partialText: '', partialThinking: '', isStreaming: false });
           useChatStore.setState({ sessionCache: next });
         }
         const content = msg.message?.content;
@@ -717,13 +787,22 @@ export function InputBar() {
                 content: '', toolName: block.name,
                 toolInput: block.input, timestamp: Date.now(),
               });
-              cache.addMessageToCache(tabId, {
-                id: generateMessageId(),
-                role: 'assistant', type: 'plan_review',
-                content: bgPlanContent, planContent: bgPlanContent,
-                resolved: false, timestamp: Date.now(),
-              });
-              cache.setActivityInCache(tabId, { phase: 'awaiting' });
+              // Guard: skip re-delivered ExitPlanMode if already approved
+              const bgToolExists = block.id && bgSnapshot?.messages.some(
+                (m) => m.id === block.id && m.toolName === 'ExitPlanMode',
+              );
+              const bgResolvedReview = bgSnapshot?.messages.find(
+                (m) => m.type === 'plan_review' && m.resolved,
+              );
+              if (!(bgToolExists && bgResolvedReview)) {
+                cache.addMessageToCache(tabId, {
+                  id: 'plan_review_current',
+                  role: 'assistant', type: 'plan_review',
+                  content: bgPlanContent, planContent: bgPlanContent,
+                  resolved: false, timestamp: Date.now(),
+                });
+                cache.setActivityInCache(tabId, { phase: 'awaiting' });
+              }
             } else {
               cache.addMessageToCache(tabId, {
                 id: block.id || generateMessageId(),
@@ -840,7 +919,7 @@ export function InputBar() {
       return;
     }
 
-    const { addMessage, updatePartialMessage,
+    const { addMessage, updatePartialMessage, updatePartialThinking,
       setSessionStatus, setSessionMeta, setActivityStatus } = useChatStore.getState();
     const agentActions = useAgentStore.getState();
     const agentId = resolveAgentId(msg.parent_tool_use_id, agentActions.agents);
@@ -875,9 +954,8 @@ export function InputBar() {
     // Helper: clear accumulated partial text (it will be replaced by the full message)
     const clearPartial = () => {
       const store = useChatStore.getState();
-      if (store.isStreaming || store.partialText) {
-        // Use set directly via a zero-content update to reset streaming state
-        useChatStore.setState({ partialText: '', isStreaming: false });
+      if (store.isStreaming || store.partialText || store.partialThinking) {
+        useChatStore.setState({ partialText: '', partialThinking: '', isStreaming: false });
       }
     };
 
@@ -894,7 +972,12 @@ export function InputBar() {
             updatePartialMessage(text);
           }
         } else if (evt.type === 'content_block_delta' && evt.delta?.type === 'thinking_delta') {
-          setActivityStatus({ phase: 'thinking' });
+          const thinkingText = evt.delta.thinking || '';
+          if (thinkingText) {
+            updatePartialThinking(thinkingText);
+          } else {
+            setActivityStatus({ phase: 'thinking' });
+          }
         }
         // Track input tokens from message_start
         if (evt.type === 'message_start' && evt.message?.usage?.input_tokens) {
@@ -920,6 +1003,21 @@ export function InputBar() {
         // Full assistant message arrives — clear partial streaming text first
         // (the complete text will be added as a proper message below)
         clearPartial();
+
+        // If there's a pending slash command processing card, mark it as
+        // completed now — the assistant response means the CLI has responded.
+        // Some commands (e.g. /compact) may not emit a 'result' event.
+        const pendingCmd = useChatStore.getState().sessionMeta.pendingCommandMsgId;
+        if (pendingCmd) {
+          useChatStore.getState().updateMessage(pendingCmd, {
+            commandCompleted: true,
+            commandData: {
+              ...useChatStore.getState().messages.find((m) => m.id === pendingCmd)?.commandData,
+              completedAt: Date.now(),
+            },
+          });
+          useChatStore.getState().setSessionMeta({ pendingCommandMsgId: undefined });
+        }
 
         const content = msg.message?.content;
         if (!Array.isArray(content)) break;
@@ -964,12 +1062,12 @@ export function InputBar() {
 
             if (block.name === 'AskUserQuestion') {
               console.log('[TOKENICODE] AskUserQuestion block:', JSON.stringify(block));
-              // Always create as 'question' type regardless of whether
-              // block.input.questions is populated yet (streaming may
-              // deliver input incrementally). tool_result will backfill.
+              // Use a stable sentinel ID so re-delivered blocks de-duplicate
+              // instead of creating duplicate question cards (TK-103).
+              const questionId = block.id || 'ask_question_current';
               const questions = block.input?.questions;
               addMessage({
-                id: block.id || generateMessageId(),
+                id: questionId,
                 role: 'assistant',
                 type: 'question',
                 content: '',
@@ -1003,8 +1101,9 @@ export function InputBar() {
               }
 
               // Show ExitPlanMode as a collapsible tool_use (like other tools)
+              const exitPlanToolId = block.id || generateMessageId();
               addMessage({
-                id: block.id || generateMessageId(),
+                id: exitPlanToolId,
                 role: 'assistant',
                 type: 'tool_use',
                 content: '',
@@ -1013,17 +1112,29 @@ export function InputBar() {
                 timestamp: Date.now(),
               });
 
+              // Guard against re-delivered ExitPlanMode after user already approved:
+              // If this exact tool_use already existed AND the plan review was resolved,
+              // this is a replay — don't create a new unresolved card.
+              const toolAlreadyExisted = block.id && currentMessages.some(
+                (m) => m.id === block.id && m.toolName === 'ExitPlanMode',
+              );
+              const existingReview = currentMessages.find(
+                (m) => m.type === 'plan_review' && m.resolved,
+              );
+              if (toolAlreadyExisted && existingReview) {
+                // Re-delivery of already-approved plan — skip creating new card
+                break;
+              }
+
               // Use a FIXED stable ID for the plan review card so that
               // multiple ExitPlanMode deliveries (from --include-partial-messages)
               // always update the same card instead of creating duplicates.
-              // Only create a new card if the previous one was already resolved
-              // (user approved it), meaning a genuinely new plan cycle started.
-              const existingReview = currentMessages.find(
-                (m) => m.id === 'plan_review_current' && m.type === 'plan_review',
+              const unresolvedReview = currentMessages.find(
+                (m) => m.id === 'plan_review_current' && m.type === 'plan_review' && !m.resolved,
               );
-              const reviewId = existingReview?.resolved
-                ? generateMessageId()  // Previous was resolved → new plan cycle
-                : 'plan_review_current';
+              const reviewId = unresolvedReview
+                ? 'plan_review_current'  // Update existing unresolved card
+                : 'plan_review_current'; // First card — use stable ID
 
               addMessage({
                 id: reviewId,
@@ -1054,6 +1165,8 @@ export function InputBar() {
               }
             }
           } else if (block.type === 'thinking') {
+            // Complete thinking block arrived — clear streaming thinking text
+            useChatStore.setState({ partialThinking: '' });
             setActivityStatus({ phase: 'thinking' });
             agentActions.updatePhase(agentId, 'thinking');
             addMessage({
@@ -1186,9 +1299,9 @@ export function InputBar() {
           resultDisplayText = msg.content;
         }
 
-        // If no explicit result text but we have cost metadata, generate a summary
-        // (e.g., /cost command returns metadata but no text body)
-        if (!resultDisplayText && msg.total_cost_usd != null) {
+        // If we have cost metadata AND a pending slash command (e.g., /compact, /cost),
+        // inject cost summary into the processing card instead of creating a separate message.
+        if (msg.total_cost_usd != null && pendingCmdMsgId) {
           const cost = msg.total_cost_usd?.toFixed(4) ?? '—';
           const duration = msg.duration_ms
             ? `${(msg.duration_ms / 1000).toFixed(1)}s`
@@ -1200,10 +1313,17 @@ export function InputBar() {
           const output = msg.usage?.output_tokens
             ? msg.usage.output_tokens.toLocaleString()
             : '';
-          const tokenLine = (input || output)
-            ? `\nTokens: ${input} input / ${output} output`
-            : '';
-          resultDisplayText = `Cost: $${cost}  |  Duration: ${duration}  |  Turns: ${turns}${tokenLine}`;
+          const cmdMsg = useChatStore.getState().messages.find((m) => m.id === pendingCmdMsgId);
+          if (cmdMsg) {
+            useChatStore.getState().updateMessage(pendingCmdMsgId, {
+              commandData: {
+                ...cmdMsg.commandData,
+                costSummary: { cost, duration, turns, input, output },
+              },
+            });
+          }
+          // If there's also explicit result text, still add it as a message
+          if (!resultDisplayText) resultDisplayText = '';
         }
 
         // Only add result text if it wasn't already delivered via an
@@ -1482,6 +1602,11 @@ export function InputBar() {
                 setInput(val);
                 // Detect slash command
                 detectSlashCommand(val);
+                // Auto-shrink when text is deleted (onInput may not catch React state updates)
+                const el = e.target;
+                el.style.height = 'auto';
+                const maxH = Math.max(128, Math.floor(window.innerHeight * 0.5));
+                el.style.height = `${Math.min(el.scrollHeight, maxH)}px`;
               }}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
@@ -1621,6 +1746,9 @@ export function InputBar() {
 
           {/* Spacer */}
           <div className="flex-1" />
+
+          {/* Plan view button */}
+          <PlanToggleButton />
 
           {/* Model selector */}
           <ModelSelector disabled={isRunning} />

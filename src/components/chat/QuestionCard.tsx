@@ -3,6 +3,13 @@ import { type ChatMessage, useChatStore } from '../../stores/chatStore';
 import { bridge } from '../../lib/tauri-bridge';
 import { useT } from '../../lib/i18n';
 
+/** Decode literal Unicode escape sequences (e.g. `\u2014`) that appear in text. */
+function decodeUnicodeEscapes(text: string): string {
+  return text.replace(/\\u([0-9A-Fa-f]{4})/g, (_, hex) =>
+    String.fromCharCode(parseInt(hex, 16)),
+  );
+}
+
 interface Props {
   message: ChatMessage;
 }
@@ -101,19 +108,27 @@ export function QuestionCard({ message }: Props) {
       });
       bridge.sendStdin(stdinId, JSON.stringify({ answers }));
       useChatStore.getState().updateMessage(message.id, { resolved: true });
-      useChatStore.setState({ partialText: '' });
+      useChatStore.setState({ partialText: '', partialThinking: '' });
+      useChatStore.getState().setSessionStatus('running');
+      useChatStore.getState().setActivityStatus({ phase: 'thinking' });
     } else {
       setCurrentIdx(currentIdx + 1);
     }
   }, [isFullyResolved, currentIdx, questions, selectedMap, useOther, otherText, message.id, getCurrentAnswer]);
 
-  const handleSkip = useCallback(() => {
+  const handleSkip = useCallback(async () => {
     if (isFullyResolved) return;
     const stdinId = useChatStore.getState().sessionMeta.stdinId;
     if (!stdinId) return;
-    bridge.sendStdin(stdinId, JSON.stringify({ answers: {} }));
-    useChatStore.getState().updateMessage(message.id, { resolved: true });
-    useChatStore.setState({ partialText: '' });
+    try {
+      await bridge.sendStdin(stdinId, JSON.stringify({ answers: {} }));
+      useChatStore.getState().updateMessage(message.id, { resolved: true });
+      useChatStore.setState({ partialText: '', partialThinking: '' });
+      useChatStore.getState().setSessionStatus('running');
+      useChatStore.getState().setActivityStatus({ phase: 'thinking' });
+    } catch {
+      // sendStdin failure — leave unresolved so user can retry
+    }
   }, [isFullyResolved, message.id]);
 
   return (
@@ -141,9 +156,9 @@ export function QuestionCard({ message }: Props) {
                     )}
                   </div>
                   <div className="text-xs text-text-muted min-w-0">
-                    <span className="text-text-secondary">{q.question}</span>
+                    <span className="text-text-secondary">{decodeUnicodeEscapes(q.question)}</span>
                     {' \u2192 '}
-                    <span className="text-text-primary font-medium">{answer}</span>
+                    <span className="text-text-primary font-medium">{decodeUnicodeEscapes(answer)}</span>
                   </div>
                 </div>
               );
@@ -191,11 +206,11 @@ export function QuestionCard({ message }: Props) {
                 <span className="flex-shrink-0 px-1.5 py-0.5 rounded
                   bg-accent/10 text-accent text-[10px] font-bold
                   uppercase tracking-wider mt-px">
-                  {currentQ.header}
+                  {decodeUnicodeEscapes(currentQ.header)}
                 </span>
               )}
               <span className="text-xs text-text-primary font-medium leading-relaxed">
-                {currentQ.question}
+                {decodeUnicodeEscapes(currentQ.question)}
               </span>
             </div>
 
@@ -215,9 +230,9 @@ export function QuestionCard({ message }: Props) {
                         : 'border-border-subtle text-text-secondary hover:border-accent/30 hover:bg-bg-secondary/50'
                       }`}
                   >
-                    <span className="font-medium">{opt.label}</span>
+                    <span className="font-medium">{decodeUnicodeEscapes(opt.label)}</span>
                     {opt.description && (
-                      <span className="text-text-tertiary ml-1.5">\u2014 {opt.description}</span>
+                      <span className="text-text-tertiary ml-1.5">{'\u2014'} {decodeUnicodeEscapes(opt.description)}</span>
                     )}
                   </button>
                 );

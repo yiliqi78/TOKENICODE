@@ -49,15 +49,23 @@ export function PlanReviewCard({ message }: Props) {
   const stepCount = useMemo(() => extractStepCount(planContent), [planContent]);
   const stepPreview = useMemo(() => extractStepPreview(planContent), [planContent]);
 
-  const handleApprove = useCallback(() => {
-    if (isResolved) return;
+  const [approving, setApproving] = useState(false);
+
+  const handleApprove = useCallback(async () => {
+    if (isResolved || approving) return;
     const stdinId = useChatStore.getState().sessionMeta.stdinId;
     if (!stdinId) return;
-    bridge.sendStdin(stdinId, 'y');
-    useChatStore.getState().updateMessage(message.id, { resolved: true });
-    useChatStore.getState().setSessionStatus('running');
-    useChatStore.getState().setActivityStatus({ phase: 'thinking' });
-  }, [isResolved, message.id]);
+    setApproving(true);
+    try {
+      await bridge.sendStdin(stdinId, 'y');
+      useChatStore.getState().updateMessage(message.id, { resolved: true });
+      useChatStore.getState().setSessionStatus('running');
+      useChatStore.getState().setActivityStatus({ phase: 'thinking' });
+    } catch {
+      // If stdin send fails, reset so user can retry
+      setApproving(false);
+    }
+  }, [isResolved, approving, message.id]);
 
   const handleModify = useCallback(() => {
     const textarea = document.querySelector('textarea');
@@ -149,16 +157,24 @@ export function PlanReviewCard({ message }: Props) {
             bg-bg-secondary/30">
             <button
               onClick={handleApprove}
-              className="px-4 py-2 rounded-lg text-xs font-semibold
+              disabled={approving}
+              className={`px-4 py-2 rounded-lg text-xs font-semibold
                 bg-accent text-text-inverse hover:bg-accent-hover
                 transition-smooth cursor-pointer shadow-sm
-                flex items-center gap-1.5"
+                flex items-center gap-1.5
+                ${approving ? 'opacity-60 cursor-wait' : ''}`}
             >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
-                stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M2.5 6l2.5 2.5 4.5-4.5" />
-              </svg>
-              {t('msg.planApproveHint')}
+              {approving ? (
+                <span className="animate-pulse-soft">{t('msg.planApproving') || 'Approving...'}</span>
+              ) : (
+                <>
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+                    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M2.5 6l2.5 2.5 4.5-4.5" />
+                  </svg>
+                  {t('msg.planApproveHint')}
+                </>
+              )}
             </button>
             <button
               onClick={handleModify}

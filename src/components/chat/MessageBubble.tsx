@@ -507,6 +507,62 @@ export const ToolUseMsg = memo(function ToolUseMsg({ message }: Props) {
   const hasResult = resultContent.length > 0;
 
   // Render the expanded detail section
+  /** Render a side-by-side diff view for Edit tool old_string → new_string */
+  const renderEditDiff = () => {
+    if (!input?.old_string && !input?.new_string) return null;
+    const oldLines = (input.old_string || '').split('\n');
+    const newLines = (input.new_string || '').split('\n');
+
+    return (
+      <div key="diff" className="rounded-lg border border-border-subtle overflow-hidden
+        max-h-48 overflow-y-auto">
+        {/* Removed lines */}
+        {oldLines.length > 0 && oldLines[0] !== '' && (
+          <div>
+            {oldLines.map((line: string, i: number) => (
+              <div key={`old-${i}`}
+                className="flex items-start gap-0 text-[11px] font-mono leading-relaxed
+                  bg-red-500/8 dark:bg-red-500/10">
+                <span className="flex-shrink-0 w-8 text-right pr-2 text-red-400/60
+                  select-none border-r border-red-500/10">
+                  {i + 1}
+                </span>
+                <span className="flex-shrink-0 w-5 text-center text-red-400 select-none">−</span>
+                <span className="text-red-600 dark:text-red-400 whitespace-pre-wrap break-all
+                  flex-1 px-1">{line}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {/* Added lines */}
+        {newLines.length > 0 && newLines[0] !== '' && (
+          <div>
+            {newLines.map((line: string, i: number) => (
+              <div key={`new-${i}`}
+                className="flex items-start gap-0 text-[11px] font-mono leading-relaxed
+                  bg-blue-500/8 dark:bg-blue-500/10">
+                <span className="flex-shrink-0 w-8 text-right pr-2 text-blue-400/60
+                  select-none border-r border-blue-500/10">
+                  {i + 1}
+                </span>
+                <span className="flex-shrink-0 w-5 text-center text-blue-400 select-none">+</span>
+                <span className="text-blue-600 dark:text-blue-400 whitespace-pre-wrap break-all
+                  flex-1 px-1">{line}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {/* File path */}
+        {input.file_path && (
+          <div className="px-2 py-1 border-t border-border-subtle/50
+            text-[10px] text-text-tertiary font-mono truncate">
+            {input.file_path}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderExpandedContent = () => {
     const sections: React.ReactNode[] = [];
 
@@ -521,6 +577,9 @@ export const ToolUseMsg = memo(function ToolUseMsg({ message }: Props) {
             </pre>
           </div>
         );
+      } else if (toolName === 'Edit' && (input?.old_string || input?.new_string)) {
+        const diffView = renderEditDiff();
+        if (diffView) sections.push(diffView);
       } else {
         sections.push(
           <pre key="input" className="text-[11px] text-text-tertiary
@@ -674,7 +733,7 @@ function ThinkingMsg({ message }: Props) {
 function PlanMsg({ message }: Props) {
   const t = useT();
   const [expanded, setExpanded] = useState(true);
-  const items = message.planItems || message.content.split('\n').filter(Boolean);
+  const items = message.planItems || (typeof message.content === 'string' ? message.content.split('\n').filter(Boolean) : []);
 
   return (
     <div className="ml-11">
@@ -719,7 +778,7 @@ function PlanMsg({ message }: Props) {
 function TodoMsg({ message }: Props) {
   const t = useT();
   const [expanded, setExpanded] = useState(true);
-  const items = message.todoItems || [];
+  const items = Array.isArray(message.todoItems) ? message.todoItems : [];
   const completedCount = items.filter((i) => i.status === 'completed').length;
   const inProgressItem = items.find((i) => i.status === 'in_progress');
 

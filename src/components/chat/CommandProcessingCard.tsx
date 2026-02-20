@@ -28,6 +28,7 @@ export function CommandProcessingCard({ message }: Props) {
   const commandName = data.command || '';
   const isCompleted = message.commandCompleted === true;
   const startTime = message.commandStartTime || message.timestamp;
+  const costSummary = data.costSummary as { cost: string; duration: string; turns: string; input: string; output: string } | undefined;
 
   // Live elapsed timer (only ticks while processing)
   const [now, setNow] = useState(Date.now());
@@ -93,6 +94,24 @@ export function CommandProcessingCard({ message }: Props) {
         {!isCompleted && (
           <div className="h-[2px] bg-accent/10 overflow-hidden">
             <div className="h-full w-1/4 bg-accent/40 rounded-full animate-progress" />
+          </div>
+        )}
+
+        {/* Cost summary (injected from result event) */}
+        {isCompleted && costSummary && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2
+            border-t border-border-subtle/50 text-[11px] font-mono text-text-tertiary">
+            <span>Cost: ${costSummary.cost}</span>
+            <span className="text-border-subtle">|</span>
+            <span>Duration: {costSummary.duration}</span>
+            <span className="text-border-subtle">|</span>
+            <span>Turns: {costSummary.turns}</span>
+            {(costSummary.input || costSummary.output) && (
+              <>
+                <span className="text-border-subtle">|</span>
+                <span>Tokens: {costSummary.input} in / {costSummary.output} out</span>
+              </>
+            )}
           </div>
         )}
 

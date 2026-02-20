@@ -40,6 +40,12 @@ interface SettingsState {
   setupCompleted: boolean;
   /** Whether extended thinking is enabled for Claude */
   thinkingEnabled: boolean;
+  /** Whether a newer version is available (set by auto-check on startup) */
+  updateAvailable: boolean;
+  /** Version string of the available update */
+  updateVersion: string;
+  /** Last app version the user has seen the changelog for */
+  lastSeenVersion: string;
 
   toggleTheme: () => void;
   setTheme: (theme: Theme) => void;
@@ -60,6 +66,8 @@ interface SettingsState {
   setSidebarWidth: (width: number) => void;
   setSetupCompleted: (completed: boolean) => void;
   toggleThinking: () => void;
+  setUpdateAvailable: (available: boolean, version?: string) => void;
+  setLastSeenVersion: (version: string) => void;
 }
 
 // --- Theme cycle order ---
@@ -91,6 +99,9 @@ export const useSettingsStore = create<SettingsState>()(
       sidebarWidth: 280,
       setupCompleted: false,
       thinkingEnabled: true,
+      updateAvailable: false,
+      updateVersion: '',
+      lastSeenVersion: '',
 
       toggleTheme: () =>
         set((state) => ({ theme: nextTheme(state.theme) })),
@@ -117,7 +128,11 @@ export const useSettingsStore = create<SettingsState>()(
         set(() => ({ secondaryPanelWidth: width })),
 
       toggleSettings: () =>
-        set((state) => ({ settingsOpen: !state.settingsOpen })),
+        set((state) => ({
+          settingsOpen: !state.settingsOpen,
+          // Clear update badge when opening settings
+          ...(!state.settingsOpen && state.updateAvailable ? { updateAvailable: false } : {}),
+        })),
 
       setWorkingDirectory: (dir) =>
         set(() => ({ workingDirectory: dir })),
@@ -151,10 +166,20 @@ export const useSettingsStore = create<SettingsState>()(
 
       toggleThinking: () =>
         set((state) => ({ thinkingEnabled: !state.thinkingEnabled })),
+
+      setUpdateAvailable: (available, version) =>
+        set(() => ({
+          updateAvailable: available,
+          ...(version !== undefined ? { updateVersion: version } : {}),
+          ...(!available ? { updateVersion: '' } : {}),
+        })),
+
+      setLastSeenVersion: (version) =>
+        set(() => ({ lastSeenVersion: version })),
     }),
     {
       name: 'tokenicode-settings',
-      version: 1,
+      version: 2,
       migrate: (persistedState: unknown, version: number) => {
         const persisted = persistedState as Record<string, unknown>;
         if (version === 0) {
@@ -168,6 +193,11 @@ export const useSettingsStore = create<SettingsState>()(
           if (old && legacyMap[old]) {
             persisted.selectedModel = legacyMap[old];
           }
+        }
+        if (version < 2) {
+          persisted.updateAvailable = false;
+          persisted.updateVersion = '';
+          persisted.lastSeenVersion = '';
         }
         return persisted;
       },
@@ -184,6 +214,9 @@ export const useSettingsStore = create<SettingsState>()(
         sidebarWidth: state.sidebarWidth,
         setupCompleted: state.setupCompleted,
         thinkingEnabled: state.thinkingEnabled,
+        updateAvailable: state.updateAvailable,
+        updateVersion: state.updateVersion,
+        lastSeenVersion: state.lastSeenVersion,
       }),
     },
   ),

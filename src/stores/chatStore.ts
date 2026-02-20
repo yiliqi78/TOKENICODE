@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { useSessionStore } from './sessionStore';
+import type { FileAttachment } from '../hooks/useFileAttachments';
 
 // --- Types ---
 
@@ -92,10 +93,12 @@ export interface SessionSnapshot {
   messages: ChatMessage[];
   isStreaming: boolean;
   partialText: string;
+  partialThinking: string;
   sessionStatus: SessionStatus;
   sessionMeta: SessionMeta;
   activityStatus: ActivityStatus;
   inputDraft: string;
+  pendingAttachments: FileAttachment[];
 }
 
 // --- Store State & Actions ---
@@ -104,11 +107,14 @@ interface ChatState {
   messages: ChatMessage[];
   isStreaming: boolean;
   partialText: string;
+  partialThinking: string;
   sessionStatus: SessionStatus;
   sessionMeta: SessionMeta;
   activityStatus: ActivityStatus;
   /** Draft input text for the current session (saved/restored on tab switch) */
   inputDraft: string;
+  /** Pending file attachments for the current session (saved/restored on tab switch) */
+  pendingAttachments: FileAttachment[];
 
   /** Per-session snapshot cache: tabId → snapshot */
   sessionCache: Map<string, SessionSnapshot>;
@@ -116,6 +122,7 @@ interface ChatState {
   addMessage: (message: ChatMessage) => void;
   updateMessage: (id: string, updates: Partial<ChatMessage>) => void;
   updatePartialMessage: (text: string) => void;
+  updatePartialThinking: (text: string) => void;
   setSessionStatus: (status: SessionStatus) => void;
   setActivityStatus: (status: ActivityStatus) => void;
   clearMessages: () => void;
@@ -132,6 +139,8 @@ interface ChatState {
 
   /** Set the input draft text for the current session */
   setInputDraft: (text: string) => void;
+  /** Set pending attachments for the current session */
+  setPendingAttachments: (files: FileAttachment[]) => void;
 
   /** Rewind conversation to a specific message index (truncates messages[]) */
   rewindToTurn: (startMsgIdx: number) => void;
@@ -165,10 +174,12 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   messages: [],
   isStreaming: false,
   partialText: '',
+  partialThinking: '',
   sessionStatus: 'idle',
   sessionMeta: {},
   activityStatus: { phase: 'idle' },
   inputDraft: '',
+  pendingAttachments: [],
   sessionCache: new Map(),
 
   addMessage: (message) =>
@@ -206,6 +217,13 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       activityStatus: { phase: 'writing' as ActivityPhase },
     })),
 
+  updatePartialThinking: (text) =>
+    set((state) => ({
+      partialThinking: state.partialThinking + text,
+      isStreaming: true,
+      activityStatus: { phase: 'thinking' as ActivityPhase },
+    })),
+
   setSessionStatus: (status) => {
     // Sync running state to sessionStore for tab indicators
     const tabId = useSessionStore.getState().selectedSessionId;
@@ -216,7 +234,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       sessionStatus: status,
       // Reset streaming state when session ends
       ...(status === 'completed' || status === 'error'
-        ? { isStreaming: false, partialText: '' }
+        ? { isStreaming: false, partialText: '', partialThinking: '' }
         : {}),
       // Sync activity status with session status
       ...(status === 'completed' ? { activityStatus: { phase: 'completed' as ActivityPhase } }
@@ -234,10 +252,12 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       messages: [],
       isStreaming: false,
       partialText: '',
+      partialThinking: '',
       sessionStatus: 'idle',
       sessionMeta: {},
       activityStatus: { phase: 'idle' },
       inputDraft: '',
+      pendingAttachments: [],
     })),
 
   setSessionMeta: (meta) =>
@@ -246,6 +266,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     })),
 
   setInputDraft: (text) => set({ inputDraft: text }),
+  setPendingAttachments: (files) => set({ pendingAttachments: files }),
 
   rewindToTurn: (startMsgIdx) =>
     set((state) => {
@@ -255,6 +276,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         return {
           isStreaming: false,
           partialText: '',
+          partialThinking: '',
           activityStatus: { phase: 'idle' as ActivityPhase },
         };
       }
@@ -262,6 +284,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         messages: state.messages.slice(0, startMsgIdx),
         isStreaming: false,
         partialText: '',
+        partialThinking: '',
         // Keep sessionMeta (sessionId needed for resume), reset transient state
         activityStatus: { phase: 'idle' as ActivityPhase },
       };
@@ -270,16 +293,18 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   // --- Session cache operations ---
 
   saveToCache: (tabId) => {
-    const { messages, isStreaming, partialText, sessionStatus, sessionMeta, activityStatus, inputDraft, sessionCache } = get();
+    const { messages, isStreaming, partialText, partialThinking, sessionStatus, sessionMeta, activityStatus, inputDraft, pendingAttachments, sessionCache } = get();
     const next = new Map(sessionCache);
     next.set(tabId, {
       messages: [...messages],
       isStreaming,
       partialText,
+      partialThinking,
       sessionStatus,
       sessionMeta: { ...sessionMeta },
       activityStatus: { ...activityStatus },
       inputDraft,
+      pendingAttachments: [...pendingAttachments],
     });
     set({ sessionCache: next });
   },
@@ -291,10 +316,12 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       messages: [...snapshot.messages],
       isStreaming: snapshot.isStreaming,
       partialText: snapshot.partialText,
+      partialThinking: snapshot.partialThinking || '',
       sessionStatus: snapshot.sessionStatus,
       sessionMeta: { ...snapshot.sessionMeta },
       activityStatus: { ...snapshot.activityStatus },
       inputDraft: snapshot.inputDraft || '',
+      pendingAttachments: snapshot.pendingAttachments ? [...snapshot.pendingAttachments] : [],
     });
     return true;
   },
@@ -319,10 +346,12 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         messages: [message],
         isStreaming: false,
         partialText: '',
+        partialThinking: '',
         sessionStatus: 'running',
         sessionMeta: {},
         activityStatus: { phase: 'idle' as ActivityPhase },
         inputDraft: '',
+        pendingAttachments: [],
       });
       set({ sessionCache: next });
       return;
@@ -350,10 +379,12 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         messages: [],
         isStreaming: true,
         partialText: text,
+        partialThinking: '',
         sessionStatus: 'running',
         sessionMeta: {},
         activityStatus: { phase: 'idle' as ActivityPhase },
         inputDraft: '',
+        pendingAttachments: [],
       });
       set({ sessionCache: next });
       return;
@@ -378,10 +409,12 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         messages: [],
         isStreaming: false,
         partialText: '',
+        partialThinking: '',
         sessionStatus: status,
         sessionMeta: {},
         activityStatus: { phase: (status === 'running' ? 'thinking' : status) as ActivityPhase },
         inputDraft: '',
+        pendingAttachments: [],
       });
       set({ sessionCache: next });
       return;
@@ -390,7 +423,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       ...snapshot,
       sessionStatus: status,
       ...(status === 'completed' || status === 'error'
-        ? { isStreaming: false, partialText: '' }
+        ? { isStreaming: false, partialText: '', partialThinking: '' }
         : {}),
       ...(status === 'completed' ? { activityStatus: { phase: 'completed' as ActivityPhase } }
         : status === 'error' ? { activityStatus: { phase: 'error' as ActivityPhase } }

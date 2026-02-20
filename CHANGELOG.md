@@ -6,6 +6,94 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.5.0] - 2026-02-20
+
+### New Features / 新功能
+
+- **Plan Panel Redesign** — Plan panel moved from top slide-down overlay to a right-side sidebar (272px). Toggle button relocated to the input toolbar next to model selector. Panel state persists across session switches.
+
+- **计划面板重构** — 计划面板从顶部弹出式覆盖层改为右侧边栏（272px）。切换按钮移至输入工具栏的模型选择器旁边。面板状态在切换会话时保持不变。
+
+- **Thinking Streaming** — AI thinking process now streams in real-time with a collapsible panel, instead of waiting for completion. Uses `partialThinking` accumulation with live pulse cursor.
+
+- **Thinking 流式输出** — AI 思考过程现在实时流式显示在可折叠面板中，无需等待完成。使用 `partialThinking` 累积机制和实时脉冲光标。
+
+- **Edit Tool Diff View** — Edit tool results now show red/blue diff highlighting for removed/added lines, making code changes easier to review.
+
+- **Edit 工具 Diff 视图** — Edit 工具结果现在以红蓝色差异高亮显示删除/新增的行，更容易审查代码变更。
+
+- **Changelog in Settings** — "What's New" button added to Settings panel, allowing users to view release notes at any time.
+
+- **设置面板更新内容入口** — 设置面板新增「查看更新内容」按钮，用户可随时查看版本更新说明。
+
+### Bug Fixes / 修复
+
+- **Markdown Image Preview (TK-101)** — Fixed local image preview in Tauri 2 webview. `file://` URLs don't work in WKWebView, so images are now loaded via `bridge.readFileBase64()` through the `AsyncImage` component. Supports click-to-zoom via lightbox.
+
+- **Markdown 图片预览修复 (TK-101)** — 修复 Tauri 2 webview 中本地图片预览。`file://` URL 在 WKWebView 中不可用，现通过 `AsyncImage` 组件调用 `bridge.readFileBase64()` 加载。支持点击放大。
+
+- **Plan Mode Exit Stuck (TK-105)** — Fixed ExitPlanMode re-delivery creating duplicate unresolved plan review cards. Added `block.id` dedup guard that detects when a plan_review already exists and is resolved, skipping the re-delivered event.
+
+- **Plan Mode 退出卡死 (TK-105)** — 修复 ExitPlanMode 重新投递创建重复未解决的计划审核卡片。添加 `block.id` 去重保护，检测到已存在且已解决的 plan_review 时跳过重复事件。
+
+- **Slash Command Cost Line (TK-209)** — Cost/Duration/Turns/Tokens summary for `/compact` and other commands now displays inside the `CommandProcessingCard` instead of as a separate assistant message.
+
+- **Slash 命令成本行 (TK-209)** — `/compact` 等命令的 Cost/Duration/Turns/Tokens 摘要现在显示在 `CommandProcessingCard` 内部，而不是作为单独的助手消息。
+
+- **AskUserQuestion Form Dedup (TK-103)** — Fixed duplicate question forms caused by `--include-partial-messages` re-delivery. Uses fixed sentinel ID for deduplication.
+
+- **AskUserQuestion 表单去重 (TK-103)** — 修复 `--include-partial-messages` 重新投递导致的重复问题表单。使用固定哨兵 ID 去重。
+
+- **AskUserQuestion Unicode (TK-106)** — Fixed Unicode escape sequences (`\u0026` etc.) not being rendered in question text.
+
+- **AskUserQuestion Unicode (TK-106)** — 修复问题文本中 Unicode 转义序列（`\u0026` 等）未渲染的问题。
+
+- **AskUserQuestion Skip State (TK-107)** — Fixed session status not updating after skipping or confirming a question, which could leave the session in a stuck state.
+
+- **AskUserQuestion 跳过状态 (TK-107)** — 修复跳过或确认问题后会话状态未更新，可能导致会话卡住的问题。
+
+- **Debug Info Leaking (TK-104)** — Filtered out internal debug messages from appearing in the chat stream.
+
+- **调试信息泄漏 (TK-104)** — 过滤掉出现在聊天流中的内部调试信息。
+
+- **Slash Command Card Stuck (TK-109)** — Fixed `CommandProcessingCard` never transitioning to completed state.
+
+- **Slash 命令卡片卡死 (TK-109)** — 修复 `CommandProcessingCard` 永远不会转换为完成状态的问题。
+
+- **Scroll Wheel Interception (TK-108)** — Fixed first upward scroll being intercepted by auto-scroll.
+
+- **滚轮上滑拦截 (TK-108)** — 修复首次向上滚动被自动滚动拦截的问题。
+
+- **Input Shrink (TK-206)** — Fixed input bar not shrinking after deleting text.
+
+- **输入框收缩 (TK-206)** — 修复删除文字后输入框不自动收缩。
+
+- **Attachment Persistence (TK-207)** — Pending attachments now persist across session switches via `SessionSnapshot`.
+
+- **附件持久化 (TK-207)** — 待发送附件现在通过 `SessionSnapshot` 在会话切换时保持。
+
+- **macOS File Access (TK-208)** — Added startup detection for Full Disk Access permission with guided setup dialog.
+
+- **macOS 文件权限 (TK-208)** — 新增启动时全磁盘访问权限检测及引导设置对话框。
+
+- **Session Rename Sync (TK-204)** — Custom session names now persist to disk and survive app restart.
+
+- **会话重命名同步 (TK-204)** — 自定义会话名称现在持久化到磁盘，重启后保留。
+
+### Changed / 变更
+
+- User/AI message font sizes unified (TK-201)
+- Sidebar and file tree font sizes reduced (TK-203)
+- Ctrl+Tab quick switch between recent sessions (TK-005)
+- Plan panel font size reduced to `text-xs` for compact display
+
+- 用户/AI 消息字体大小统一 (TK-201)
+- 侧栏和文件树字体缩小 (TK-203)
+- Ctrl+Tab 快速切换最近两个会话 (TK-005)
+- 计划面板字体缩小至 `text-xs`，显示更紧凑
+
+---
+
 ## [0.4.4] - 2026-02-20
 
 ### New Features / 新功能

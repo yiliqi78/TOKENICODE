@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AppShell } from './components/layout/AppShell';
 import { Sidebar } from './components/layout/Sidebar';
 import { ChatPanel } from './components/chat/ChatPanel';
@@ -6,10 +6,17 @@ import { SecondaryPanel } from './components/layout/SecondaryPanel';
 import { CommandPalette } from './components/commands/CommandPalette';
 import { SettingsPanel } from './components/settings/SettingsPanel';
 import { ImageLightbox } from './components/shared/ImageLightbox';
+import { ChangelogModal } from './components/shared/ChangelogModal';
 import { useSettingsStore } from './stores/settingsStore';
 import type { ColorTheme, Theme } from './stores/settingsStore';
 import { useFileStore } from './stores/fileStore';
+import { useChatStore } from './stores/chatStore';
+import { useSessionStore } from './stores/sessionStore';
+import { useAgentStore } from './stores/agentStore';
 import { bridge, onFileChange } from './lib/tauri-bridge';
+import { useAutoUpdateCheck } from './hooks/useAutoUpdateCheck';
+import { useT } from './lib/i18n';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import './App.css';
 
 /** Accent colors per theme for the slash in the icon */
@@ -68,10 +75,56 @@ function App() {
   const fontSize = useSettingsStore((s) => s.fontSize);
   const settingsOpen = useSettingsStore((s) => s.settingsOpen);
   const workingDirectory = useSettingsStore((s) => s.workingDirectory);
+  const lastSeenVersion = useSettingsStore((s) => s.lastSeenVersion);
+  const setLastSeenVersion = useSettingsStore((s) => s.setLastSeenVersion);
   const loadTree = useFileStore((s) => s.loadTree);
   const refreshTree = useFileStore((s) => s.refreshTree);
   const markFileChanged = useFileStore((s) => s.markFileChanged);
   const prevDirRef = useRef<string | null>(null);
+
+  const t = useT();
+
+  // Auto-check for updates on startup
+  useAutoUpdateCheck();
+
+  // macOS Full Disk Access check — detect TCC restrictions on startup
+  const [showPermDialog, setShowPermDialog] = useState(false);
+  useEffect(() => {
+    // Only relevant on macOS
+    const isMac = navigator.userAgent.includes('Mac');
+    if (!isMac) return;
+    // Check access to the user's Documents directory (TCC-protected)
+    const home = '/Users';
+    bridge.checkFileAccess(home).then((ok) => {
+      if (!ok) setShowPermDialog(true);
+    }).catch(() => {});
+  }, []);
+
+  // Load custom session names from disk on startup
+  useEffect(() => {
+    useSessionStore.getState().loadCustomPreviewsFromDisk();
+  }, []);
+
+  // Changelog modal state
+  const [showChangelog, setShowChangelog] = useState(false);
+  const [currentAppVersion, setCurrentAppVersion] = useState('');
+
+  useEffect(() => {
+    import('@tauri-apps/api/app').then(({ getVersion }) =>
+      getVersion().then((version) => {
+        setCurrentAppVersion(version);
+        if (version && version !== lastSeenVersion) {
+          import('./lib/changelog').then(({ getChangelog }) => {
+            if (getChangelog(version)) {
+              setShowChangelog(true);
+            } else {
+              setLastSeenVersion(version);
+            }
+          });
+        }
+      }).catch(() => {})
+    );
+  }, []);
 
   // Disable browser context menu globally (native app feel)
   useEffect(() => {
@@ -148,6 +201,58 @@ function App() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
+  // Ctrl+Tab: quick-switch between the two most recent sessions
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 'Tab') {
+        e.preventDefault();
+        const sessionState = useSessionStore.getState();
+        const { previousSessionId, selectedSessionId, sessions } = sessionState;
+        if (!previousSessionId || previousSessionId === selectedSessionId) return;
+        // Verify previous session still exists
+        const prevSession = sessions.find((s) => s.id === previousSessionId);
+        if (!prevSession) return;
+
+        // Save current session to cache
+        if (selectedSessionId) {
+          useChatStore.getState().saveToCache(selectedSessionId);
+          useAgentStore.getState().saveToCache(selectedSessionId);
+        }
+
+        // Close file preview
+        useFileStore.getState().closePreview();
+
+        // Switch selection (this also updates previousSessionId)
+        sessionState.setSelectedSession(previousSessionId);
+
+        // Restore from cache
+        const restored = useChatStore.getState().restoreFromCache(previousSessionId);
+        if (restored) {
+          useAgentStore.getState().restoreFromCache(previousSessionId);
+          // Restore working directory
+          const projectPath = prevSession.project || prevSession.projectDir;
+          if (projectPath) {
+            // Resolve project path using same logic as ConversationList
+            let resolved = projectPath;
+            if (!projectPath.startsWith('/') && !/^[A-Za-z]:[/\\]/.test(projectPath)) {
+              if (projectPath.startsWith('~/')) {
+                resolved = projectPath; // will work with home dir expansion
+              } else if (/^[A-Za-z]-/.test(projectPath)) {
+                const drive = projectPath[0];
+                resolved = `${drive}:\\${projectPath.slice(2).replace(/-/g, '\\')}`;
+              } else {
+                resolved = projectPath.replace(/-/g, '/');
+              }
+            }
+            useSettingsStore.getState().setWorkingDirectory(resolved);
+          }
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   // Load file tree + start watcher when working directory changes
   useEffect(() => {
     if (!workingDirectory) return;
@@ -203,6 +308,62 @@ function App() {
       <CommandPalette />
       {settingsOpen && <SettingsPanel />}
       <ImageLightbox />
+      {showChangelog && currentAppVersion && (
+        <ChangelogModal
+          version={currentAppVersion}
+          onClose={() => {
+            setShowChangelog(false);
+            setLastSeenVersion(currentAppVersion);
+          }}
+        />
+      )}
+      {showPermDialog && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-bg-primary rounded-2xl border border-border-subtle shadow-2xl
+            max-w-md w-full mx-4 overflow-hidden animate-scale-in">
+            {/* Header */}
+            <div className="px-6 pt-6 pb-3 flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-warning/15 flex items-center justify-center flex-shrink-0">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none"
+                  stroke="currentColor" strokeWidth="1.5" className="text-warning">
+                  <path d="M10 2L1.5 17h17L10 2z" />
+                  <path d="M10 8v4M10 14.5v.5" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-text-primary">{t('perm.title')}</h3>
+                <p className="text-xs text-text-muted mt-1 leading-relaxed">{t('perm.desc')}</p>
+              </div>
+            </div>
+            {/* Path hint */}
+            <div className="mx-6 px-3 py-2 rounded-lg bg-bg-secondary text-[11px] text-text-tertiary font-mono">
+              {t('perm.path')}
+            </div>
+            {/* Actions */}
+            <div className="px-6 py-4 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setShowPermDialog(false)}
+                className="px-4 py-2 rounded-lg text-xs font-medium
+                  text-text-muted hover:text-text-primary hover:bg-bg-tertiary
+                  transition-smooth cursor-pointer"
+              >
+                {t('perm.later')}
+              </button>
+              <button
+                onClick={() => {
+                  openUrl('x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles');
+                  setShowPermDialog(false);
+                }}
+                className="px-4 py-2 rounded-lg text-xs font-semibold
+                  bg-accent text-text-inverse hover:bg-accent-hover
+                  transition-smooth cursor-pointer shadow-sm"
+              >
+                {t('perm.openSettings')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

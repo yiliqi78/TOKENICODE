@@ -429,6 +429,11 @@ const messages: Record<Locale, Record<string, string>> = {
     'update.version': '新版本',
     'update.install': '下载并安装',
 
+    // Changelog modal
+    'changelog.title': '更新内容',
+    'changelog.dismiss': '知道了',
+    'changelog.view': '查看更新内容',
+
     // Setup wizard
     'setup.checking': '正在检测 Claude Code CLI...',
     'setup.notInstalled': '未检测到 Claude Code CLI',
@@ -454,6 +459,13 @@ const messages: Record<Locale, Record<string, string>> = {
     'setup.start': '开始使用',
     'setup.skip': '跳过',
     'setup.version': '版本',
+
+    // Permission dialog
+    'perm.title': '需要文件访问权限',
+    'perm.desc': 'TOKENICODE 需要「完整磁盘访问」权限才能正常读写项目文件。请在系统设置中授权，否则部分功能可能受限。',
+    'perm.openSettings': '打开系统设置',
+    'perm.later': '稍后设置',
+    'perm.path': '系统设置 → 隐私与安全性 → 完整磁盘访问',
   },
 
   en: {
@@ -880,6 +892,11 @@ const messages: Record<Locale, Record<string, string>> = {
     'update.version': 'New version',
     'update.install': 'Download & Install',
 
+    // Changelog modal
+    'changelog.title': "What's New",
+    'changelog.dismiss': 'Got it',
+    'changelog.view': "What's New",
+
     // Setup wizard
     'setup.checking': 'Detecting Claude Code CLI...',
     'setup.notInstalled': 'Claude Code CLI not found',
@@ -905,6 +922,13 @@ const messages: Record<Locale, Record<string, string>> = {
     'setup.start': 'Get Started',
     'setup.skip': 'Skip',
     'setup.version': 'Version',
+
+    // Permission dialog
+    'perm.title': 'File Access Required',
+    'perm.desc': 'TOKENICODE needs Full Disk Access to read and write project files. Please grant access in System Settings, otherwise some features may not work.',
+    'perm.openSettings': 'Open System Settings',
+    'perm.later': 'Later',
+    'perm.path': 'System Settings → Privacy & Security → Full Disk Access',
   },
 };
 
