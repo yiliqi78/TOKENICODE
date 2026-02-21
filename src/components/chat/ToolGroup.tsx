@@ -40,8 +40,11 @@ export function ToolGroup({ messages }: Props) {
   const summary = useMemo(() => buildToolSummary(messages), [messages]);
   const count = messages.length;
 
+  // Check if this group is inside a sub-agent (first message determines depth)
+  const depth = messages[0]?.subAgentDepth ?? 0;
+
   return (
-    <div className="ml-11">
+    <div className={`ml-11 ${depth > 0 ? 'ml-16 pl-3 border-l-2 border-accent/15' : ''}`}>
       {/* Summary header — always visible */}
       <button
         onClick={() => setExpanded(!expanded)}

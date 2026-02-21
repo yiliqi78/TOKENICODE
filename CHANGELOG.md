@@ -8,31 +8,53 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ## [0.5.4] - 2026-02-21
 
-### New Features / 新功能
+### New Features
 
 - **Third-Party API Provider Switching (TK-303)** — Built-in API provider switching in Settings panel. Three modes: Inherit (system config), Official API, Custom (third-party endpoint + API key + model mapping). Uses process-level env var injection — no global config file modification, no conflict with CC-Switch or other tools.
-
-- **第三方 API 切换 (TK-303)** — 设置面板内置 API 提供商切换功能。三种模式：继承系统配置、官方 API、自定义（第三方端点 + API Key + 模型映射）。通过进程级环境变量注入实现，不修改全局配置文件，与 CC-Switch 等工具互不冲突。
-
 - **API Key Encrypted Storage** — Custom API keys are encrypted with AES-256-GCM and stored in `{app_data_dir}/credentials.enc`. Keys never touch localStorage. The Rust backend handles decryption transparently via a `USE_STORED_KEY` sentinel — the real key never crosses the IPC boundary during session startup.
-
-- **API Key 加密存储** — 自定义 API Key 使用 AES-256-GCM 加密存储于 `{app_data_dir}/credentials.enc`，不进入 localStorage。Rust 后端通过 `USE_STORED_KEY` 哨兵值透明解密，会话启动时真实密钥不经过 IPC。
-
 - **Connection Test Button** — One-click API connectivity test in custom provider settings. Sends a minimal request to verify endpoint + authentication. Only HTTP 401 is treated as auth failure; all other server responses confirm the connection is working.
-
-- **连接测试按钮** — 自定义提供商设置中一键测试 API 连通性。发送最小请求验证端点和认证。仅 HTTP 401 视为认证失败，其他服务器响应均确认连接正常。
-
 - **Model Name Mapping** — Map UI model tiers (Opus/Sonnet/Haiku) to provider-specific model names. The `--model` CLI argument is translated before process spawn, since Claude Code CLI does not support `ANTHROPIC_DEFAULT_*_MODEL` env vars.
-
-- **模型名称映射** — 将 UI 模型层级（Opus/Sonnet/Haiku）映射到提供商的模型名称。`--model` CLI 参数在进程启动前转换，因为 Claude Code CLI 不支持 `ANTHROPIC_DEFAULT_*_MODEL` 环境变量。
-
+- **Scroll to Bottom Button** — A floating "scroll to bottom" button appears when the user scrolls more than 300px away from the bottom of the chat. Smooth-scrolls back and resets auto-scroll lock.
+- **CLI Management in Settings** — Check CLI status and reinstall Claude Code directly from the Settings panel, without going through the Setup Wizard again.
 - **Stale Session Detection** — Environment fingerprint mechanism detects when API provider config changes mid-session. Kills pre-warmed processes with stale env vars and spawns fresh ones automatically.
-
-- **过期会话检测** — 环境指纹机制检测会话期间 API 配置变更，自动终止带有旧环境变量的预热进程并重新启动。
-
 - **Thinking Signature Auto-Retry** — When switching providers mid-conversation, resume may fail due to thinking block signature mismatch. The app automatically detects this error, abandons resume, and re-sends the user's message via a fresh session — no manual intervention needed.
 
+### Bug Fixes
+
+- **ANSI Escape Code Stripping** — CLI output displayed during installation or version checks no longer shows raw terminal escape sequences (`[?2026h`, `[1C`, etc.). Added `strip_ansi()` on the Rust side for all CLI output, plus frontend safety net in SetupWizard and CliSection.
+- **Sub-Agent Tool Call Indentation** — Tool calls from sub-agents (Task tool) are now visually indented with a left accent border, making it easy to distinguish sub-agent operations from main agent operations.
+- **Hidden Files Visible in File Tree** — The file explorer now shows dotfiles and dotfolders (`.claude`, `.github`, `.vscode`, etc.). Only `.git`, `.DS_Store`, `node_modules`, `target`, and `__pycache__` are hidden.
+- **Delete File Dialog `{name}` Fix** — The delete confirmation dialog now correctly interpolates the filename instead of showing the literal `{name}` placeholder.
+- **Delete to Trash** — File deletion now moves files to the system trash/recycle bin (via `trash` crate) instead of permanent deletion. Dialog text updated to reflect this.
+- **Binary File Preview UX** — Changed binary file preview wording to be friendlier. Added "Open with Default App" button to open the file in the system's default application.
+- **UI Stuck on "Thinking" During Streaming** — Fixed the UI permanently showing "thinking" animation while the backend was actively outputting text. Root cause: `--include-partial-messages` sends intermediate `assistant` messages containing only thinking blocks (no text). These triggered aggressive `clearPartial()` calls that wiped `partialText` and reset `activityStatus.phase` from `writing` back to `thinking`. Fix: selective clearing (only wipe `partialText` when a text block is present), removed phase override in thinking block handler, and added save/restore of streaming state across intermediate messages. Same fix applied to background tab cache handler.
+- **Windows CMD Flash Fix** — Fixed black console window flashing on every message send. The `where` command in `find_claude_binary()` now runs with `CREATE_NO_WINDOW` flag.
+- **Windows/macOS CLI Path Fix** — `open_terminal_login` and `start_claude_login` now use enriched PATH and proper error handling instead of falling back to bare `claude.cmd`. TOKENICODE manages the CLI path internally — users never need terminal access.
+
+---
+
+### 新功能
+
+- **第三方 API 切换 (TK-303)** — 设置面板内置 API 提供商切换功能。三种模式：继承系统配置、官方 API、自定义（第三方端点 + API Key + 模型映射）。通过进程级环境变量注入实现，不修改全局配置文件，与 CC-Switch 等工具互不冲突。
+- **API Key 加密存储** — 自定义 API Key 使用 AES-256-GCM 加密存储于 `{app_data_dir}/credentials.enc`，不进入 localStorage。Rust 后端通过 `USE_STORED_KEY` 哨兵值透明解密，会话启动时真实密钥不经过 IPC。
+- **连接测试按钮** — 自定义提供商设置中一键测试 API 连通性。发送最小请求验证端点和认证。仅 HTTP 401 视为认证失败，其他服务器响应均确认连接正常。
+- **模型名称映射** — 将 UI 模型层级（Opus/Sonnet/Haiku）映射到提供商的模型名称。`--model` CLI 参数在进程启动前转换，因为 Claude Code CLI 不支持 `ANTHROPIC_DEFAULT_*_MODEL` 环境变量。
+- **一键回到底部按钮** — 聊天区域向上滚动超过 300px 时显示浮动按钮，点击平滑滚动到底部并恢复自动跟随。
+- **设置面板 CLI 管理** — 在设置面板中检查 CLI 状态并重新安装 Claude Code，无需再次进入安装向导。
+- **过期会话检测** — 环境指纹机制检测会话期间 API 配置变更，自动终止带有旧环境变量的预热进程并重新启动。
 - **Thinking 签名自动重试** — 对话中切换提供商时，resume 可能因 thinking block 签名不匹配而失败。应用自动检测此错误，放弃 resume 并通过全新会话重发用户消息，无需手动操作。
+
+### 修复
+
+- **ANSI 转义码过滤** — CLI 安装或版本检查时显示的输出不再出现原始终端控制序列。Rust 端所有 CLI 输出增加 `strip_ansi()` 处理，前端 SetupWizard 和 CliSection 也增加兜底过滤。
+- **子代理工具调用缩进** — 子代理（Task 工具）的工具调用现在带有左侧强调色边框和缩进，方便区分主代理和子代理的操作。
+- **文件树显示隐藏文件** — 文件浏览器现在显示点文件和点文件夹（`.claude`、`.github`、`.vscode` 等）。仅隐藏 `.git`、`.DS_Store`、`node_modules`、`target`、`__pycache__`。
+- **删除文件对话框 `{name}` 修复** — 删除确认对话框现在正确显示文件名，不再显示字面量 `{name}`。
+- **删除到回收站** — 文件删除改为移到系统回收站（通过 `trash` crate），不再永久删除。对话框文案同步更新。
+- **二进制文件预览优化** — 文案从"二进制文件无法预览"改为"无法预览该文件"（更友好）。新增"使用默认应用打开"按钮。
+- **UI 卡在「思考中」修复** — 修复后台持续输出文本时 UI 一直显示「思考中」动画的问题。根因：`--include-partial-messages` 发送的中间 `assistant` 消息仅包含 thinking block（无 text block），触发了 `clearPartial()` 清除 `partialText` 并将 `activityStatus.phase` 从 `writing` 重置为 `thinking`。修复：选择性清除（仅在有 text block 时才清除 `partialText`），移除 thinking block 处理中的 phase 覆盖，增加流式状态的保存/恢复机制。同步修复后台标签页缓存处理。
+- **Windows CMD 窗口闪现修复** — 修复每次发送消息时黑色控制台窗口闪现。`find_claude_binary()` 中的 `where` 命令增加 `CREATE_NO_WINDOW` 标志。
+- **Windows/macOS CLI 路径修复** — `open_terminal_login` 和 `start_claude_login` 改用 enriched PATH 和正确的错误处理。TOKENICODE 内部管理 CLI 路径，用户无需终端操作。
 
 ---
 

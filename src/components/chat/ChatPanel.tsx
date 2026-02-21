@@ -335,6 +335,8 @@ export function ChatPanel() {
   const isNearBottomRef = useRef(true);
   // When user scrolls up via wheel, suppress auto-scroll until they return to bottom
   const userScrollingUpRef = useRef(false);
+  // Show "scroll to bottom" button when user is far from bottom
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
 
   // Track whether user is near the bottom of the scroll container
   const handleScroll = useCallback(() => {
@@ -343,6 +345,8 @@ export function ChatPanel() {
     // Consider "near bottom" if within 80px of the end
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
     isNearBottomRef.current = nearBottom;
+    // Show scroll-to-bottom button when far from bottom (>300px)
+    setShowScrollBtn(el.scrollHeight - el.scrollTop - el.clientHeight > 300);
     // Reset the scroll-up lock once user returns to bottom
     if (nearBottom) {
       userScrollingUpRef.current = false;
@@ -534,6 +538,30 @@ export function ChatPanel() {
           </div>
         )}
       </div>
+
+      {/* Scroll to bottom FAB */}
+      {showScrollBtn && (
+        <button
+          onClick={() => {
+            const el = scrollRef.current;
+            if (el) {
+              el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+              userScrollingUpRef.current = false;
+            }
+          }}
+          className="absolute bottom-20 left-1/2 -translate-x-1/2 z-10
+            w-8 h-8 rounded-full bg-bg-card border border-border-subtle
+            shadow-md hover:shadow-lg flex items-center justify-center
+            text-text-muted hover:text-text-primary transition-smooth
+            cursor-pointer opacity-80 hover:opacity-100"
+          title={t('chat.scrollToBottom')}
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
+            stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M7 2v10M3 8l4 4 4-4" />
+          </svg>
+        </button>
+      )}
 
       {/* Input — only show when a project folder is selected */}
       {workingDirectory && <InputBar />}

@@ -613,9 +613,10 @@ export const ToolUseMsg = memo(function ToolUseMsg({ message }: Props) {
 
   // Determine if expand makes sense
   const canExpand = hasInput || hasResult;
+  const depth = message.subAgentDepth ?? 0;
 
   return (
-    <div className="ml-11">
+    <div className={depth > 0 ? 'ml-16 pl-3 border-l-2 border-accent/15' : 'ml-11'}>
       <button
         onClick={() => canExpand && setExpanded(!expanded)}
         className={`flex items-center gap-1.5 py-1 text-left group
@@ -658,6 +659,7 @@ function ToolResultMsg({ message }: Props) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
   const content = message.content || '';
+  const depth = message.subAgentDepth ?? 0;
 
   // Show a short one-line preview on the same line as the "Result" label
   const preview = content.length > 0
@@ -665,7 +667,7 @@ function ToolResultMsg({ message }: Props) {
     : '';
 
   return (
-    <div className="ml-11">
+    <div className={depth > 0 ? 'ml-16 pl-3 border-l-2 border-accent/15' : 'ml-11'}>
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex items-center gap-1.5 py-0.5 cursor-pointer group"

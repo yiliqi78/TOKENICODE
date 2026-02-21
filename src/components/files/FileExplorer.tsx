@@ -623,10 +623,11 @@ export function FileExplorer() {
           <div className="bg-bg-card border border-border-subtle rounded-xl p-5
             shadow-lg max-w-sm w-full mx-4 animate-fade-in"
             onClick={(e) => e.stopPropagation()}>
-            <p className="text-sm text-text-primary mb-4">
-              {deleteTarget.isDir ? t('files.deleteConfirmDir') : t('files.deleteConfirm')}
+            <p className="text-sm text-text-primary mb-1">
+              {(deleteTarget.isDir ? t('files.deleteConfirmDir') : t('files.deleteConfirm'))
+                .replace('{name}', deleteTarget.path.split(/[\\/]/).pop() ?? '')}
             </p>
-            <p className="text-xs text-text-muted mb-4 truncate">{deleteTarget.path.split(/[\\/]/).pop()}</p>
+            <p className="text-xs text-text-muted mb-4 truncate">{deleteTarget.path}</p>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setDeleteTarget(null)}

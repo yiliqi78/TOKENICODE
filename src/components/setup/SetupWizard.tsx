@@ -7,6 +7,11 @@ import {
   onDownloadProgress,
 } from '../../lib/tauri-bridge';
 
+/** Strip ANSI escape sequences from a string (terminal color/cursor codes) */
+function stripAnsi(str: string): string {
+  return str.replace(/\x1b\[[0-9;]*[A-Za-z]|\x1b\].*?\x07|\x1b\[[\?]?[0-9;]*[a-zA-Z]/g, '');
+}
+
 /**
  * SetupWizard — lightweight CLI detection & direct download install.
  *
@@ -80,7 +85,7 @@ export function SetupWizard() {
       }
     } catch (err) {
       unlistenProgress();
-      setError(String(err));
+      setError(stripAnsi(String(err)));
       setStep('install_failed');
     }
   }, []);

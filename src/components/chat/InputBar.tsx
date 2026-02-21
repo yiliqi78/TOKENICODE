@@ -856,15 +856,22 @@ export function InputBar() {
         break;
       }
       case 'assistant': {
-        // Clear partial in cache
-        const snapshot = cache.sessionCache.get(tabId);
-        if (snapshot && (snapshot.isStreaming || snapshot.partialText)) {
-          const next = new Map(cache.sessionCache);
-          next.set(tabId, { ...snapshot, partialText: '', partialThinking: '', isStreaming: false });
-          useChatStore.setState({ sessionCache: next });
-        }
         const content = msg.message?.content;
         if (!Array.isArray(content)) break;
+        // Selectively clear partial in cache — only wipe partialText if a text
+        // block is present (which supersedes streaming text). Otherwise, preserve
+        // it to avoid intermediate thinking-only messages destroying streaming text.
+        const bgHasTextBlock = content.some((b: any) => b.type === 'text' && b.text);
+        const snapshot = cache.sessionCache.get(tabId);
+        if (snapshot) {
+          const next = new Map(cache.sessionCache);
+          if (bgHasTextBlock) {
+            next.set(tabId, { ...snapshot, partialText: '', partialThinking: '', isStreaming: false });
+          } else if (snapshot.partialThinking) {
+            next.set(tabId, { ...snapshot, partialThinking: '' });
+          }
+          useChatStore.setState({ sessionCache: next });
+        }
         // Skip text blocks when AskUserQuestion is present — the
         // interactive question UI makes them redundant.
         const bgHasAskUserQuestion = content.some(
@@ -1193,9 +1200,26 @@ export function InputBar() {
         break;
 
       case 'assistant': {
-        // Full assistant message arrives — clear partial streaming text first
-        // (the complete text will be added as a proper message below)
-        clearPartial();
+        const content = msg.message?.content;
+        if (!Array.isArray(content)) break;
+
+        // With --include-partial-messages, intermediate assistant messages arrive
+        // frequently. We must NOT aggressively wipe streaming text state when the
+        // message only contains a thinking block (no text block yet).
+        const hasTextBlock = content.some((b: any) => b.type === 'text' && b.text);
+
+        // Save streaming text state — will be restored if no text block supersedes it
+        const savedPartialText = useChatStore.getState().partialText;
+        const savedIsStreaming = useChatStore.getState().isStreaming;
+        const savedPhase = useChatStore.getState().activityStatus.phase;
+
+        if (hasTextBlock) {
+          // Full clear — the text block supersedes streaming partial text
+          clearPartial();
+        } else {
+          // Only clear thinking partial — preserve streaming text
+          useChatStore.setState({ partialThinking: '' });
+        }
 
         // If there's a pending slash command processing card, mark it as
         // completed now — the assistant response means the CLI has responded.
@@ -1211,9 +1235,6 @@ export function InputBar() {
           });
           useChatStore.getState().setSessionMeta({ pendingCommandMsgId: undefined });
         }
-
-        const content = msg.message?.content;
-        if (!Array.isArray(content)) break;
 
         // If this message contains AskUserQuestion, skip text blocks —
         // the interactive question UI makes them redundant and avoids
@@ -1388,9 +1409,11 @@ export function InputBar() {
               }
             }
           } else if (block.type === 'thinking') {
-            // Complete thinking block arrived — clear streaming thinking text
+            // Complete thinking block arrived — clear streaming thinking text.
+            // DON'T override activityStatus here: if text is currently streaming,
+            // the phase should remain 'writing'. The streaming events (thinking_delta,
+            // text_delta) are the source of truth for activity phase.
             useChatStore.setState({ partialThinking: '' });
-            setActivityStatus({ phase: 'thinking' });
             agentActions.updatePhase(agentId, 'thinking');
             addMessage({
               id: generateMessageId(),
@@ -1399,6 +1422,23 @@ export function InputBar() {
               content: block.thinking || '',
               timestamp: Date.now(),
             });
+          }
+        }
+
+        // Restore streaming text state if it was wiped by addMessage (which clears
+        // partialText for non-partial messages) but no text block was present to
+        // supersede it. This prevents --include-partial-messages intermediate
+        // assistant messages (containing only thinking blocks) from destroying
+        // the streaming text and resetting the activity phase to 'thinking'.
+        if (!hasTextBlock && savedPartialText && savedIsStreaming) {
+          useChatStore.setState({
+            partialText: savedPartialText,
+            isStreaming: true,
+          });
+          // Restore the activity phase — don't let thinking block processing
+          // override it if text was being streamed
+          if (savedPhase === 'writing') {
+            setActivityStatus({ phase: 'writing' });
           }
         }
         break;

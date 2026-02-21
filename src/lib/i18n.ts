@@ -22,6 +22,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'chat.running': '运行中',
     'chat.turns': '轮',
     'chat.toggleFiles': '切换文件面板',
+    'chat.scrollToBottom': '滚动到底部',
     'chat.welcome': '欢迎使用 TOKENICODE',
     'chat.welcomeWithProject': '开始与 Claude Code 协作，CLI 会话在后台无缝运行。',
     'chat.welcomeNoProject': '选择一个项目文件夹以开始。',
@@ -103,7 +104,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'files.preview': '预览',
     'files.source': '源码',
     'files.previewUnsupported': '此文件类型不支持预览',
-    'files.binaryFile': '二进制文件无法预览',
+    'files.binaryFile': '无法预览该文件',
     'files.imagePreview': '图片预览',
     'files.loading': '加载中...',
     'files.errorLoading': '加载文件失败',
@@ -120,8 +121,8 @@ const messages: Record<Locale, Record<string, string>> = {
     'files.paste': '粘贴',
     'files.rename': '重命名',
     'files.delete': '删除',
-    'files.deleteConfirm': '确定要删除 "{name}" 吗？此操作不可撤销。',
-    'files.deleteConfirmDir': '确定要删除文件夹 "{name}" 及其所有内容吗？此操作不可撤销。',
+    'files.deleteConfirm': '确定要将 "{name}" 移到回收站吗？',
+    'files.deleteConfirmDir': '确定要将文件夹 "{name}" 及其所有内容移到回收站吗？',
 
     // ProjectSelector
     'project.selectFolder': '选择项目文件夹',
@@ -476,6 +477,17 @@ const messages: Record<Locale, Record<string, string>> = {
     'mcp.refresh': '刷新',
     'mcp.envCount': '个环境变量',
 
+    // CLI Management
+    'cli.check': '检查 CLI 状态',
+    'cli.checking': '检测中...',
+    'cli.installed': '已安装',
+    'cli.notFound': '未检测到 Claude Code CLI',
+    'cli.install': '安装 Claude Code',
+    'cli.installing': '安装中...',
+    'cli.installDone': '安装成功',
+    'cli.installFail': '安装失败',
+    'cli.retry': '重试',
+
     // Update
     'update.check': '检查更新',
     'update.checking': '检查中...',
@@ -544,6 +556,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'chat.running': 'Running',
     'chat.turns': 'turns',
     'chat.toggleFiles': 'Toggle file panel',
+    'chat.scrollToBottom': 'Scroll to bottom',
     'chat.welcome': 'Welcome to TOKENICODE',
     'chat.welcomeWithProject': 'Start working with Claude Code. Your CLI session runs seamlessly in the background.',
     'chat.welcomeNoProject': 'Select a project folder to get started.',
@@ -625,7 +638,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'files.preview': 'Preview',
     'files.source': 'Source',
     'files.previewUnsupported': 'Preview not supported for this file type',
-    'files.binaryFile': 'Binary file cannot be previewed',
+    'files.binaryFile': 'This file cannot be previewed',
     'files.imagePreview': 'Image preview',
     'files.loading': 'Loading...',
     'files.errorLoading': 'Failed to load file',
@@ -642,8 +655,8 @@ const messages: Record<Locale, Record<string, string>> = {
     'files.paste': 'Paste',
     'files.rename': 'Rename',
     'files.delete': 'Delete',
-    'files.deleteConfirm': 'Are you sure you want to delete "{name}"? This cannot be undone.',
-    'files.deleteConfirmDir': 'Are you sure you want to delete folder "{name}" and all its contents? This cannot be undone.',
+    'files.deleteConfirm': 'Move "{name}" to trash?',
+    'files.deleteConfirmDir': 'Move folder "{name}" and all its contents to trash?',
 
     // ProjectSelector
     'project.selectFolder': 'Select Project Folder',
@@ -997,6 +1010,17 @@ const messages: Record<Locale, Record<string, string>> = {
     'mcp.commandPlaceholder': 'Enter command, e.g. npx',
     'mcp.refresh': 'Refresh',
     'mcp.envCount': 'env vars',
+
+    // CLI Management
+    'cli.check': 'Check CLI Status',
+    'cli.checking': 'Checking...',
+    'cli.installed': 'Installed',
+    'cli.notFound': 'Claude Code CLI not found',
+    'cli.install': 'Install Claude Code',
+    'cli.installing': 'Installing...',
+    'cli.installDone': 'Installation complete',
+    'cli.installFail': 'Installation failed',
+    'cli.retry': 'Retry',
 
     // Update
     'update.check': 'Check for Updates',

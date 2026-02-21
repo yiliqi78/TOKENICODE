@@ -58,6 +58,8 @@ export interface ChatMessage {
   // Command processing card fields
   commandStartTime?: number;
   commandCompleted?: boolean;
+  // Sub-agent nesting depth (0 = main agent, 1+ = inside Task sub-agent)
+  subAgentDepth?: number;
 }
 
 export interface SessionMeta {

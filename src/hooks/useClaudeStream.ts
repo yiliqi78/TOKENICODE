@@ -21,11 +21,14 @@ export function useClaudeStream(sessionId: string | null) {
   const setSessionMeta = useChatStore((s) => s.setSessionMeta);
 
   const unlistenersRef = useRef<UnlistenFn[]>([]);
+  // Track sub-agent nesting depth for visual indentation
+  const subAgentDepthRef = useRef(0);
 
   useEffect(() => {
     if (!sessionId) return;
 
     let cancelled = false;
+    subAgentDepthRef.current = 0;
 
     async function subscribe() {
       const unlisteners: UnlistenFn[] = [];
@@ -90,7 +93,17 @@ export function useClaudeStream(sessionId: string | null) {
           const blocks: any[] = payload.content ?? [];
           for (const block of blocks) {
             const msg = blockToMessage(block);
-            if (msg) addMessage(msg);
+            if (msg) {
+              // Tag message with current sub-agent depth
+              if (subAgentDepthRef.current > 0) {
+                msg.subAgentDepth = subAgentDepthRef.current;
+              }
+              addMessage(msg);
+              // After adding a Task tool_use, increment depth for subsequent messages
+              if (msg.type === 'tool_use' && msg.toolName === 'Task') {
+                subAgentDepthRef.current++;
+              }
+            }
           }
           break;
         }
@@ -106,7 +119,11 @@ export function useClaudeStream(sessionId: string | null) {
 
         // --- Tool result ---
         case 'tool_result': {
-          addMessage({
+          // When a Task sub-agent completes, decrement depth BEFORE adding the result
+          if (payload.tool_name === 'Task' && subAgentDepthRef.current > 0) {
+            subAgentDepthRef.current--;
+          }
+          const trMsg: ChatMessage = {
             id: generateMessageId(),
             role: 'assistant',
             type: 'tool_result',
@@ -114,7 +131,11 @@ export function useClaudeStream(sessionId: string | null) {
             toolName: payload.tool_name,
             toolResult: payload.output,
             timestamp: Date.now(),
-          });
+          };
+          if (subAgentDepthRef.current > 0) {
+            trMsg.subAgentDepth = subAgentDepthRef.current;
+          }
+          addMessage(trMsg);
           break;
         }
 

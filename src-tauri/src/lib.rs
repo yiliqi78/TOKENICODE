@@ -20,6 +20,27 @@ use rand::RngCore;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
+/// Strip ANSI escape sequences from a string (terminal color/cursor codes).
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            match chars.peek() {
+                Some('[') => { chars.next(); while let Some(&ch) = chars.peek() { chars.next(); if ('\x40'..='\x7e').contains(&ch) { break; } } }
+                Some(']') => { chars.next(); while let Some(ch) = chars.next() { if ch == '\x07' { break; } if ch == '\x1b' && chars.peek() == Some(&'\\') { chars.next(); break; } } }
+                Some('(' | ')') => { chars.next(); chars.next(); }
+                _ => { chars.next(); }
+            }
+        } else if c < '\x20' && c != '\n' && c != '\r' && c != '\t' {
+            // skip control chars
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// Manages active file watchers
 #[derive(Default)]
 struct WatcherManager {
@@ -48,10 +69,11 @@ fn find_claude_binary() -> Option<String> {
     // 1. Check if `claude` is already on the system PATH
     #[cfg(target_os = "windows")]
     {
-        // Windows: use `where claude` via cmd, then fallback to `where claude.cmd`
+        // Windows: use `where claude` via cmd with CREATE_NO_WINDOW to avoid flashing console
         for query in ["claude", "claude.cmd"] {
             if let Ok(output) = std::process::Command::new("cmd")
                 .args(["/C", "where", query])
+                .creation_flags(0x08000000) // CREATE_NO_WINDOW
                 .output()
             {
                 if output.status.success() {
@@ -1163,9 +1185,9 @@ fn read_dir_recursive(dir: &std::path::Path, current_depth: u32, max_depth: u32)
 
     for entry in entries {
         let name = entry.file_name().to_string_lossy().to_string();
-        // Skip hidden files and common ignored dirs
-        if name.starts_with('.') || name == "node_modules" || name == "target"
-            || name == "__pycache__" || name == ".git"
+        // Skip specific ignored dirs (but show dotfiles like .claude, .github, .vscode)
+        if name == "node_modules" || name == "target" || name == "__pycache__"
+            || name == ".git" || name == ".DS_Store" || name == "Thumbs.db"
         {
             continue;
         }
@@ -1279,15 +1301,9 @@ async fn rename_file(src: String, dest: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn delete_file(path: String) -> Result<(), String> {
-    let meta = std::fs::metadata(&path)
-        .map_err(|e| format!("Cannot read file: {}", e))?;
-    if meta.is_dir() {
-        std::fs::remove_dir_all(&path)
-            .map_err(|e| format!("Cannot delete directory: {}", e))
-    } else {
-        std::fs::remove_file(&path)
-            .map_err(|e| format!("Cannot delete file: {}", e))
-    }
+    // Move to system trash/recycle bin (recoverable) instead of permanent delete
+    trash::delete(&path)
+        .map_err(|e| format!("Cannot move to trash: {}", e))
 }
 
 #[tauri::command]
@@ -2190,8 +2206,8 @@ async fn run_claude_command(subcommand: String, cwd: Option<String>) -> Result<S
         .await
         .map_err(|_| format!("claude {} timed out after 30s", subcommand))?
         .map_err(|e| format!("Failed to run claude {}: {}", subcommand, e))?;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let stdout = strip_ansi(&String::from_utf8_lossy(&output.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&output.stderr));
     if output.status.success() {
         let combined = if stderr.is_empty() { stdout } else { format!("{}\n{}", stdout, stderr) };
         Ok(combined.trim().to_string())
@@ -2216,7 +2232,7 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
                 .await
             {
                 Ok(output) if output.status.success() => {
-                    let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    let raw = strip_ansi(&String::from_utf8_lossy(&output.stdout)).trim().to_string();
                     if raw.is_empty() { None } else { Some(raw) }
                 }
                 _ => None,
@@ -2338,17 +2354,23 @@ async fn install_claude_cli(app: AppHandle) -> Result<(), String> {
         .output()
         .await;
 
-    match install_result {
-        Ok(output) if output.status.success() => {},
+    let install_ok = match install_result {
+        Ok(output) if output.status.success() => true,
         Ok(output) => {
-            // Non-zero exit from `claude install` is non-fatal — the binary itself works
-            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stderr = strip_ansi(&String::from_utf8_lossy(&output.stderr));
             eprintln!("claude install warning: {}", stderr);
+            false
         },
         Err(e) => {
             eprintln!("claude install failed to run: {} (non-fatal)", e);
+            false
         }
-    }
+    };
+
+    // `claude install` failure is non-fatal — TOKENICODE manages the CLI path internally
+    // via find_claude_binary() which checks the app-local directory first.
+    // Users never need to run `claude` from their terminal.
+    let _ = install_ok;
 
     let _ = app.emit("setup:download:progress", serde_json::json!({
         "downloaded": downloaded, "total": total, "percent": 100, "phase": "complete"
@@ -2369,14 +2391,33 @@ async fn start_claude_login(app: AppHandle) -> Result<(), String> {
         Ok(())
     }
 
-    let claude_bin = find_claude_binary().unwrap_or_else(|| {
-        #[cfg(target_os = "windows")]
-        { "claude.cmd".to_string() }
-        #[cfg(not(target_os = "windows"))]
-        { "claude".to_string() }
-    });
+    let claude_bin = find_claude_binary()
+        .ok_or_else(|| "Claude CLI not found. Please install it first via the Setup Wizard.".to_string())?;
     let enriched_path = build_enriched_path();
 
+    // On Windows, .cmd/.bat files must be launched via cmd /C (same logic as start_session)
+    #[cfg(target_os = "windows")]
+    let mut child = {
+        let needs_cmd = claude_bin.ends_with(".cmd")
+            || claude_bin.ends_with(".bat")
+            || (!claude_bin.contains('\\') && !claude_bin.contains('/') && !claude_bin.contains('.'));
+        let mut cmd = if needs_cmd {
+            let mut c = Command::new("cmd");
+            c.arg("/C").arg(&claude_bin);
+            c
+        } else {
+            Command::new(&claude_bin)
+        };
+        cmd.args(["login"])
+            .env("PATH", &enriched_path)
+            .env_remove("CLAUDECODE")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .spawn()
+            .map_err(|e| format!("Failed to start login (tried '{}'): {}", claude_bin, e))?
+    };
+    #[cfg(not(target_os = "windows"))]
     let mut child = Command::new(&claude_bin)
         .args(["login"])
         .env("PATH", &enriched_path)
@@ -2384,7 +2425,7 @@ async fn start_claude_login(app: AppHandle) -> Result<(), String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Failed to start login: {}", e))?;
+        .map_err(|e| format!("Failed to start login (tried '{}'): {}", claude_bin, e))?;
 
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
@@ -2535,15 +2576,11 @@ async fn save_custom_previews(data: Value) -> Result<(), String> {
 /// Open a native terminal window to run `claude login`.
 /// On macOS: uses osascript to open Terminal.app.
 /// On Linux: tries common terminal emulators.
-/// On Windows: opens cmd.exe.
+/// On Windows: opens cmd.exe with enriched PATH.
 #[tauri::command]
 async fn open_terminal_login() -> Result<(), String> {
-    let claude_bin = find_claude_binary().unwrap_or_else(|| {
-        #[cfg(target_os = "windows")]
-        { "claude.cmd".to_string() }
-        #[cfg(not(target_os = "windows"))]
-        { "claude".to_string() }
-    });
+    let claude_bin = find_claude_binary()
+        .ok_or_else(|| "Claude CLI not found. Please install it first via the Setup Wizard.".to_string())?;
 
     #[cfg(target_os = "macos")]
     {
@@ -2587,8 +2624,14 @@ end tell"#,
 
     #[cfg(target_os = "windows")]
     {
+        // Spawn cmd /k with CREATE_NEW_CONSOLE to open a visible terminal window.
+        // This avoids the `start` command's tricky quoting rules.
+        let enriched_path = build_enriched_path();
         std::process::Command::new("cmd")
-            .args(["/c", "start", "cmd", "/k", &format!("{} login", claude_bin)])
+            .arg("/k")
+            .arg(&format!("\"{}\" login", claude_bin))
+            .env("PATH", &enriched_path)
+            .creation_flags(0x00000010) // CREATE_NEW_CONSOLE
             .spawn()
             .map_err(|e| format!("Failed to open terminal: {}", e))?;
     }

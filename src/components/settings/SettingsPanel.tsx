@@ -212,6 +212,9 @@ export function SettingsPanel() {
           {/* MCP Servers */}
           <McpSection />
 
+          {/* CLI Management */}
+          <CliSection />
+
           {/* About & Update */}
           <UpdateSection />
         </div>
@@ -537,6 +540,174 @@ function ApiProviderSection() {
    ================================================================ */
 
 type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'latest' | 'error';
+
+type CliCheckStatus = 'idle' | 'checking' | 'found' | 'not_found' | 'installing' | 'installed' | 'install_failed';
+
+/** Strip ANSI escape sequences */
+function stripAnsi(s: string): string {
+  return s.replace(/\x1b\[[\?]?[0-9;]*[a-zA-Z]|\x1b\].*?\x07/g, '');
+}
+
+function CliSection() {
+  const t = useT();
+  const [status, setStatus] = useState<CliCheckStatus>('idle');
+  const [cliVersion, setCliVersion] = useState<string | null>(null);
+  const [cliPath, setCliPath] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [downloadPercent, setDownloadPercent] = useState(0);
+
+  const handleCheck = useCallback(async () => {
+    setStatus('checking');
+    setErrorMsg('');
+    try {
+      const result = await bridge.checkClaudeCli();
+      if (result.installed) {
+        setCliVersion(result.version ?? null);
+        setCliPath(result.path ?? null);
+        setStatus('found');
+        setTimeout(() => setStatus('idle'), 3000);
+      } else {
+        setStatus('not_found');
+      }
+    } catch (e) {
+      setErrorMsg(stripAnsi(String(e)));
+      setStatus('not_found');
+    }
+  }, []);
+
+  const handleInstall = useCallback(async () => {
+    setStatus('installing');
+    setErrorMsg('');
+    setDownloadPercent(0);
+
+    const { onDownloadProgress } = await import('../../lib/tauri-bridge');
+    const unlisten = await onDownloadProgress((event) => {
+      setDownloadPercent(event.percent);
+    });
+
+    try {
+      await bridge.installClaudeCli();
+      unlisten();
+      const result = await bridge.checkClaudeCli();
+      if (result.installed) {
+        setCliVersion(result.version ?? null);
+        setCliPath(result.path ?? null);
+        setStatus('installed');
+        setTimeout(() => setStatus('idle'), 3000);
+      } else {
+        setErrorMsg('CLI not found after installation');
+        setStatus('install_failed');
+      }
+    } catch (e) {
+      unlisten();
+      setErrorMsg(stripAnsi(String(e)));
+      setStatus('install_failed');
+    }
+  }, []);
+
+  return (
+    <div className="pt-2 border-t border-border-subtle space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] text-text-muted font-medium">Claude Code CLI</span>
+        {cliVersion && status !== 'not_found' && status !== 'install_failed' && (
+          <span className="text-[10px] text-text-tertiary">v{cliVersion}</span>
+        )}
+      </div>
+
+      {status === 'idle' && (
+        <button
+          onClick={handleCheck}
+          className="w-full py-1.5 text-[11px] font-medium rounded-lg
+            border border-border-subtle text-text-muted
+            hover:bg-bg-secondary hover:text-text-primary transition-smooth"
+        >
+          {t('cli.check')}
+        </button>
+      )}
+
+      {status === 'checking' && (
+        <div className="flex items-center justify-center gap-2 py-1.5">
+          <div className="w-3 h-3 border-2 border-accent/30
+            border-t-accent rounded-full animate-spin" />
+          <span className="text-[11px] text-text-muted">{t('cli.checking')}</span>
+        </div>
+      )}
+
+      {status === 'found' && (
+        <div className="py-1.5 text-center space-y-0.5">
+          <span className="text-[11px] text-green-500 font-medium">
+            ✓ {t('cli.installed')}
+          </span>
+          {cliPath && (
+            <p className="text-[10px] text-text-tertiary truncate" title={cliPath}>
+              {cliPath}
+            </p>
+          )}
+        </div>
+      )}
+
+      {status === 'not_found' && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] text-amber-500 text-center">{t('cli.notFound')}</p>
+          <button
+            onClick={handleInstall}
+            className="w-full py-1.5 text-[11px] font-medium rounded-lg
+              bg-accent text-text-inverse hover:bg-accent-hover transition-smooth"
+          >
+            {t('cli.install')}
+          </button>
+        </div>
+      )}
+
+      {status === 'installing' && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-text-muted">{t('cli.installing')}</span>
+            <span className="text-[11px] text-text-tertiary">{downloadPercent}%</span>
+          </div>
+          <div className="w-full h-1.5 rounded-full bg-bg-tertiary overflow-hidden">
+            <div
+              className="h-full bg-accent rounded-full transition-all duration-300"
+              style={{ width: `${downloadPercent}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {status === 'installed' && (
+        <div className="py-1.5 text-center space-y-0.5">
+          <span className="text-[11px] text-green-500 font-medium">
+            ✓ {t('cli.installDone')}
+          </span>
+          {cliPath && (
+            <p className="text-[10px] text-text-tertiary truncate" title={cliPath}>
+              {cliPath}
+            </p>
+          )}
+        </div>
+      )}
+
+      {status === 'install_failed' && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] text-red-500 text-center">{t('cli.installFail')}</p>
+          {errorMsg && (
+            <p className="text-[10px] text-text-tertiary text-center truncate" title={errorMsg}>
+              {errorMsg}
+            </p>
+          )}
+          <button
+            onClick={handleInstall}
+            className="w-full py-1.5 text-[11px] font-medium rounded-lg
+              border border-border-subtle text-text-muted
+              hover:bg-bg-secondary transition-smooth"
+          >
+            {t('cli.retry')}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type UpdateHandle = any;

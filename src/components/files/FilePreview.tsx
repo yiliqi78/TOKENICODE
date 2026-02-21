@@ -362,9 +362,24 @@ export function FilePreview() {
           </div>
         ) : isBinary ? (
           <div className="flex items-center justify-center h-full">
-            <div className="text-center space-y-2">
+            <div className="text-center space-y-3">
               <div className="text-3xl">{getFileIcon(ext)}</div>
               <div className="text-xs text-text-muted">{t('files.binaryFile')}</div>
+              {selectedFile && (
+                <button
+                  onClick={() => bridge.openWithDefaultApp(selectedFile)}
+                  className="px-3 py-1.5 text-xs rounded-lg bg-bg-secondary
+                    text-text-muted hover:bg-bg-tertiary hover:text-text-primary
+                    transition-smooth cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+                    stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                    <path d="M10 6.5v3a1 1 0 01-1 1H2.5a1 1 0 01-1-1V3a1 1 0 011-1H6" />
+                    <path d="M7.5 1.5h3v3M7 5.5l3.5-4" />
+                  </svg>
+                  {t('files.openDefault')}
+                </button>
+              )}
             </div>
           </div>
         ) : isEditing ? (

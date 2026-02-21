@@ -34,6 +34,7 @@ sha2 = "0.10"
 aes-gcm = "0.10"
 rand = "0.8"
 hostname = "0.4"
+trash = "5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.26"
