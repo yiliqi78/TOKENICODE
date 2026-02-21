@@ -13,6 +13,9 @@ use std::collections::HashMap;
 use std::io::Write as IoWrite;
 use sha2::{Sha256, Digest};
 use futures_util::StreamExt;
+use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+use aes_gcm::aead::Aead;
+use rand::RngCore;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -244,6 +247,182 @@ fn build_enriched_path() -> String {
     result
 }
 
+// --- Credential storage (TK-303) ---
+
+/// Directory for TOKENICODE app data
+fn app_data_dir() -> Result<std::path::PathBuf, String> {
+    dirs::data_local_dir()
+        .map(|d| d.join("com.tinyzhuang.tokenicode"))
+        .ok_or_else(|| "Cannot determine app data directory".to_string())
+}
+
+/// Path to encrypted credentials file
+fn credentials_path() -> Result<std::path::PathBuf, String> {
+    Ok(app_data_dir()?.join("credentials.enc"))
+}
+
+/// Derive a machine-specific 256-bit key for credential encryption.
+/// Uses hostname + username as entropy source.
+fn derive_encryption_key() -> [u8; 32] {
+    let hostname = hostname::get()
+        .map(|h| h.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "tokenicode".to_string());
+    let username = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_else(|_| "default".to_string());
+    let mut hasher = Sha256::new();
+    hasher.update(format!("tokenicode-cred:{}:{}", hostname, username));
+    hasher.finalize().into()
+}
+
+/// Encrypt and store an API key to disk.
+fn encrypt_and_save(plaintext: &str) -> Result<(), String> {
+    let key_bytes = derive_encryption_key();
+    let cipher = Aes256Gcm::new_from_slice(&key_bytes)
+        .map_err(|e| format!("Cipher init error: {}", e))?;
+
+    let mut nonce_bytes = [0u8; 12];
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    let ciphertext = cipher.encrypt(nonce, plaintext.as_bytes())
+        .map_err(|e| format!("Encryption error: {}", e))?;
+
+    // Store as: 12-byte nonce || ciphertext
+    let mut data = Vec::with_capacity(12 + ciphertext.len());
+    data.extend_from_slice(&nonce_bytes);
+    data.extend_from_slice(&ciphertext);
+
+    let path = credentials_path()?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Cannot create data dir: {}", e))?;
+    }
+    std::fs::write(&path, &data)
+        .map_err(|e| format!("Cannot write credentials: {}", e))?;
+    Ok(())
+}
+
+/// Load and decrypt an API key from disk.
+fn load_and_decrypt() -> Result<Option<String>, String> {
+    let path = credentials_path()?;
+    if !path.exists() {
+        return Ok(None);
+    }
+    let data = std::fs::read(&path)
+        .map_err(|e| format!("Cannot read credentials: {}", e))?;
+    if data.len() < 13 {
+        return Err("Corrupted credentials file".to_string());
+    }
+
+    let key_bytes = derive_encryption_key();
+    let cipher = Aes256Gcm::new_from_slice(&key_bytes)
+        .map_err(|e| format!("Cipher init error: {}", e))?;
+
+    let nonce = Nonce::from_slice(&data[..12]);
+    let plaintext = cipher.decrypt(nonce, &data[12..])
+        .map_err(|_| "Failed to decrypt credentials (key may have changed)".to_string())?;
+
+    String::from_utf8(plaintext)
+        .map(Some)
+        .map_err(|e| format!("Invalid UTF-8 in credentials: {}", e))
+}
+
+/// Resolve custom_env map, substituting USE_STORED_KEY sentinel with real API key.
+fn resolve_custom_env(custom_env: Option<&HashMap<String, String>>) -> Result<HashMap<String, String>, String> {
+    let Some(env) = custom_env else {
+        return Ok(HashMap::new());
+    };
+    let mut resolved = HashMap::with_capacity(env.len());
+    for (key, value) in env {
+        if value == "USE_STORED_KEY" {
+            let real_key = load_and_decrypt()?
+                .ok_or_else(|| "API key not configured. Please set it in Settings → API Provider.".to_string())?;
+            resolved.insert(key.clone(), real_key);
+        } else {
+            resolved.insert(key.clone(), value.clone());
+        }
+    }
+    Ok(resolved)
+}
+
+/// Test API connection by sending a minimal request to the configured endpoint.
+#[tauri::command]
+async fn test_api_connection(base_url: String, api_format: String, model: String) -> Result<String, String> {
+    let api_key = load_and_decrypt()?
+        .ok_or_else(|| "API key not configured".to_string())?;
+
+    let test_model = model;
+    let client = reqwest::Client::new();
+
+    let (url, resp_result) = if api_format == "openai" {
+        let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+        let body = serde_json::json!({
+            "model": test_model,
+            "max_tokens": 1,
+            "messages": [{"role": "user", "content": "hi"}]
+        });
+        let r = client.post(&url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .timeout(std::time::Duration::from_secs(15))
+            .send()
+            .await;
+        (url, r)
+    } else {
+        let url = format!("{}/v1/messages", base_url.trim_end_matches('/'));
+        let body = serde_json::json!({
+            "model": test_model,
+            "max_tokens": 1,
+            "messages": [{"role": "user", "content": "hi"}]
+        });
+        let r = client.post(&url)
+            .header("x-api-key", &api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .timeout(std::time::Duration::from_secs(15))
+            .send()
+            .await;
+        (url, r)
+    };
+
+    let resp = resp_result.map_err(|e| format!("NETWORK_ERROR: {}", e))?;
+    let status = resp.status().as_u16();
+    let text = resp.text().await.unwrap_or_default();
+
+    if status >= 200 && status < 300 {
+        Ok(format!("OK ({})", status))
+    } else if status == 401 {
+        Err(format!("AUTH_ERROR: HTTP {} — {}", status, text.chars().take(500).collect::<String>()))
+    } else {
+        // Any non-401 server response proves endpoint + key are reachable.
+        // 400/403/429/etc. are typically model/quota/format issues, not connection problems.
+        Ok(format!("OK ({})", status))
+    }
+}
+
+#[tauri::command]
+fn save_api_key(key: String) -> Result<(), String> {
+    encrypt_and_save(&key)
+}
+
+#[tauri::command]
+fn load_api_key() -> Result<Option<String>, String> {
+    load_and_decrypt()
+}
+
+#[tauri::command]
+fn delete_api_key() -> Result<(), String> {
+    let path = credentials_path()?;
+    if path.exists() {
+        std::fs::remove_file(&path)
+            .map_err(|e| format!("Cannot delete credentials: {}", e))?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn start_claude_session(
     app: AppHandle,
@@ -318,6 +497,9 @@ async fn start_claude_session(
     // Build an enriched PATH for the child process
     let enriched_path = build_enriched_path();
 
+    // Resolve custom environment variables for API provider override (TK-303)
+    let resolved_env = resolve_custom_env(params.custom_env.as_ref())?;
+
     // On Windows, .cmd/.bat files must be launched via cmd /C
     #[cfg(target_os = "windows")]
     let mut child = {
@@ -336,8 +518,12 @@ async fn start_claude_session(
         cmd.args(&args)
             .current_dir(&params.cwd)
             .env("PATH", &enriched_path)
-            .env_remove("CLAUDECODE")
-            .stdin(Stdio::piped())
+            .env_remove("CLAUDECODE");
+        // Inject custom API provider env vars
+        for (key, value) in &resolved_env {
+            cmd.env(key, value);
+        }
+        cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             // Hide console window on Windows
@@ -346,18 +532,24 @@ async fn start_claude_session(
             .map_err(|e| format!("Failed to spawn claude (tried '{}'): {}", claude_bin, e))?
     };
     #[cfg(not(target_os = "windows"))]
-    let mut child = Command::new(&claude_bin)
-        .args(&args)
-        .current_dir(&params.cwd)
-        .env("PATH", &enriched_path)
-        // Clear CLAUDECODE env var so the CLI doesn't refuse to start
-        // when TOKENICODE itself is launched from within a Claude Code session.
-        .env_remove("CLAUDECODE")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to spawn claude (tried '{}'): {}", claude_bin, e))?;
+    let mut child = {
+        let mut cmd = Command::new(&claude_bin);
+        cmd.args(&args)
+            .current_dir(&params.cwd)
+            .env("PATH", &enriched_path)
+            // Clear CLAUDECODE env var so the CLI doesn't refuse to start
+            // when TOKENICODE itself is launched from within a Claude Code session.
+            .env_remove("CLAUDECODE");
+        // Inject custom API provider env vars
+        for (key, value) in &resolved_env {
+            cmd.env(key, value);
+        }
+        cmd.stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Failed to spawn claude (tried '{}'): {}", claude_bin, e))?
+    };
 
     let pid = child.id().unwrap_or(0);
 
@@ -2519,6 +2711,10 @@ pub fn run() {
             open_terminal_login,
             load_custom_previews,
             save_custom_previews,
+            save_api_key,
+            load_api_key,
+            delete_api_key,
+            test_api_connection,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

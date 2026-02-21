@@ -9,6 +9,13 @@ export type SecondaryPanelTab = 'files' | 'agents' | 'skills';
 export type ModelId = 'claude-opus-4-6' | 'claude-sonnet-4-6' | 'claude-haiku-4-5';
 export type SessionMode = 'code' | 'ask' | 'plan' | 'bypass';
 export type Locale = 'zh' | 'en';
+export type ApiProviderMode = 'inherit' | 'official' | 'custom';
+export type ApiFormat = 'anthropic' | 'openai';
+
+export interface ModelMapping {
+  tier: 'opus' | 'sonnet' | 'haiku';
+  providerModel: string;
+}
 
 // --- Model options (display mapping) ---
 
@@ -47,6 +54,18 @@ interface SettingsState {
   /** Last app version the user has seen the changelog for */
   lastSeenVersion: string;
 
+  // --- API Provider (TK-303) ---
+  /** API provider mode: inherit system config / force official / custom third-party */
+  apiProviderMode: ApiProviderMode;
+  /** Custom provider display name (e.g. "OpenRouter") */
+  customProviderName: string;
+  /** Custom provider API endpoint URL */
+  customProviderBaseUrl: string;
+  /** Model name mappings for custom provider */
+  customProviderModelMappings: ModelMapping[];
+  /** API format used by the custom provider */
+  customProviderApiFormat: ApiFormat;
+
   toggleTheme: () => void;
   setTheme: (theme: Theme) => void;
   setColorTheme: (colorTheme: ColorTheme) => void;
@@ -68,6 +87,13 @@ interface SettingsState {
   toggleThinking: () => void;
   setUpdateAvailable: (available: boolean, version?: string) => void;
   setLastSeenVersion: (version: string) => void;
+
+  // --- API Provider actions ---
+  setApiProviderMode: (mode: ApiProviderMode) => void;
+  setCustomProviderName: (name: string) => void;
+  setCustomProviderBaseUrl: (url: string) => void;
+  setCustomProviderModelMappings: (mappings: ModelMapping[]) => void;
+  setCustomProviderApiFormat: (format: ApiFormat) => void;
 }
 
 // --- Theme cycle order ---
@@ -102,6 +128,13 @@ export const useSettingsStore = create<SettingsState>()(
       updateAvailable: false,
       updateVersion: '',
       lastSeenVersion: '',
+
+      // API Provider defaults
+      apiProviderMode: 'inherit',
+      customProviderName: '',
+      customProviderBaseUrl: '',
+      customProviderModelMappings: [],
+      customProviderApiFormat: 'anthropic',
 
       toggleTheme: () =>
         set((state) => ({ theme: nextTheme(state.theme) })),
@@ -176,10 +209,26 @@ export const useSettingsStore = create<SettingsState>()(
 
       setLastSeenVersion: (version) =>
         set(() => ({ lastSeenVersion: version })),
+
+      // API Provider setters
+      setApiProviderMode: (mode) =>
+        set(() => ({ apiProviderMode: mode })),
+
+      setCustomProviderName: (name) =>
+        set(() => ({ customProviderName: name })),
+
+      setCustomProviderBaseUrl: (url) =>
+        set(() => ({ customProviderBaseUrl: url })),
+
+      setCustomProviderModelMappings: (mappings) =>
+        set(() => ({ customProviderModelMappings: mappings })),
+
+      setCustomProviderApiFormat: (format) =>
+        set(() => ({ customProviderApiFormat: format })),
     }),
     {
       name: 'tokenicode-settings',
-      version: 2,
+      version: 3,
       migrate: (persistedState: unknown, version: number) => {
         const persisted = persistedState as Record<string, unknown>;
         if (version === 0) {
@@ -199,6 +248,13 @@ export const useSettingsStore = create<SettingsState>()(
           persisted.updateVersion = '';
           persisted.lastSeenVersion = '';
         }
+        if (version < 3) {
+          persisted.apiProviderMode = 'inherit';
+          persisted.customProviderName = '';
+          persisted.customProviderBaseUrl = '';
+          persisted.customProviderModelMappings = [];
+          persisted.customProviderApiFormat = 'anthropic';
+        }
         return persisted;
       },
       partialize: (state) => ({
@@ -217,6 +273,11 @@ export const useSettingsStore = create<SettingsState>()(
         updateAvailable: state.updateAvailable,
         updateVersion: state.updateVersion,
         lastSeenVersion: state.lastSeenVersion,
+        apiProviderMode: state.apiProviderMode,
+        customProviderName: state.customProviderName,
+        customProviderBaseUrl: state.customProviderBaseUrl,
+        customProviderModelMappings: state.customProviderModelMappings,
+        customProviderApiFormat: state.customProviderApiFormat,
       }),
     },
   ),

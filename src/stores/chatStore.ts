@@ -76,6 +76,14 @@ export interface SessionMeta {
   outputTokens?: number;
   /** Timestamp (Date.now()) when the current turn started — used for elapsed timer */
   turnStartTime?: number;
+  /** JSON fingerprint of custom_env used when spawning the CLI process (TK-303).
+   *  Compared before sending via stdin to detect stale pre-warm sessions. */
+  envFingerprint?: string;
+  /** Set when API provider config changed mid-session (TK-303).
+   *  If resume fails due to thinking signature mismatch, auto-retry without resume. */
+  providerSwitched?: boolean;
+  /** The user message text to re-send if provider-switch auto-retry triggers. */
+  providerSwitchPendingText?: string;
 }
 
 export type SessionStatus = 'idle' | 'running' | 'completed' | 'error';

@@ -13,6 +13,7 @@ import { useSessionStore } from '../../stores/sessionStore';
 import { useT } from '../../lib/i18n';
 import { SlashCommandPopover, getFilteredCommandList } from './SlashCommandPopover';
 import { useCommandStore } from '../../stores/commandStore';
+import { buildCustomEnvVars, envFingerprint, resolveModelForProvider } from '../../lib/api-provider';
 import { usePlanPanelStore } from './ChatPanel';
 import { useSnapshotStore } from '../../stores/snapshotStore';
 // drag-state import removed — tree drag handled by ChatPanel
@@ -273,6 +274,8 @@ export function InputBar() {
 
   // Ref to always point to the latest handleSubmit (avoids stale closure)
   const handleSubmitRef = useRef<() => void>(() => {});
+  // Ref to always point to the latest handleStderrLine (used by retry logic in handleStreamMessage)
+  const handleStderrLineRef = useRef<(line: string, sid: string) => void>(() => {});
 
   // --- Immediate command execution ---
   // All built-in commands are handled in the UI layer because they don't work
@@ -676,16 +679,34 @@ export function InputBar() {
       let sentViaStdin = false;
 
       if (stdinId) {
-        // ===== Send via stdin to existing persistent process (pre-warmed or follow-up) =====
-        try {
-          await bridge.sendStdin(stdinId, text);
-          sentViaStdin = true;
-        } catch (stdinErr) {
-          // stdin write failed (broken pipe — process already exited).
-          // Clear the dead stdinId and fall through to spawn a new process.
-          console.warn('[TOKENICODE] sendStdin failed, spawning new process:', stdinErr);
-          setSessionMeta({ stdinId: undefined });
+        // Check if API provider config changed since this process was spawned (TK-303).
+        // If so, the pre-warmed process has stale env vars — kill it and spawn fresh.
+        const currentFp = envFingerprint();
+        const sessionFp = useChatStore.getState().sessionMeta.envFingerprint;
+        if (currentFp !== sessionFp) {
+          console.warn('[TOKENICODE] API provider config changed, killing stale session');
+          bridge.killSession(stdinId).catch(() => {});
+          if ((window as any).__claudeUnlisteners?.[stdinId]) {
+            (window as any).__claudeUnlisteners[stdinId]();
+            delete (window as any).__claudeUnlisteners[stdinId];
+          }
+          // Keep sessionId so we attempt resume (preserving context).
+          // If the resume fails due to thinking signature mismatch, the
+          // stream error handler will auto-retry without resume.
+          setSessionMeta({ stdinId: undefined, envFingerprint: undefined, providerSwitched: true, providerSwitchPendingText: text });
           stdinId = undefined;
+        } else {
+          // ===== Send via stdin to existing persistent process (pre-warmed or follow-up) =====
+          try {
+            await bridge.sendStdin(stdinId, text);
+            sentViaStdin = true;
+          } catch (stdinErr) {
+            // stdin write failed (broken pipe — process already exited).
+            // Clear the dead stdinId and fall through to spawn a new process.
+            console.warn('[TOKENICODE] sendStdin failed, spawning new process:', stdinErr);
+            setSessionMeta({ stdinId: undefined });
+            stdinId = undefined;
+          }
         }
       }
 
@@ -747,16 +768,17 @@ export function InputBar() {
         const session = await bridge.startSession({
           prompt: text,
           cwd,
-          model: selectedModel,
+          model: resolveModelForProvider(selectedModel),
           session_id: preGeneratedId,
           dangerously_skip_permissions: sessionMode === 'bypass',
           resume_session_id: existingSessionId || undefined,
           thinking_enabled: useSettingsStore.getState().thinkingEnabled,
           session_mode: (sessionMode === 'ask' || sessionMode === 'plan') ? sessionMode : undefined,
+          custom_env: buildCustomEnvVars(),
         });
 
         // Store both: session_id for tracking, stdinId (preGeneratedId) for stdin communication
-        setSessionMeta({ sessionId: session.session_id, stdinId: preGeneratedId });
+        setSessionMeta({ sessionId: session.session_id, stdinId: preGeneratedId, envFingerprint: envFingerprint() });
 
         // Register stdinId → tabId mapping for background stream routing
         const tabId = useSessionStore.getState().selectedSessionId;
@@ -1118,16 +1140,36 @@ export function InputBar() {
               break;
             }
           }
-          addMessage({
-            id: 'plan_review_current',
-            role: 'assistant',
-            type: 'plan_review',
-            content: planContent,
-            planContent: planContent,
-            resolved: false,
-            timestamp: Date.now(),
-          });
-          setActivityStatus({ phase: 'awaiting' });
+
+          // In bypass mode, auto-approve plan review immediately to avoid
+          // deadlock where CLI waits for stdin but user expects full automation.
+          const isBypass = useSettingsStore.getState().sessionMode === 'bypass';
+          if (isBypass) {
+            const stdinId = useChatStore.getState().sessionMeta.stdinId;
+            if (stdinId) {
+              bridge.sendRawStdin(stdinId, 'y').catch(() => {});
+            }
+            addMessage({
+              id: 'plan_review_current',
+              role: 'assistant',
+              type: 'plan_review',
+              content: planContent,
+              planContent: planContent,
+              resolved: true,
+              timestamp: Date.now(),
+            });
+          } else {
+            addMessage({
+              id: 'plan_review_current',
+              role: 'assistant',
+              type: 'plan_review',
+              content: planContent,
+              planContent: planContent,
+              resolved: false,
+              timestamp: Date.now(),
+            });
+            setActivityStatus({ phase: 'awaiting' });
+          }
         }
 
         // Track input tokens from message_start
@@ -1300,18 +1342,35 @@ export function InputBar() {
                 ? 'plan_review_current'  // Update existing unresolved card
                 : 'plan_review_current'; // First card — use stable ID
 
-              addMessage({
-                id: reviewId,
-                role: 'assistant',
-                type: 'plan_review',
-                content: planContent,
-                planContent: planContent,
-                resolved: false,
-                timestamp: Date.now(),
-              });
-
-              // Set awaiting status
-              setActivityStatus({ phase: 'awaiting' });
+              // In bypass mode, auto-approve plan review immediately.
+              const isBypassMode = useSettingsStore.getState().sessionMode === 'bypass';
+              if (isBypassMode) {
+                const stdinId = useChatStore.getState().sessionMeta.stdinId;
+                if (stdinId) {
+                  bridge.sendRawStdin(stdinId, 'y').catch(() => {});
+                }
+                addMessage({
+                  id: reviewId,
+                  role: 'assistant',
+                  type: 'plan_review',
+                  content: planContent,
+                  planContent: planContent,
+                  resolved: true,
+                  timestamp: Date.now(),
+                });
+              } else {
+                addMessage({
+                  id: reviewId,
+                  role: 'assistant',
+                  type: 'plan_review',
+                  content: planContent,
+                  planContent: planContent,
+                  resolved: false,
+                  timestamp: Date.now(),
+                });
+                // Set awaiting status
+                setActivityStatus({ phase: 'awaiting' });
+              }
             } else {
               addMessage({
                 id: block.id || generateMessageId(),
@@ -1439,6 +1498,112 @@ export function InputBar() {
         console.log('[TOKENICODE] result event full:', JSON.stringify(msg));
         // Clear any remaining partial text before marking turn complete
         clearPartial();
+
+        // --- TK-303: Auto-retry on thinking signature error after provider switch ---
+        // When user switches API provider mid-conversation, we attempt to resume the
+        // session. If the new provider rejects the old thinking block signatures,
+        // we automatically retry without resume to preserve UX continuity.
+        if (msg.subtype !== 'success') {
+          const meta = useChatStore.getState().sessionMeta;
+          // Build a combined error string from all possible error fields
+          const errorText = [msg.result, msg.error, msg.content]
+            .filter(Boolean)
+            .map(String)
+            .join(' ');
+          const isThinkingSignatureError = /invalid.*signature.*thinking|thinking.*invalid.*signature/i.test(errorText);
+
+          if (meta.providerSwitched && isThinkingSignatureError && meta.providerSwitchPendingText) {
+            console.warn('[TOKENICODE] Thinking signature error after provider switch — auto-retrying without resume');
+            const retryText = meta.providerSwitchPendingText;
+
+            // Kill the current (failed) process
+            const failedStdinId = meta.stdinId;
+            if (failedStdinId) {
+              bridge.killSession(failedStdinId).catch(() => {});
+              if ((window as any).__claudeUnlisteners?.[failedStdinId]) {
+                (window as any).__claudeUnlisteners[failedStdinId]();
+                delete (window as any).__claudeUnlisteners[failedStdinId];
+              }
+            }
+
+            // Clear sessionId (abandon resume) and provider-switch flags
+            setSessionMeta({
+              sessionId: undefined,
+              stdinId: undefined,
+              providerSwitched: false,
+              providerSwitchPendingText: undefined,
+            });
+
+            // Show system notice
+            addMessage({
+              id: generateMessageId(),
+              role: 'system',
+              type: 'text',
+              content: '已切换 API 提供商，正在重新发送…',
+              commandType: 'info',
+              timestamp: Date.now(),
+            });
+
+            // Re-send: spawn a fresh process without resume_session_id
+            (async () => {
+              try {
+                const cwd = useSettingsStore.getState().workingDirectory;
+                if (!cwd) return;
+                const selectedModel = useSettingsStore.getState().selectedModel;
+                const sessionMode = useSettingsStore.getState().sessionMode;
+
+                setSessionStatus('running');
+                setSessionMeta({ turnStartTime: Date.now(), inputTokens: 0, outputTokens: 0 });
+                setActivityStatus({ phase: 'thinking' });
+                agentActions.clearAgents();
+                agentActions.upsertAgent({
+                  id: 'main', parentId: null,
+                  description: retryText.slice(0, 100),
+                  phase: 'spawning', startTime: Date.now(), isMain: true,
+                });
+
+                const retryId = `desk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                const retryUnlisten = await onClaudeStream(retryId, (m: any) => {
+                  m.__stdinId = retryId;
+                  handleStreamMessage(m);
+                });
+                const retryUnlistenStderr = await onClaudeStderr(retryId, (line: string) => {
+                  handleStderrLineRef.current(line, retryId);
+                });
+                if (!(window as any).__claudeUnlisteners) (window as any).__claudeUnlisteners = {};
+                (window as any).__claudeUnlisteners[retryId] = () => { retryUnlisten(); retryUnlistenStderr(); };
+                (window as any).__claudeUnlisten = (window as any).__claudeUnlisteners[retryId];
+
+                const session = await bridge.startSession({
+                  prompt: retryText,
+                  cwd,
+                  model: resolveModelForProvider(selectedModel),
+                  session_id: retryId,
+                  dangerously_skip_permissions: sessionMode === 'bypass',
+                  // No resume_session_id — fresh start to avoid thinking signature issue
+                  thinking_enabled: useSettingsStore.getState().thinkingEnabled,
+                  session_mode: (sessionMode === 'ask' || sessionMode === 'plan') ? sessionMode : undefined,
+                  custom_env: buildCustomEnvVars(),
+                });
+
+                setSessionMeta({ sessionId: session.session_id, stdinId: retryId, envFingerprint: envFingerprint() });
+                const tabId = useSessionStore.getState().selectedSessionId;
+                if (tabId) useSessionStore.getState().registerStdinTab(retryId, tabId);
+                bridge.trackSession(session.session_id).catch(() => {});
+              } catch (retryErr) {
+                console.error('[TOKENICODE] Provider-switch auto-retry failed:', retryErr);
+                setSessionStatus('error');
+                addMessage({
+                  id: generateMessageId(),
+                  role: 'system', type: 'text',
+                  content: `重试失败: ${retryErr}`,
+                  timestamp: Date.now(),
+                });
+              }
+            })();
+            break; // Exit the result case — retry flow takes over
+          }
+        }
 
         // Mark pending processing card (CLI slash command) as completed
         const pendingCmdMsgId = useChatStore.getState().sessionMeta.pendingCommandMsgId;
@@ -1636,6 +1801,9 @@ export function InputBar() {
       }
     }
   }, []);
+
+  // Keep stderr ref in sync so auto-retry logic in handleStreamMessage can call it
+  handleStderrLineRef.current = handleStderrLine;
 
   // Register global stream handler on mount so pre-warm events (system:init,
   // process_exit) are processed immediately — not deferred until user sends.

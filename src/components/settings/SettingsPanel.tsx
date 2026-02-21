@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useSettingsStore, MODEL_OPTIONS, ColorTheme } from '../../stores/settingsStore';
+import { useSettingsStore, MODEL_OPTIONS, ColorTheme, type ApiProviderMode } from '../../stores/settingsStore';
+import { bridge } from '../../lib/tauri-bridge';
 import { useMcpStore } from '../../stores/mcpStore';
 import type { McpServer, McpServerConfig } from '../../stores/mcpStore';
 import { useT } from '../../lib/i18n';
@@ -205,6 +206,9 @@ export function SettingsPanel() {
             </div>
           </div>
 
+          {/* API Provider (TK-303) */}
+          <ApiProviderSection />
+
           {/* MCP Servers */}
           <McpSection />
 
@@ -212,6 +216,318 @@ export function SettingsPanel() {
           <UpdateSection />
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ================================================================
+   API Provider section (TK-303)
+   ================================================================ */
+
+const API_MODES: { id: ApiProviderMode; labelKey: string; descKey: string }[] = [
+  { id: 'inherit', labelKey: 'api.inherit', descKey: 'api.inheritDesc' },
+  { id: 'official', labelKey: 'api.official', descKey: 'api.officialDesc' },
+  { id: 'custom', labelKey: 'api.custom', descKey: 'api.customDesc' },
+];
+
+const MODEL_TIERS: { tier: 'opus' | 'sonnet' | 'haiku'; labelKey: string; placeholderKey: string }[] = [
+  { tier: 'opus', labelKey: 'api.opusModel', placeholderKey: 'api.opusPlaceholder' },
+  { tier: 'sonnet', labelKey: 'api.sonnetModel', placeholderKey: 'api.sonnetPlaceholder' },
+  { tier: 'haiku', labelKey: 'api.haikuModel', placeholderKey: 'api.haikuPlaceholder' },
+];
+
+function ApiProviderSection() {
+  const t = useT();
+  const mode = useSettingsStore((s) => s.apiProviderMode);
+  const setMode = useSettingsStore((s) => s.setApiProviderMode);
+  const providerName = useSettingsStore((s) => s.customProviderName);
+  const setProviderName = useSettingsStore((s) => s.setCustomProviderName);
+  const baseUrl = useSettingsStore((s) => s.customProviderBaseUrl);
+  const setBaseUrl = useSettingsStore((s) => s.setCustomProviderBaseUrl);
+  const modelMappings = useSettingsStore((s) => s.customProviderModelMappings);
+  const setModelMappings = useSettingsStore((s) => s.setCustomProviderModelMappings);
+  const apiFormat = useSettingsStore((s) => s.customProviderApiFormat);
+  const setApiFormat = useSettingsStore((s) => s.setCustomProviderApiFormat);
+
+  const [collapsed, setCollapsed] = useState(true);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [showKey, setShowKey] = useState(false);
+  const [keyStatus, setKeyStatus] = useState<'empty' | 'saved' | 'editing'>('empty');
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'auth_error' | 'failed'>('idle');
+  const [testError, setTestError] = useState('');
+
+  // Load existing API key status on mount
+  useEffect(() => {
+    bridge.loadApiKey().then((key) => {
+      if (key) {
+        setApiKeyInput('••••••••••••');
+        setKeyStatus('saved');
+      }
+    }).catch(() => {});
+  }, []);
+
+  const handleSaveKey = useCallback(async () => {
+    if (!apiKeyInput || apiKeyInput === '••••••••••••') return;
+    try {
+      await bridge.saveApiKey(apiKeyInput);
+      setApiKeyInput('••••••••••••');
+      setShowKey(false);
+      setKeyStatus('saved');
+    } catch (e) {
+      console.error('Failed to save API key:', e);
+    }
+  }, [apiKeyInput]);
+
+  const handleKeyFocus = useCallback(() => {
+    if (keyStatus === 'saved') {
+      setApiKeyInput('');
+      setKeyStatus('editing');
+    }
+  }, [keyStatus]);
+
+  const handleTestConnection = useCallback(async () => {
+    if (!baseUrl) return;
+    setTestStatus('testing');
+    setTestError('');
+    try {
+      const testModel = modelMappings.find((m) => m.providerModel)?.providerModel || '';
+      if (!testModel) {
+        setTestStatus('failed');
+        setTestError(t('api.testNoModel'));
+        setTimeout(() => { setTestStatus('idle'); setTestError(''); }, 5000);
+        return;
+      }
+      const result = await bridge.testApiConnection(baseUrl, apiFormat, testModel);
+      if (result.startsWith('OK')) {
+        setTestStatus('success');
+      } else {
+        setTestStatus('failed');
+        setTestError(result);
+      }
+    } catch (e) {
+      const err = String(e);
+      if (err.includes('AUTH_ERROR')) {
+        setTestStatus('auth_error');
+        setTestError(err.replace('AUTH_ERROR: ', ''));
+      } else {
+        setTestStatus('failed');
+        setTestError(err);
+      }
+    }
+    // Reset after 5s
+    setTimeout(() => { setTestStatus('idle'); setTestError(''); }, 5000);
+  }, [baseUrl, apiFormat, modelMappings]);
+
+  const getMapping = (tier: 'opus' | 'sonnet' | 'haiku'): string => {
+    return modelMappings.find((m) => m.tier === tier)?.providerModel || '';
+  };
+
+  const updateMapping = (tier: 'opus' | 'sonnet' | 'haiku', value: string) => {
+    const existing = modelMappings.filter((m) => m.tier !== tier);
+    if (value) {
+      existing.push({ tier, providerModel: value });
+    }
+    setModelMappings(existing);
+  };
+
+  const inputClass = 'w-full px-2 py-1.5 text-[11px] bg-bg-chat border border-border-subtle rounded-lg text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent/40';
+
+  return (
+    <div className="pt-2 border-t border-border-subtle">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-2">
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="flex items-center gap-1.5"
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
+            stroke="currentColor" strokeWidth="1.5"
+            className={`text-text-tertiary transition-transform ${collapsed ? '' : 'rotate-90'}`}>
+            <path d="M3 1l4 4-4 4" />
+          </svg>
+          <h3 className="text-[11px] font-semibold text-text-muted uppercase tracking-wider">
+            {t('api.title')}
+          </h3>
+          <span className="text-[10px] text-text-tertiary">
+            {t(`api.${mode}`)}
+          </span>
+        </button>
+      </div>
+
+      {!collapsed && (
+        <div className="space-y-3 ml-4">
+          {/* Mode selector */}
+          <div className="inline-flex rounded-lg border border-border-subtle overflow-hidden">
+            {API_MODES.map((m) => (
+              <button
+                key={m.id}
+                onClick={() => setMode(m.id)}
+                className={`py-1.5 px-3 text-[11px] font-medium transition-smooth
+                  border-r border-border-subtle last:border-r-0 whitespace-nowrap
+                  ${mode === m.id
+                    ? 'bg-accent/10 text-accent'
+                    : 'text-text-muted hover:bg-bg-secondary'
+                  }`}
+              >
+                {t(m.labelKey)}
+              </button>
+            ))}
+          </div>
+
+          {/* Mode description */}
+          <p className="text-[10px] text-text-tertiary">
+            {t(API_MODES.find((m) => m.id === mode)?.descKey || '')}
+          </p>
+
+          {/* Custom provider form */}
+          {mode === 'custom' && (
+            <div className="space-y-2.5">
+              {/* Provider name */}
+              <div>
+                <label className="text-[10px] text-text-muted mb-1 block">{t('api.providerName')}</label>
+                <input
+                  className={inputClass}
+                  value={providerName}
+                  onChange={(e) => setProviderName(e.target.value)}
+                  placeholder={t('api.providerNamePlaceholder')}
+                />
+              </div>
+
+              {/* Base URL */}
+              <div>
+                <label className="text-[10px] text-text-muted mb-1 block">{t('api.baseUrl')}</label>
+                <input
+                  className={inputClass}
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                  placeholder={t('api.baseUrlPlaceholder')}
+                />
+              </div>
+
+              {/* API Format */}
+              <div>
+                <label className="text-[10px] text-text-muted mb-1 block">{t('api.format')}</label>
+                <div className="inline-flex rounded-lg border border-border-subtle overflow-hidden">
+                  {(['anthropic', 'openai'] as const).map((fmt) => (
+                    <button
+                      key={fmt}
+                      onClick={() => setApiFormat(fmt)}
+                      className={`py-1.5 px-3 text-[11px] font-medium transition-smooth
+                        border-r border-border-subtle last:border-r-0 whitespace-nowrap
+                        ${apiFormat === fmt
+                          ? 'bg-accent/10 text-accent'
+                          : 'text-text-muted hover:bg-bg-secondary'
+                        }`}
+                    >
+                      {t(fmt === 'anthropic' ? 'api.formatAnthropic' : 'api.formatOpenai')}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[9px] text-text-tertiary mt-1">{t('api.formatHint')}</p>
+              </div>
+
+              {/* API Key */}
+              <div>
+                <label className="text-[10px] text-text-muted mb-1 block">
+                  {t('api.apiKey')}
+                  {keyStatus === 'saved' && (
+                    <span className="ml-1.5 text-green-500">{t('api.apiKeySaved')}</span>
+                  )}
+                </label>
+                <div className="flex gap-1.5">
+                  <input
+                    className={`${inputClass} flex-1`}
+                    type={showKey ? 'text' : 'password'}
+                    value={apiKeyInput}
+                    onChange={(e) => { setApiKeyInput(e.target.value); setKeyStatus('editing'); }}
+                    onFocus={handleKeyFocus}
+                    placeholder={t('api.apiKeyPlaceholder')}
+                  />
+                  <button
+                    onClick={() => setShowKey(!showKey)}
+                    className="px-2 py-1.5 rounded-lg border border-border-subtle
+                      text-[10px] text-text-muted hover:bg-bg-secondary transition-smooth"
+                  >
+                    {showKey ? '🙈' : '👁'}
+                  </button>
+                  <button
+                    onClick={handleSaveKey}
+                    disabled={!apiKeyInput || apiKeyInput === '••••••••••••'}
+                    className="px-2.5 py-1.5 rounded-lg text-[10px] font-medium transition-smooth
+                      bg-accent/10 text-accent hover:bg-accent/20
+                      disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {t('api.save')}
+                  </button>
+                </div>
+              </div>
+
+              {/* Model Mappings */}
+              <div>
+                <label className="text-[10px] text-text-muted mb-1 block">{t('api.modelMappings')}</label>
+                <p className="text-[9px] text-text-tertiary mb-1.5">{t('api.modelMappingsHint')}</p>
+                <div className="space-y-1.5">
+                  {MODEL_TIERS.map(({ tier, labelKey, placeholderKey }) => (
+                    <div key={tier} className="flex items-center gap-2">
+                      <span className="text-[10px] text-text-muted w-12 shrink-0">{t(labelKey)}</span>
+                      <input
+                        className={inputClass}
+                        value={getMapping(tier)}
+                        onChange={(e) => updateMapping(tier, e.target.value)}
+                        placeholder={t(placeholderKey)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Test Connection */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleTestConnection}
+                  disabled={!baseUrl || testStatus === 'testing'}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-medium transition-smooth
+                    border border-border-subtle
+                    ${testStatus === 'success'
+                      ? 'bg-green-500/10 text-green-500 border-green-500/30'
+                      : testStatus === 'failed' || testStatus === 'auth_error'
+                        ? 'bg-red-500/10 text-red-500 border-red-500/30'
+                        : 'text-text-muted hover:bg-bg-secondary'
+                    }
+                    disabled:opacity-40 disabled:cursor-not-allowed`}
+                >
+                  {testStatus === 'testing' ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 border-[1.5px] border-accent/30
+                        border-t-accent rounded-full animate-spin" />
+                      {t('api.testing')}
+                    </span>
+                  ) : testStatus === 'success' ? (
+                    <span className="flex items-center gap-1">
+                      <svg width="10" height="10" viewBox="0 0 16 16" fill="none"
+                        stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                        <path d="M3 8l4 4 6-7" />
+                      </svg>
+                      {t('api.testSuccess')}
+                    </span>
+                  ) : testStatus === 'auth_error' ? (
+                    t('api.testAuthError')
+                  ) : testStatus === 'failed' ? (
+                    t('api.testFailed')
+                  ) : (
+                    t('api.testConnection')
+                  )}
+                </button>
+                {testError && (testStatus === 'failed' || testStatus === 'auth_error') && (
+                  <span className="text-[9px] text-red-400 truncate flex-1" title={testError}>
+                    {testError}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -16,6 +16,8 @@ export interface StartSessionParams {
   thinking_enabled?: boolean;
   /** Session mode: "ask", "plan", or undefined for auto */
   session_mode?: string;
+  /** Custom environment variables for API provider override (TK-303) */
+  custom_env?: Record<string, string>;
 }
 
 export interface SessionInfo {
@@ -268,6 +270,20 @@ export const bridge = {
 
   saveCustomPreviews: (data: Record<string, string>) =>
     invoke<void>('save_custom_previews', { data }),
+
+  // --- API Provider Credentials (TK-303) ---
+
+  saveApiKey: (key: string) =>
+    invoke<void>('save_api_key', { key }),
+
+  loadApiKey: () =>
+    invoke<string | null>('load_api_key'),
+
+  deleteApiKey: () =>
+    invoke<void>('delete_api_key'),
+
+  testApiConnection: (baseUrl: string, apiFormat: string, model: string) =>
+    invoke<string>('test_api_connection', { baseUrl, apiFormat, model }),
 };
 
 // --- Event Listeners ---

@@ -11,6 +11,7 @@ import { useFileStore } from '../../stores/fileStore';
 import { bridge, onClaudeStream, onClaudeStderr } from '../../lib/tauri-bridge';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useT } from '../../lib/i18n';
+import { buildCustomEnvVars, envFingerprint, resolveModelForProvider } from '../../lib/api-provider';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
 import { SetupWizard } from '../setup/SetupWizard';
 import { endTreeDrag } from '../../lib/drag-state';
@@ -605,16 +606,18 @@ async function startDraftSession(folderPath: string) {
     const session = await bridge.startSession({
       prompt: '',  // empty = pre-warm, no message sent
       cwd: folderPath,
-      model: useSettingsStore.getState().selectedModel,
+      model: resolveModelForProvider(useSettingsStore.getState().selectedModel),
       session_id: preWarmId,
       dangerously_skip_permissions: useSettingsStore.getState().sessionMode === 'bypass',
       thinking_enabled: useSettingsStore.getState().thinkingEnabled,
+      custom_env: buildCustomEnvVars(),
     });
 
     // Store stdinId so InputBar can send the first message via stdin
     useChatStore.getState().setSessionMeta({
       sessionId: session.session_id,
       stdinId: preWarmId,
+      envFingerprint: envFingerprint(),
     });
 
     // Register stdinId → tabId mapping for background stream routing

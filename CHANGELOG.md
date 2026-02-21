@@ -6,9 +6,49 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.5.4] - 2026-02-21
+
+### New Features / 新功能
+
+- **Third-Party API Provider Switching (TK-303)** — Built-in API provider switching in Settings panel. Three modes: Inherit (system config), Official API, Custom (third-party endpoint + API key + model mapping). Uses process-level env var injection — no global config file modification, no conflict with CC-Switch or other tools.
+
+- **第三方 API 切换 (TK-303)** — 设置面板内置 API 提供商切换功能。三种模式：继承系统配置、官方 API、自定义（第三方端点 + API Key + 模型映射）。通过进程级环境变量注入实现，不修改全局配置文件，与 CC-Switch 等工具互不冲突。
+
+- **API Key Encrypted Storage** — Custom API keys are encrypted with AES-256-GCM and stored in `{app_data_dir}/credentials.enc`. Keys never touch localStorage. The Rust backend handles decryption transparently via a `USE_STORED_KEY` sentinel — the real key never crosses the IPC boundary during session startup.
+
+- **API Key 加密存储** — 自定义 API Key 使用 AES-256-GCM 加密存储于 `{app_data_dir}/credentials.enc`，不进入 localStorage。Rust 后端通过 `USE_STORED_KEY` 哨兵值透明解密，会话启动时真实密钥不经过 IPC。
+
+- **Connection Test Button** — One-click API connectivity test in custom provider settings. Sends a minimal request to verify endpoint + authentication. Only HTTP 401 is treated as auth failure; all other server responses confirm the connection is working.
+
+- **连接测试按钮** — 自定义提供商设置中一键测试 API 连通性。发送最小请求验证端点和认证。仅 HTTP 401 视为认证失败，其他服务器响应均确认连接正常。
+
+- **Model Name Mapping** — Map UI model tiers (Opus/Sonnet/Haiku) to provider-specific model names. The `--model` CLI argument is translated before process spawn, since Claude Code CLI does not support `ANTHROPIC_DEFAULT_*_MODEL` env vars.
+
+- **模型名称映射** — 将 UI 模型层级（Opus/Sonnet/Haiku）映射到提供商的模型名称。`--model` CLI 参数在进程启动前转换，因为 Claude Code CLI 不支持 `ANTHROPIC_DEFAULT_*_MODEL` 环境变量。
+
+- **Stale Session Detection** — Environment fingerprint mechanism detects when API provider config changes mid-session. Kills pre-warmed processes with stale env vars and spawns fresh ones automatically.
+
+- **过期会话检测** — 环境指纹机制检测会话期间 API 配置变更，自动终止带有旧环境变量的预热进程并重新启动。
+
+- **Thinking Signature Auto-Retry** — When switching providers mid-conversation, resume may fail due to thinking block signature mismatch. The app automatically detects this error, abandons resume, and re-sends the user's message via a fresh session — no manual intervention needed.
+
+- **Thinking 签名自动重试** — 对话中切换提供商时，resume 可能因 thinking block 签名不匹配而失败。应用自动检测此错误，放弃 resume 并通过全新会话重发用户消息，无需手动操作。
+
+---
+
 ## [0.5.3] - 2026-02-21
 
+### Changed / 变更
+
+- **Apple Code Signing & Notarization** — Added Apple Developer ID certificate configuration to GitHub Actions release workflow. macOS builds are now signed and notarized, so users no longer need to run `xattr -cr` after downloading.
+
+- **Apple 代码签名与公证** — 在 GitHub Actions 发布流程中配置了 Apple Developer ID 证书。macOS 构建产物现已签名并公证，用户下载后无需再执行 `xattr -cr`。
+
 ### Fixed / 修复
+
+- **Bypass Mode Plan Auto-Approval** — Fixed ExitPlanMode deadlock in bypass mode. When `--dangerously-skip-permissions` is active, plan review is now auto-approved immediately instead of waiting for manual user confirmation, preventing the session from hanging.
+
+- **Bypass 模式 Plan 自动审批** — 修复 bypass 模式下 ExitPlanMode 死锁问题。启用 `--dangerously-skip-permissions` 时，Plan 审批现在自动通过，不再等待用户手动确认，避免会话卡住。
 
 - **Plan Mode Exit Fix (TK-306)** — Fixed "Approve & Execute" button not working in Plan mode. The root cause was that the CLI process was started with `--mode plan`, and ExitPlanMode is broken at the SDK level. The fix kills the plan-mode process and restarts a new session in code mode using `resume_session_id` to carry over conversation context. Claude can now actually execute tools after plan approval.
 

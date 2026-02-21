@@ -94,4 +94,7 @@ pub struct StartSessionParams {
     pub thinking_enabled: Option<bool>,
     /// Session mode: "ask", "plan", or "auto" (default).
     pub session_mode: Option<String>,
+    /// Custom environment variables for API provider override.
+    /// Used by TK-303 to inject ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN, etc.
+    pub custom_env: Option<HashMap<String, String>>,
 }
