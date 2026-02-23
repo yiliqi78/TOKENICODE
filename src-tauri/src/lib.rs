@@ -502,8 +502,13 @@ async fn start_claude_session(
         }
     }
 
-    // Extended thinking: inject via --settings JSON
-    if params.thinking_enabled.unwrap_or(true) {
+    // Extended thinking + effort level
+    let thinking_level = params.thinking_level.as_deref().unwrap_or("high");
+    if thinking_level == "off" {
+        // Explicitly disable thinking — CLI defaults to enabled, so we must pass false
+        args.push("--settings".to_string());
+        args.push(r#"{"alwaysThinkingEnabled":false}"#.to_string());
+    } else {
         args.push("--settings".to_string());
         args.push(r#"{"alwaysThinkingEnabled":true}"#.to_string());
     }
@@ -520,7 +525,21 @@ async fn start_claude_session(
     let enriched_path = build_enriched_path();
 
     // Resolve custom environment variables for API provider override (TK-303)
-    let resolved_env = resolve_custom_env(params.custom_env.as_ref())?;
+    let mut resolved_env = resolve_custom_env(params.custom_env.as_ref())?;
+
+    // Inject effort level env var for non-off thinking levels
+    if thinking_level != "off" {
+        resolved_env.insert(
+            "CLAUDE_CODE_EFFORT_LEVEL".to_string(),
+            thinking_level.to_string(),
+        );
+    }
+
+    // Raise the per-turn output token cap from the CLI default (32K) to 64K.
+    // This prevents "response exceeded the 32000 output token maximum" errors
+    // when generating large files (e.g. HTML presentations).
+    resolved_env.entry("CLAUDE_CODE_MAX_OUTPUT_TOKENS".to_string())
+        .or_insert_with(|| "64000".to_string());
 
     // On Windows, .cmd/.bat files must be launched via cmd /C
     #[cfg(target_os = "windows")]
@@ -615,10 +634,17 @@ async fn start_claude_session(
                 let _ = emit_to_frontend(&app_clone, &event_name, json);
             }
         }
+        // Emit process_exit on the stream channel (primary detection)
         let _ = emit_to_frontend(
             &app_clone,
             &event_name,
             serde_json::json!({"type": "process_exit"}),
+        );
+        // Also emit on the dedicated exit channel (backup detection via onSessionExit)
+        let _ = emit_to_frontend(
+            &app_clone,
+            &format!("claude:exit:{}", sid_clone),
+            serde_json::json!(null),
         );
     });
 

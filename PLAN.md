@@ -1,82 +1,212 @@
-# 实施计划：追加消息 + 对话标题
+# Task 4: Plan 审批流程修复
 
-## 功能一：运行中追加消息
+## 问题分析
 
-### 问题分析
-当前每次发消息都 spawn 一个新的 `claude -p <prompt>` 进程，进程结束后才能发送下一条。
-stdin 设为 `Stdio::null()`，无法向运行中的进程写入。
+### 当前行为（Bypass 模式）
 
-### 方案：`--resume` 新进程模式
+1. CLI 以 `--dangerously-skip-permissions` 启动（无 `--mode plan`）
+2. Claude 决定制定计划，调用 `ExitPlanMode`
+3. 前端在 stream 中检测到 `ExitPlanMode` → **自动发送 `'y'`**（InputBar.tsx:1236）
+4. CLI 可能也在内部自动批准了 ExitPlanMode（因为 skip-permissions）
+5. CLI 退出任务，不执行计划
+6. UI 卡死——用户必须手动切换到 Code 模式才能继续
 
-Claude CLI 的 `-p` 模式是**单次 prompt**，处理完就退出。不支持在运行中插入消息。
-最可靠的方式是：第一次消息 spawn 新进程，后续追加消息通过 `--resume <session_id>` spawn 新进程继续同一会话。
+### 根因
 
-**具体改动：**
+两个问题叠加：
+- **前端自动发 'y'**：bypass 模式下前端在两个位置（early detection + full handler）自动发送 `bridge.sendRawStdin(stdinId, 'y')`
+- **CLI 行为**：`--dangerously-skip-permissions` 可能导致 CLI 内部也自动批准 ExitPlanMode，前端额外发送的 'y' 被解释为新消息，造成混乱
 
-#### Step 1：Rust 后端 — `lib.rs`
-- `StartSessionParams` 新增 `resume_session_id: Option<String>` 字段
-- `start_claude_session` 中：
-  - 如果 `resume_session_id` 有值，不生成新 UUID，使用 `--resume <id>` 替代 `-p` 的初始 session
-  - 参数构建：`["-p", prompt, "--resume", resume_id, "--output-format", "stream-json", "--verbose"]`
+### 各模式的当前行为对比
 
-#### Step 2：Bridge — `tauri-bridge.ts`
-- `StartSessionParams` 新增 `resume_session_id?: string`
+| 模式 | CLI 参数 | ExitPlanMode 处理 | 批准后行为 |
+|------|----------|-------------------|-----------|
+| Code | `--permission-mode acceptEdits` | 显示 PlanReviewCard → 用户点 Approve → 发 'y' | CLI 继续执行 ✅ |
+| Plan | `--mode plan` | 显示 PlanReviewCard → 用户点 Approve → 发 'y'<br>但 CLI 不会继续，需要 TK-306 workaround | Kill → 切 code → 重新提交 ✅ |
+| Bypass | `--dangerously-skip-permissions` | **自动发 'y'** → CLI 退出 | 卡死 ❌ |
 
-#### Step 3：前端 — `InputBar.tsx`
-- 移除 `if (!text || isRunning) return;` 中的 `isRunning` 守卫
-- 新增逻辑：
-  - 如果 `sessionStatus === 'idle'`：正常 `bridge.startSession()` → 首次启动
-  - 如果 `sessionStatus === 'running'` 或 `'completed'`：
-    - 取 `chatStore.sessionMeta.sessionId`
-    - 调用 `bridge.startSession({ ..., resume_session_id: sessionId })`
-    - 不清空消息，不重置 agent store（追加到现有对话）
-  - 状态重设为 `running`，重新挂载 stream listener
-- textarea 和发送按钮始终启用
-- 工具栏（mode/model/upload）在运行时仍可用，但 mode 和 model 选择器保持 disabled（进程已启动，无法更改）
+## 方案
 
-#### Step 4：UI 调整
-- textarea `disabled` 移除 `isRunning` 条件
-- 发送按钮 `disabled` 移除 `isRunning` 条件
-- placeholder 运行时改为"追加消息…"
-- 上传按钮保持在运行时可用
+### 核心原则
 
-#### Step 5：i18n
-- 新增 `input.followUp`: 「追加消息...」/「Send follow-up...」
+**Plan 审批始终需要用户确认**，无论什么模式。批准后的执行策略根据模式不同：
 
-## 功能二：对话列表标题
+| 模式 | 批准方式 | 批准后动作 |
+|------|----------|-----------|
+| Code/Ask | 发 'y' 到 stdin | CLI 自行继续 |
+| Plan | TK-306 | Kill → 切 code → 以 resume 重新提交 |
+| Bypass | TK-306 变体 | Kill → **保持 bypass** → 以 resume 重新提交 |
 
-### 问题分析
-`extract_session_preview` 只看前 20 行，且只匹配 `content[].text`。
-有些会话的第一个 user 消息的 content 是 `tool_result` 类型（不是 text），导致 preview 为空。
+Plan 和 Bypass 都需要 kill-and-restart 方式：
+- Plan 模式：CLI 以 `--mode plan` 启动，批准后不会自动执行
+- Bypass 模式：`--dangerously-skip-permissions` 可能内部已自动批准，发 'y' 无效或造成干扰
 
-### 方案：改进 preview 提取 + 按项目分组
+### 具体修改
 
-#### Step 6：Rust 后端 — 改进 `extract_session_preview`
-- 扫描范围从 20 行增加到 **100 行**
-- 匹配条件扩展：除了 `type=human`/`role=user`，还加 `type=user` + `message.role=user`
-- content 解析扩展：如果 `content[]` 中没有 `text` 类型的 block，尝试递归查找嵌套的 text（比如 `tool_result.content[].text`）
-- 最终 fallback：如果仍然找不到 text，取 content 数组第一个非空字符串
+#### 1. InputBar.tsx — 移除 bypass 自动批准（2 处）
 
-#### Step 7：前端 — ConversationList 按项目分组
-- 当前按时间分组（今天/昨天/本周/更早），改为**双层分组**：
-  - **一级分组：项目**（按最近修改时间排序）
-  - **二级排序：按时间**（同一项目内最新的在前）
-- 每个项目组显示：项目名（短路径）+ 会话数量
-- 项目组可折叠
-- 搜索仍然跨所有项目生效
+**位置 A**：Early detection（约 1230-1258 行）
 
-#### Step 8：i18n
-- `conv.sessions`: 「个会话」/ 「sessions」
-- `conv.collapse`: 「收起」/ 「Collapse」
-- `conv.expand`: 「展开」/ 「Expand」
+```typescript
+// 删除整个 isBypass 分支，统一为：
+addMessage({
+  id: 'plan_review_current',
+  role: 'assistant',
+  type: 'plan_review',
+  content: planContent,
+  planContent: planContent,
+  resolved: false,   // 始终等待用户
+  timestamp: Date.now(),
+});
+setActivityStatus({ phase: 'awaiting' });
+```
 
-## 修改文件清单
+**位置 B**：Full assistant message handler（约 1445-1473 行）
+
+同上，删除 `isBypassMode` 分支，统一为 `resolved: false` + `awaiting`。
+
+#### 2. PlanReviewCard.tsx — 模式感知的批准逻辑
+
+当前 `handleApprove` 只发 'y'。改为根据模式选择不同策略：
+
+```typescript
+import { useSettingsStore } from '../../stores/settingsStore';
+
+const handleApprove = useCallback(async () => {
+  if (isResolved || approving) return;
+  setApproving(true);
+
+  const sessionMode = useSettingsStore.getState().sessionMode;
+  const stdinId = useChatStore.getState().sessionMeta.stdinId;
+
+  // Mark as resolved in all modes
+  useChatStore.getState().updateMessage(message.id, { resolved: true });
+
+  if (sessionMode === 'bypass' || sessionMode === 'plan') {
+    // Bypass/Plan: CLI won't continue normally after ExitPlanMode.
+    // Kill current process, dispatch event for InputBar to re-execute.
+    if (stdinId) {
+      useChatStore.getState().setSessionMeta({ stdinId: undefined });
+      bridge.killSession(stdinId).catch(() => {});
+    }
+    // For plan mode: switch to code (existing TK-306 behavior)
+    if (sessionMode === 'plan') {
+      useSettingsStore.getState().setSessionMode('code');
+    }
+    // Dispatch to InputBar for re-execution
+    window.dispatchEvent(new CustomEvent('tokenicode:execute-plan'));
+  } else {
+    // Code/Ask: send 'y', CLI continues normally
+    if (!stdinId) { setApproving(false); return; }
+    try {
+      await bridge.sendRawStdin(stdinId, 'y');
+      useChatStore.getState().setSessionStatus('running');
+      useChatStore.getState().setActivityStatus({ phase: 'thinking' });
+    } catch {
+      setApproving(false);
+    }
+  }
+}, [isResolved, approving, message.id]);
+```
+
+#### 3. InputBar.tsx — 监听 plan 执行事件
+
+新增 `useEffect`，监听 `tokenicode:execute-plan`：
+
+```typescript
+useEffect(() => {
+  const handler = () => {
+    setInput('Execute the plan above.');
+    requestAnimationFrame(() => handleSubmitRef.current());
+  };
+  window.addEventListener('tokenicode:execute-plan', handler);
+  return () => window.removeEventListener('tokenicode:execute-plan', handler);
+}, [setInput]);
+```
+
+这复用了 `handleSubmit` 的已有逻辑：检测到无 stdinId → 以 resume_session_id 生成新进程。
+
+#### 4. InputBar.tsx — Empty Enter 快捷批准的模式感知
+
+修改 lines 597-616 的 Enter 快捷键逻辑：
+
+```typescript
+if (pendingPlanReview && !text && !useCommandStore.getState().activePrefix) {
+  const stdinId = useChatStore.getState().sessionMeta.stdinId;
+  const currentMode = useSettingsStore.getState().sessionMode;
+
+  useChatStore.getState().updateMessage(pendingPlanReview.id, { resolved: true });
+
+  if (currentMode === 'bypass' || currentMode === 'plan') {
+    // Same as PlanReviewCard bypass/plan path
+    if (stdinId) {
+      useChatStore.getState().setSessionMeta({ stdinId: undefined });
+      bridge.killSession(stdinId).catch(() => {});
+    }
+    if (currentMode === 'plan') {
+      useSettingsStore.getState().setSessionMode('code');
+    }
+    window.dispatchEvent(new CustomEvent('tokenicode:execute-plan'));
+  } else {
+    // Code/Ask: send 'y'
+    if (stdinId) {
+      await bridge.sendRawStdin(stdinId, 'y');
+      setSessionStatus('running');
+      useChatStore.getState().setActivityStatus({ phase: 'thinking' });
+    }
+  }
+  return;
+}
+```
+
+#### 5. InputBar.tsx — PlanApprovalBar 扩展到 bypass 模式
+
+修改渲染条件（line 2076）：
+
+```typescript
+{(sessionMode === 'plan' || sessionMode === 'bypass')
+  && !isStreaming && hasLastAssistantMessage && !hasPendingPlanReview
+  && (sessionStatus === 'completed' || sessionStatus === 'error') && (
+  <PlanApprovalBar onApprove={handlePlanApprove} onSwitchMode={handleSwitchToCode} />
+)}
+```
+
+修改 `handlePlanApprove`（line 206-230），不强制切换 code 模式：
+
+```typescript
+const handlePlanApprove = useCallback(async () => {
+  const stdinId = useChatStore.getState().sessionMeta.stdinId;
+  const currentMode = useSettingsStore.getState().sessionMode;
+
+  // Only switch to code for plan mode (TK-306 original behavior)
+  // Bypass mode stays in bypass
+  if (currentMode === 'plan') {
+    useSettingsStore.getState().setSessionMode('code');
+  }
+
+  if (stdinId) {
+    useChatStore.getState().setSessionMeta({ stdinId: undefined });
+    bridge.killSession(stdinId).catch(() => {});
+  }
+
+  setInput('Execute the plan above.');
+  requestAnimationFrame(() => handleSubmitRef.current());
+}, [setInput]);
+```
+
+## 文件清单
 
 | 文件 | 变更 |
 |------|------|
-| `src-tauri/src/lib.rs` | Step 1 + Step 6 |
-| `src-tauri/src/commands/claude_process.rs` | Step 1（StartSessionParams） |
-| `src/lib/tauri-bridge.ts` | Step 2 |
-| `src/components/chat/InputBar.tsx` | Step 3 + Step 4 |
-| `src/components/conversations/ConversationList.tsx` | Step 7 |
-| `src/lib/i18n.ts` | Step 5 + Step 8 |
+| `src/components/chat/InputBar.tsx` | 移除 bypass 自动批准(2处)、新增 execute-plan 事件监听、修改 Enter 快捷键、扩展 PlanApprovalBar 条件、重构 handlePlanApprove |
+| `src/components/chat/PlanReviewCard.tsx` | 新增 useSettingsStore import、handleApprove 模式感知逻辑 |
+
+**无需新增 i18n key**——复用已有翻译。
+
+## 验证要点
+
+1. **Bypass 模式**：Claude 生成 plan → 显示 PlanReviewCard → 用户点 Approve → kill → 以 bypass 重启 → 执行 plan
+2. **Plan 模式**：同上但切换到 code → 执行 plan（TK-306 不变）
+3. **Code 模式**：显示 PlanReviewCard → 用户点 Approve → 发 'y' → CLI 继续（不变）
+4. **Empty Enter**：在所有模式下均与按钮行为一致
+5. **PlanApprovalBar**：在 bypass 模式下作为兜底也能出现

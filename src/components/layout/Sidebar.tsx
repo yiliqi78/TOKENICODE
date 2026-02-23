@@ -75,9 +75,7 @@ export function Sidebar() {
 
         // Clear working directory so ChatPanel shows WelcomeScreen
         useSettingsStore.getState().setWorkingDirectory('');
-        useChatStore.getState().clearMessages();
-        useChatStore.getState().setSessionMeta({});
-        useChatStore.getState().setSessionStatus('idle');
+        useChatStore.getState().resetSession();
       }}
         className="w-full py-2.5 px-4 rounded-[20px] text-sm font-medium
           bg-accent hover:bg-accent-hover text-text-inverse

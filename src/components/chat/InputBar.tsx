@@ -1,14 +1,14 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useChatStore, generateMessageId, type ChatMessage } from '../../stores/chatStore';
-import { useSettingsStore, MODEL_OPTIONS } from '../../stores/settingsStore';
-import { bridge, onClaudeStream, onClaudeStderr, type UnifiedCommand } from '../../lib/tauri-bridge';
+import { useSettingsStore, MODEL_OPTIONS, type ThinkingLevel } from '../../stores/settingsStore';
+import { bridge, onClaudeStream, onClaudeStderr, onSessionExit, type UnifiedCommand } from '../../lib/tauri-bridge';
 import { ModelSelector } from './ModelSelector';
 import { ModeSelector } from './ModeSelector';
 import { FileUploadChips } from './FileUploadChips';
 import { RewindPanel } from './RewindPanel';
 import { useFileAttachments } from '../../hooks/useFileAttachments';
 import { useRewind } from '../../hooks/useRewind';
-import { useAgentStore, resolveAgentId } from '../../stores/agentStore';
+import { useAgentStore, resolveAgentId, getAgentDepth } from '../../stores/agentStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useT } from '../../lib/i18n';
 import { SlashCommandPopover, getFilteredCommandList } from './SlashCommandPopover';
@@ -18,32 +18,90 @@ import { usePlanPanelStore } from './ChatPanel';
 import { useSnapshotStore } from '../../stores/snapshotStore';
 // drag-state import removed — tree drag handled by ChatPanel
 
-/** Think mode toggle button for the toolbar */
-function ThinkToggle({ disabled }: { disabled: boolean }) {
-  const thinkingEnabled = useSettingsStore((s) => s.thinkingEnabled);
-  const toggleThinking = useSettingsStore((s) => s.toggleThinking);
+/** Thinking effort level configuration data */
+const THINK_LEVELS: { id: ThinkingLevel; labelKey: string }[] = [
+  { id: 'off', labelKey: 'think.off' },
+  { id: 'low', labelKey: 'think.low' },
+  { id: 'medium', labelKey: 'think.medium' },
+  { id: 'high', labelKey: 'think.high' },
+  { id: 'max', labelKey: 'think.max' },
+];
+
+/** Thinking effort level selector dropdown for the toolbar */
+function ThinkLevelSelector({ disabled = false }: { disabled?: boolean }) {
   const t = useT();
+  const thinkingLevel = useSettingsStore((s) => s.thinkingLevel);
+  const setThinkingLevel = useSettingsStore((s) => s.setThinkingLevel);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const isOff = thinkingLevel === 'off';
+  const current = THINK_LEVELS.find((l) => l.id === thinkingLevel) || THINK_LEVELS[3];
 
   return (
-    <button
-      onClick={toggleThinking}
-      disabled={disabled}
-      className={`p-1.5 rounded-lg transition-smooth flex items-center gap-1
-        ${disabled ? 'opacity-40 cursor-not-allowed' : ''}
-        ${thinkingEnabled
-          ? 'bg-amber-500/10 text-amber-500'
-          : 'text-text-tertiary hover:text-text-primary hover:bg-bg-secondary'
-        }`}
-      title={thinkingEnabled ? t('input.thinkOn') : t('input.thinkOff')}
-    >
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
-        stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="8" cy="6" r="4" />
-        <path d="M5.5 9.5C5.5 11.5 6 13 8 13s2.5-1.5 2.5-3.5" />
-        <path d="M6.5 14h3" />
-      </svg>
-      <span className="text-[10px]">Think</span>
-    </button>
+    <div ref={ref} className={`relative ${disabled ? 'opacity-40 pointer-events-none' : ''}`}>
+      <button
+        onClick={() => setOpen(!open)}
+        className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs
+          border transition-smooth cursor-pointer
+          ${isOff
+            ? 'border-border-subtle bg-bg-secondary/50 text-text-muted hover:text-text-primary hover:bg-bg-secondary'
+            : 'border-amber-500/30 bg-amber-500/10 text-amber-500'
+          }`}
+      >
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
+          stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="8" cy="6" r="4" />
+          <path d="M5.5 9.5C5.5 11.5 6 13 8 13s2.5-1.5 2.5-3.5" />
+          <path d="M6.5 14h3" />
+        </svg>
+        <span className="font-medium">{t(current.labelKey)}</span>
+        <svg width="8" height="8" viewBox="0 0 8 8" fill="none"
+          stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
+          className={`transition-transform duration-150 ${open ? 'rotate-180' : ''}`}>
+          <path d="M1.5 3L4 5.5 6.5 3" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute bottom-full left-0 mb-1 min-w-[140px]
+          bg-bg-card border border-border-subtle rounded-lg shadow-lg
+          py-1 z-50 animate-fade-in">
+          {THINK_LEVELS.map((level) => {
+            const isActive = level.id === thinkingLevel;
+            return (
+              <button
+                key={level.id}
+                onClick={() => { setThinkingLevel(level.id); setOpen(false); }}
+                className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs
+                  transition-smooth cursor-pointer
+                  ${isActive
+                    ? 'bg-accent/10 text-accent font-medium'
+                    : 'text-text-muted hover:text-text-primary hover:bg-bg-secondary'
+                  }`}
+              >
+                {t(level.labelKey)}
+                {isActive && (
+                  <svg width="10" height="10" viewBox="0 0 12 12" fill="none"
+                    stroke="currentColor" strokeWidth="1.5" className="ml-auto">
+                    <path d="M2.5 6l2.5 2.5 4.5-4.5" />
+                  </svg>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -147,29 +205,35 @@ export function InputBar() {
 
   const handlePlanApprove = useCallback(async () => {
     const stdinId = useChatStore.getState().sessionMeta.stdinId;
+    const currentMode = useSettingsStore.getState().sessionMode;
 
-    // TK-306 fix: the current CLI process was started with --mode plan,
-    // and ExitPlanMode is broken at the SDK level. We can't switch modes
-    // mid-session. Instead: kill the plan-mode process, clear stdinId so
-    // handleSubmit spawns a new process in code mode (no --mode flag),
-    // and use resume_session_id to carry over conversation context.
+    // Only switch to code mode when explicitly in plan mode.
+    // Bypass and code modes stay as-is so tool permissions remain consistent.
+    if (currentMode === 'plan') {
+      useSettingsStore.getState().setSessionMode('code');
+    }
 
-    // 1. Switch UI to code mode — next startSession won't pass --mode plan
-    useSettingsStore.getState().setSessionMode('code');
-
-    // 2. Kill the plan-mode process and clear stdinId
+    // Kill the current process and clear stdinId so handleSubmit spawns
+    // a new process with resume_session_id to carry over context.
     if (stdinId) {
       useChatStore.getState().setSessionMeta({ stdinId: undefined });
       bridge.killSession(stdinId).catch(() => {});
     }
 
-    // 3. Fill input and submit — handleSubmit will see no stdinId,
-    //    spawn a new process with resume_session_id (code mode).
+    // Fill input and submit — handleSubmit will see no stdinId,
+    // spawn a new process with resume_session_id.
     setInput('Execute the plan above.');
     requestAnimationFrame(() => {
       handleSubmitRef.current();
     });
   }, [setInput]);
+
+  // Listen for plan-execute events from PlanReviewCard and Enter shortcut
+  useEffect(() => {
+    const handler = () => handlePlanApprove();
+    window.addEventListener('tokenicode:plan-execute', handler);
+    return () => window.removeEventListener('tokenicode:plan-execute', handler);
+  }, [handlePlanApprove]);
 
   const handleSwitchToCode = useCallback(() => {
     useSettingsStore.getState().setSessionMode('code');
@@ -276,6 +340,8 @@ export function InputBar() {
   const handleSubmitRef = useRef<() => void>(() => {});
   // Ref to always point to the latest handleStderrLine (used by retry logic in handleStreamMessage)
   const handleStderrLineRef = useRef<(line: string, sid: string) => void>(() => {});
+  /** Tracks whether auto-compact has been triggered in this session to avoid repeat fires */
+  const autoCompactFiredRef = useRef(false);
 
   // --- Immediate command execution ---
   // All built-in commands are handled in the UI layer because they don't work
@@ -327,7 +393,7 @@ export function InputBar() {
 
       // --- Session management ---
       case 'clear':
-        useChatStore.getState().clearMessages();
+        useChatStore.getState().resetSession();
         return;
 
       case 'rewind':
@@ -534,24 +600,13 @@ export function InputBar() {
   const handleSubmit = useCallback(async () => {
     let text = input.trim();
 
-    // Plan approval shortcut: empty Enter approves a pending plan_review
+    // Plan approval shortcut: empty Enter triggers approve & execute flow
     const pendingPlanReview = useChatStore.getState().messages.find(
       (m) => m.type === 'plan_review' && !m.resolved,
     );
     if (pendingPlanReview && !text && !useCommandStore.getState().activePrefix) {
-      const stdinId = useChatStore.getState().sessionMeta.stdinId;
-      if (stdinId) {
-        try {
-          await bridge.sendRawStdin(stdinId, 'y');
-          useChatStore.getState().updateMessage(pendingPlanReview.id, { resolved: true });
-          setSessionStatus('running');
-          useChatStore.getState().setActivityStatus({ phase: 'thinking' });
-        } catch (err) {
-          console.error('[TOKENICODE] Plan approval stdin failed:', err);
-        }
-      } else {
-        console.warn('[TOKENICODE] Plan approval: no stdinId available');
-      }
+      useChatStore.getState().updateMessage(pendingPlanReview.id, { resolved: true });
+      window.dispatchEvent(new CustomEvent('tokenicode:plan-execute'));
       return;
     }
 
@@ -736,6 +791,9 @@ export function InputBar() {
         // event listeners BEFORE spawning the process.
         const preGeneratedId = `desk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
+        // Reset auto-compact guard for the new session
+        autoCompactFiredRef.current = false;
+
         // Register listeners BEFORE starting the session
         const unlisten = await onClaudeStream(
           preGeneratedId,
@@ -752,6 +810,21 @@ export function InputBar() {
           }
         );
 
+        // Backup exit detection: if process_exit from stdout stream is missed
+        // (e.g., listener was removed), this fires as a safety net.
+        const unlistenExit = await onSessionExit(preGeneratedId, () => {
+          console.log('[TOKENICODE] onSessionExit fired for', preGeneratedId);
+          const meta = useChatStore.getState().sessionMeta;
+          // Only act if this is still the active stdinId (avoid stale cleanup)
+          if (meta.stdinId === preGeneratedId) {
+            useChatStore.getState().setSessionMeta({ stdinId: undefined });
+            const status = useChatStore.getState().sessionStatus;
+            if (status === 'running') {
+              useChatStore.getState().setSessionStatus('idle');
+            }
+          }
+        });
+
         // Store unlisten per stdinId for multi-session support
         if (!(window as any).__claudeUnlisteners) {
           (window as any).__claudeUnlisteners = {};
@@ -759,6 +832,7 @@ export function InputBar() {
         (window as any).__claudeUnlisteners[preGeneratedId] = () => {
           unlisten();
           unlistenStderr();
+          unlistenExit();
         };
         (window as any).__claudeUnlisten = (window as any).__claudeUnlisteners[preGeneratedId];
 
@@ -772,7 +846,7 @@ export function InputBar() {
           session_id: preGeneratedId,
           dangerously_skip_permissions: sessionMode === 'bypass',
           resume_session_id: existingSessionId || undefined,
-          thinking_enabled: useSettingsStore.getState().thinkingEnabled,
+          thinking_level: useSettingsStore.getState().thinkingLevel,
           session_mode: (sessionMode === 'ask' || sessionMode === 'plan') ? sessionMode : undefined,
           custom_env: buildCustomEnvVars(),
         });
@@ -1070,6 +1144,7 @@ export function InputBar() {
       setSessionStatus, setSessionMeta, setActivityStatus } = useChatStore.getState();
     const agentActions = useAgentStore.getState();
     const agentId = resolveAgentId(msg.parent_tool_use_id, agentActions.agents);
+    const agentDepth = getAgentDepth(agentId, agentActions.agents);
 
     // Capture the CLI's own session ID from stream events (used for --resume)
     const cliSessionId = msg.session_id || msg.sessionId;
@@ -1122,14 +1197,32 @@ export function InputBar() {
           if (text) {
             // updatePartialMessage now also sets activityStatus to 'writing'
             updatePartialMessage(text);
+            agentActions.updatePhase(agentId, 'writing');
           }
         } else if (evt.type === 'content_block_delta' && evt.delta?.type === 'thinking_delta') {
           const thinkingText = evt.delta.thinking || '';
           if (thinkingText) {
             updatePartialThinking(thinkingText);
+            agentActions.updatePhase(agentId, 'thinking');
           } else {
             setActivityStatus({ phase: 'thinking' });
+            agentActions.updatePhase(agentId, 'thinking');
           }
+        }
+
+        // Early agent creation: register sub-agent as soon as Task tool_use
+        // starts streaming, so subsequent events resolve to the correct agent.
+        if (evt.type === 'content_block_start'
+            && evt.content_block?.type === 'tool_use'
+            && evt.content_block?.name === 'Task') {
+          agentActions.upsertAgent({
+            id: evt.content_block.id || `task_${Date.now()}`,
+            parentId: agentId,
+            description: '',
+            phase: 'spawning',
+            startTime: Date.now(),
+            isMain: false,
+          });
         }
         // Early detection: create plan_review card as soon as ExitPlanMode
         // starts streaming, before the full assistant message arrives.
@@ -1148,35 +1241,19 @@ export function InputBar() {
             }
           }
 
-          // In bypass mode, auto-approve plan review immediately to avoid
-          // deadlock where CLI waits for stdin but user expects full automation.
-          const isBypass = useSettingsStore.getState().sessionMode === 'bypass';
-          if (isBypass) {
-            const stdinId = useChatStore.getState().sessionMeta.stdinId;
-            if (stdinId) {
-              bridge.sendRawStdin(stdinId, 'y').catch(() => {});
-            }
-            addMessage({
-              id: 'plan_review_current',
-              role: 'assistant',
-              type: 'plan_review',
-              content: planContent,
-              planContent: planContent,
-              resolved: true,
-              timestamp: Date.now(),
-            });
-          } else {
-            addMessage({
-              id: 'plan_review_current',
-              role: 'assistant',
-              type: 'plan_review',
-              content: planContent,
-              planContent: planContent,
-              resolved: false,
-              timestamp: Date.now(),
-            });
-            setActivityStatus({ phase: 'awaiting' });
-          }
+          // Always show plan review card for user approval — even in bypass mode.
+          // The user approves via PlanReviewCard or Enter shortcut, which triggers
+          // the plan-execute flow (kill → restart with resume).
+          addMessage({
+            id: 'plan_review_current',
+            role: 'assistant',
+            type: 'plan_review',
+            content: planContent,
+            planContent: planContent,
+            resolved: false,
+            timestamp: Date.now(),
+          });
+          setActivityStatus({ phase: 'awaiting' });
         }
 
         // Track input tokens from message_start
@@ -1257,6 +1334,7 @@ export function InputBar() {
               role: 'assistant',
               type: 'text',
               content: block.text,
+              subAgentDepth: agentDepth,
               timestamp: Date.now(),
             });
           } else if (block.type === 'tool_use') {
@@ -1300,6 +1378,7 @@ export function InputBar() {
                 toolInput: block.input,
                 questions: Array.isArray(questions) ? questions : [],
                 resolved: false,
+                subAgentDepth: agentDepth,
                 timestamp: Date.now(),
               });
               // Mark as awaiting user input (consistent with ExitPlanMode)
@@ -1313,6 +1392,7 @@ export function InputBar() {
                 toolName: block.name,
                 toolInput: block.input,
                 todoItems: block.input.todos,
+                subAgentDepth: agentDepth,
                 timestamp: Date.now(),
               });
             } else if (block.name === 'ExitPlanMode') {
@@ -1336,6 +1416,7 @@ export function InputBar() {
                 content: '',
                 toolName: block.name,
                 toolInput: block.input,
+                subAgentDepth: agentDepth,
                 timestamp: Date.now(),
               });
 
@@ -1363,35 +1444,17 @@ export function InputBar() {
                 ? 'plan_review_current'  // Update existing unresolved card
                 : 'plan_review_current'; // First card — use stable ID
 
-              // In bypass mode, auto-approve plan review immediately.
-              const isBypassMode = useSettingsStore.getState().sessionMode === 'bypass';
-              if (isBypassMode) {
-                const stdinId = useChatStore.getState().sessionMeta.stdinId;
-                if (stdinId) {
-                  bridge.sendRawStdin(stdinId, 'y').catch(() => {});
-                }
-                addMessage({
-                  id: reviewId,
-                  role: 'assistant',
-                  type: 'plan_review',
-                  content: planContent,
-                  planContent: planContent,
-                  resolved: true,
-                  timestamp: Date.now(),
-                });
-              } else {
-                addMessage({
-                  id: reviewId,
-                  role: 'assistant',
-                  type: 'plan_review',
-                  content: planContent,
-                  planContent: planContent,
-                  resolved: false,
-                  timestamp: Date.now(),
-                });
-                // Set awaiting status
-                setActivityStatus({ phase: 'awaiting' });
-              }
+              // Always show plan review card for user approval (all modes).
+              addMessage({
+                id: reviewId,
+                role: 'assistant',
+                type: 'plan_review',
+                content: planContent,
+                planContent: planContent,
+                resolved: false,
+                timestamp: Date.now(),
+              });
+              setActivityStatus({ phase: 'awaiting' });
             } else {
               addMessage({
                 id: block.id || generateMessageId(),
@@ -1400,6 +1463,7 @@ export function InputBar() {
                 content: '',
                 toolName: block.name,
                 toolInput: block.input,
+                subAgentDepth: agentDepth,
                 timestamp: Date.now(),
               });
 
@@ -1420,6 +1484,7 @@ export function InputBar() {
               role: 'assistant',
               type: 'thinking',
               content: block.thinking || '',
+              subAgentDepth: agentDepth,
               timestamp: Date.now(),
             });
           }
@@ -1526,6 +1591,7 @@ export function InputBar() {
           type: 'tool_result',
           content: resultContent,
           toolName: msg.tool_name,
+          subAgentDepth: agentDepth,
           timestamp: Date.now(),
         });
         break;
@@ -1621,7 +1687,7 @@ export function InputBar() {
                   session_id: retryId,
                   dangerously_skip_permissions: sessionMode === 'bypass',
                   // No resume_session_id — fresh start to avoid thinking signature issue
-                  thinking_enabled: useSettingsStore.getState().thinkingEnabled,
+                  thinking_level: useSettingsStore.getState().thinkingLevel,
                   session_mode: (sessionMode === 'ask' || sessionMode === 'plan') ? sessionMode : undefined,
                   custom_env: buildCustomEnvVars(),
                 });
@@ -1710,6 +1776,7 @@ export function InputBar() {
               role: 'assistant',
               type: 'text',
               content: resultDisplayText,
+              subAgentDepth: agentDepth,
               timestamp: Date.now(),
             });
           }
@@ -1731,6 +1798,33 @@ export function InputBar() {
         );
         useSessionStore.getState().fetchSessions();
         setTimeout(() => useSessionStore.getState().fetchSessions(), 1000);
+
+        // --- Auto-compact: when input tokens exceed 160K (80% of 200K context),
+        // automatically send /compact to prevent context overflow on the next turn.
+        // Fires at most once per session to avoid infinite loops.
+        const resultInputTokens = msg.usage?.input_tokens || 0;
+        const compactStdinId = useChatStore.getState().sessionMeta.stdinId;
+        if (resultInputTokens > 160_000 && !autoCompactFiredRef.current && compactStdinId && msg.subtype === 'success') {
+          autoCompactFiredRef.current = true;
+          console.log('[TOKENICODE] Auto-compact triggered: inputTokens =', resultInputTokens);
+          addMessage({
+            id: generateMessageId(),
+            role: 'system',
+            type: 'text',
+            content: '',
+            commandType: 'processing',
+            commandData: { command: '/compact' },
+            commandStartTime: Date.now(),
+            commandCompleted: false,
+            timestamp: Date.now(),
+          });
+          setSessionStatus('running');
+          setActivityStatus({ phase: 'thinking' });
+          bridge.sendStdin(compactStdinId, '/compact').catch((err) => {
+            console.error('[TOKENICODE] Auto-compact failed:', err);
+          });
+          break; // Skip pending message flush — compact takes priority
+        }
 
         // Flush any user messages that were queued while AI was processing.
         // These follow-up messages were held to prevent them from being
@@ -1966,8 +2060,8 @@ export function InputBar() {
           <RewindPanel onClose={() => setShowRewindPanel(false)} />
         )}
 
-        {/* Plan approval bar — shown when plan turn completed, not actively streaming */}
-        {sessionMode === 'plan' && !isStreaming && hasLastAssistantMessage && !hasPendingPlanReview
+        {/* Plan approval bar — fallback when plan turn completed without PlanReviewCard */}
+        {(sessionMode === 'plan' || sessionMode === 'bypass') && !isStreaming && hasLastAssistantMessage && !hasPendingPlanReview
           && (sessionStatus === 'completed' || sessionStatus === 'error') && (
           <PlanApprovalBar onApprove={handlePlanApprove} onSwitchMode={handleSwitchToCode} />
         )}
@@ -2078,16 +2172,22 @@ export function InputBar() {
             <button
               onClick={async () => {
                 const sid = useChatStore.getState().sessionMeta.stdinId;
-                if (sid) {
-                  await bridge.killSession(sid).catch(() => {});
-                }
-                if ((window as any).__claudeUnlisten) {
-                  (window as any).__claudeUnlisten();
-                  (window as any).__claudeUnlisten = null;
-                }
+                // Immediately clear stdinId so no further messages are sent to the dead process
+                useChatStore.getState().setSessionMeta({ stdinId: undefined });
                 useChatStore.getState().setSessionStatus('completed');
                 useChatStore.getState().setActivityStatus({ phase: 'completed' });
-                useChatStore.getState().setSessionMeta({});
+                if (sid) {
+                  await bridge.killSession(sid).catch(() => {});
+                  // Don't unlisten immediately — let process_exit fire naturally to clean up.
+                  // The listener will be replaced when a new session spawns (line ~788).
+                  // As a safety net, force-clean after 3s if process_exit hasn't arrived.
+                  setTimeout(() => {
+                    if ((window as any).__claudeUnlisteners?.[sid]) {
+                      (window as any).__claudeUnlisteners[sid]();
+                      delete (window as any).__claudeUnlisteners[sid];
+                    }
+                  }, 3000);
+                }
               }}
               className="flex-shrink-0 self-end w-8 h-8 rounded-[10px]
                 bg-red-500/15 text-red-500
@@ -2146,7 +2246,7 @@ export function InputBar() {
           <ModeSelector disabled={isRunning} />
 
           {/* Think toggle */}
-          <ThinkToggle disabled={isRunning} />
+          <ThinkLevelSelector disabled={isRunning} />
 
           {/* Rewind button */}
           {showRewind && (

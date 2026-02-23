@@ -82,7 +82,20 @@ export function ConversationList() {
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    fetchSessions();
+    fetchSessions().then(() => {
+      // Auto-restore last active session on app restart
+      const currentSelected = useSessionStore.getState().selectedSessionId;
+      if (!currentSelected) {
+        const lastId = useSessionStore.getState().getLastSessionId();
+        if (lastId) {
+          const sessions = useSessionStore.getState().sessions;
+          const match = sessions.find((s) => s.id === lastId);
+          if (match) {
+            handleLoadSession(match.path, match.id, match.project);
+          }
+        }
+      }
+    });
     // Periodic refresh every 10s to catch missed updates
     const interval = setInterval(fetchSessions, 10000);
     return () => clearInterval(interval);
@@ -138,9 +151,7 @@ export function ConversationList() {
       }
       if (selectedId === sessionId) {
         setSelected('');
-        useChatStore.getState().clearMessages();
-        useChatStore.getState().setSessionMeta({});
-        useChatStore.getState().setSessionStatus('idle');
+        useChatStore.getState().resetSession();
         useSettingsStore.getState().setWorkingDirectory('');
       }
       // Also remove from chat cache so it doesn't linger
@@ -185,9 +196,9 @@ export function ConversationList() {
       return;
     }
 
-    // 4) Draft sessions with no path — just clear messages for a fresh chat
+    // 4) Draft sessions with no path — just reset for a fresh chat
     if (!sessionPath) {
-      useChatStore.getState().clearMessages();
+      useChatStore.getState().resetSession();
       useAgentStore.getState().clearAgents();
       return;
     }

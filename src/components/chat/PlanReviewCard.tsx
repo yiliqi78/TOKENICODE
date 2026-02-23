@@ -1,6 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
 import { type ChatMessage, useChatStore } from '../../stores/chatStore';
-import { bridge } from '../../lib/tauri-bridge';
 import { useT } from '../../lib/i18n';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
 
@@ -53,18 +52,11 @@ export function PlanReviewCard({ message }: Props) {
 
   const handleApprove = useCallback(async () => {
     if (isResolved || approving) return;
-    const stdinId = useChatStore.getState().sessionMeta.stdinId;
-    if (!stdinId) return;
     setApproving(true);
-    try {
-      await bridge.sendRawStdin(stdinId, 'y');
-      useChatStore.getState().updateMessage(message.id, { resolved: true });
-      useChatStore.getState().setSessionStatus('running');
-      useChatStore.getState().setActivityStatus({ phase: 'thinking' });
-    } catch {
-      // If stdin send fails, reset so user can retry
-      setApproving(false);
-    }
+    // Mark as resolved and dispatch event for InputBar to handle
+    // the kill → restart → execute flow (mode-aware TK-306).
+    useChatStore.getState().updateMessage(message.id, { resolved: true });
+    window.dispatchEvent(new CustomEvent('tokenicode:plan-execute'));
   }, [isResolved, approving, message.id]);
 
   const handleModify = useCallback(() => {
@@ -172,7 +164,7 @@ export function PlanReviewCard({ message }: Props) {
                     stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M2.5 6l2.5 2.5 4.5-4.5" />
                   </svg>
-                  {t('msg.planApproveHint')}
+                  {t('msg.planApproveAndExecute')}
                 </>
               )}
             </button>

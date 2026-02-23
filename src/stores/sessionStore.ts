@@ -4,6 +4,7 @@ import { bridge, SessionListItem } from '../lib/tauri-bridge';
 // Persist custom session names in localStorage as fast cache,
 // and sync to disk via Tauri backend for durability.
 const CUSTOM_PREVIEWS_KEY = 'tokenicode_custom_previews';
+const LAST_SESSION_KEY = 'tokenicode_last_session';
 
 function loadCustomPreviewsSync(): Record<string, string> {
   try {
@@ -15,6 +16,17 @@ function loadCustomPreviewsSync(): Record<string, string> {
 
 function saveCustomPreviewsLocal(map: Record<string, string>) {
   localStorage.setItem(CUSTOM_PREVIEWS_KEY, JSON.stringify(map));
+}
+
+/** Persist the last active session ID so app restart can auto-restore */
+function saveLastSessionId(id: string | null) {
+  if (id && !id.startsWith('draft_')) {
+    localStorage.setItem(LAST_SESSION_KEY, id);
+  }
+}
+
+function loadLastSessionId(): string | null {
+  return localStorage.getItem(LAST_SESSION_KEY);
 }
 
 interface SessionState {
@@ -59,6 +71,8 @@ interface SessionState {
   switchToPrevious: () => void;
   /** Load custom previews from backend (called once on init) */
   loadCustomPreviewsFromDisk: () => Promise<void>;
+  /** Get the last active session ID from localStorage (for app restart recovery) */
+  getLastSessionId: () => string | null;
 }
 
 export const useSessionStore = create<SessionState>()((set, get) => ({
@@ -88,10 +102,13 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
 
   setSearchQuery: (query) => set({ searchQuery: query }),
 
-  setSelectedSession: (id) => set((state) => ({
-    selectedSessionId: id,
-    previousSessionId: state.selectedSessionId !== id ? state.selectedSessionId : state.previousSessionId,
-  })),
+  setSelectedSession: (id) => {
+    saveLastSessionId(id);
+    set((state) => ({
+      selectedSessionId: id,
+      previousSessionId: state.selectedSessionId !== id ? state.selectedSessionId : state.previousSessionId,
+    }));
+  },
 
   addDraftSession: (id, projectPath) => set((state) => {
     const projectDir = projectPath.replace(/\//g, '-');
@@ -150,7 +167,9 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
     sessions: state.sessions.filter((s) => s.id !== draftId),
   })),
 
-  promoteDraft: (oldDraftId, newRealId) => set((state) => {
+  promoteDraft: (oldDraftId, newRealId) => {
+    saveLastSessionId(newRealId);
+    set((state) => {
     // 1) Rename session in the list
     const sessions = state.sessions.map((s) =>
       s.id === oldDraftId ? { ...s, id: newRealId } : s,
@@ -189,7 +208,8 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
     }
 
     return { sessions, selectedSessionId, previousSessionId, runningSessions, stdinToTab, customPreviews };
-  }),
+  });
+  },
 
   switchToPrevious: () => {
     const { previousSessionId, selectedSessionId, sessions } = get();
@@ -215,4 +235,6 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       // Silently fall back to localStorage data
     }
   },
+
+  getLastSessionId: () => loadLastSessionId(),
 }));

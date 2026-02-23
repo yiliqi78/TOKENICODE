@@ -36,6 +36,11 @@ const messages: Record<Locale, Record<string, string>> = {
     'input.attachedFiles': '[附加的文件]',
     'input.thinkOn': '已开启深度思考',
     'input.thinkOff': '已关闭深度思考',
+    'think.off': '关闭思考',
+    'think.low': '浅思考',
+    'think.medium': '中思考',
+    'think.high': '深思考',
+    'think.max': '最深思考',
     'input.shortcutHint': '⏎ 发送 · {mod}⏎ 换行',
 
     // MessageBubble
@@ -198,6 +203,7 @@ const messages: Record<Locale, Record<string, string>> = {
 
     // Markdown rich text
     'msg.copyCode': '复制',
+    'msg.copyText': '复制',
     'msg.copied': '已复制！',
     'msg.imgError': '图片加载失败',
     'msg.openLink': '在浏览器打开',
@@ -223,6 +229,9 @@ const messages: Record<Locale, Record<string, string>> = {
     'msg.planApproved': '计划已批准',
     'msg.planLabel': '计划',
     'chat.awaiting': '等待输入...',
+    'chat.tokenWarning': '上下文即将满载，建议 /compact',
+    'chat.autoCompacting': '上下文接近上限，自动压缩中...',
+    'chat.stallWarning': '响应超时，可能断网。建议停止后重试',
 
     // Agent panel
     'agents.title': '代理',
@@ -230,6 +239,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'agents.subAgent': '子代理',
     'agents.empty': '发送消息后查看代理活动',
     'agents.active': '活跃',
+    'agents.toggle': '代理活动',
     'agents.spawning': '启动中...',
     'agents.thinking': '思考中...',
     'agents.writing': '输出中...',
@@ -269,7 +279,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'api.providerName': '提供商名称',
     'api.providerNamePlaceholder': '如 OpenRouter',
     'api.baseUrl': 'API 端点',
-    'api.baseUrlPlaceholder': 'https://openrouter.ai/api/v1',
+    'api.baseUrlPlaceholder': 'https://api.example.com',
     'api.apiKey': 'API Key',
     'api.apiKeyPlaceholder': '输入 API Key...',
     'api.apiKeySaved': 'Key 已保存',
@@ -284,6 +294,8 @@ const messages: Record<Locale, Record<string, string>> = {
     'api.haikuPlaceholder': '如 claude-haiku-4-5',
     'api.save': '保存',
     'api.saved': '已保存',
+    'api.routeCli': 'CLI 通路',
+    'api.routeApi': 'API 通路',
     'api.format': 'API 格式',
     'api.formatAnthropic': 'Anthropic Messages（原生）',
     'api.formatOpenai': 'OpenAI Chat Completions',
@@ -570,6 +582,11 @@ const messages: Record<Locale, Record<string, string>> = {
     'input.attachedFiles': '[Attached files]',
     'input.thinkOn': 'Extended thinking enabled',
     'input.thinkOff': 'Extended thinking disabled',
+    'think.off': 'Think Off',
+    'think.low': 'Think Low',
+    'think.medium': 'Think Med',
+    'think.high': 'Think High',
+    'think.max': 'Think Max',
     'input.shortcutHint': '⏎ Send · {mod}⏎ New line',
 
     // MessageBubble
@@ -732,6 +749,7 @@ const messages: Record<Locale, Record<string, string>> = {
 
     // Markdown rich text
     'msg.copyCode': 'Copy',
+    'msg.copyText': 'Copy',
     'msg.copied': 'Copied!',
     'msg.imgError': 'Image failed to load',
     'msg.openLink': 'Open in browser',
@@ -757,6 +775,9 @@ const messages: Record<Locale, Record<string, string>> = {
     'msg.planApproved': 'Plan approved',
     'msg.planLabel': 'Plan',
     'chat.awaiting': 'Awaiting input...',
+    'chat.tokenWarning': 'Context nearly full — try /compact',
+    'chat.autoCompacting': 'Context near limit, auto-compacting...',
+    'chat.stallWarning': 'Response stalled — network issue? Try stopping and retrying',
 
     // Agent panel
     'agents.title': 'Agents',
@@ -764,6 +785,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'agents.subAgent': 'Sub-agent',
     'agents.empty': 'Send a message to see agent activity',
     'agents.active': 'active',
+    'agents.toggle': 'Agent Activity',
     'agents.spawning': 'Starting...',
     'agents.thinking': 'Thinking...',
     'agents.writing': 'Writing...',
@@ -803,7 +825,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'api.providerName': 'Provider Name',
     'api.providerNamePlaceholder': 'e.g. OpenRouter',
     'api.baseUrl': 'API Endpoint',
-    'api.baseUrlPlaceholder': 'https://openrouter.ai/api/v1',
+    'api.baseUrlPlaceholder': 'https://api.example.com',
     'api.apiKey': 'API Key',
     'api.apiKeyPlaceholder': 'Enter API Key...',
     'api.apiKeySaved': 'Key saved',
@@ -818,6 +840,8 @@ const messages: Record<Locale, Record<string, string>> = {
     'api.haikuPlaceholder': 'e.g. claude-haiku-4-5',
     'api.save': 'Save',
     'api.saved': 'Saved',
+    'api.routeCli': 'CLI',
+    'api.routeApi': 'API',
     'api.format': 'API Format',
     'api.formatAnthropic': 'Anthropic Messages (Native)',
     'api.formatOpenai': 'OpenAI Chat Completions',

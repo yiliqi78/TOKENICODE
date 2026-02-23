@@ -139,7 +139,10 @@ interface ChatState {
   updatePartialThinking: (text: string) => void;
   setSessionStatus: (status: SessionStatus) => void;
   setActivityStatus: (status: ActivityStatus) => void;
+  /** Clear messages and UI state but PRESERVE sessionMeta (for session reload) */
   clearMessages: () => void;
+  /** Full reset: clear everything including sessionMeta (for new session / /clear) */
+  resetSession: () => void;
   setSessionMeta: (meta: Partial<SessionMeta>) => void;
 
   /** Save current state to cache under given tabId */
@@ -270,6 +273,21 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     set(() => ({ activityStatus })),
 
   clearMessages: () =>
+    set((state) => ({
+      messages: [],
+      isStreaming: false,
+      partialText: '',
+      partialThinking: '',
+      sessionStatus: 'idle',
+      // Preserve sessionMeta (especially sessionId for resume)
+      sessionMeta: state.sessionMeta,
+      activityStatus: { phase: 'idle' },
+      inputDraft: '',
+      pendingAttachments: [],
+      pendingUserMessages: [],
+    })),
+
+  resetSession: () =>
     set(() => ({
       messages: [],
       isStreaming: false,

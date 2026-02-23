@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useSettingsStore, MODEL_OPTIONS, ColorTheme, type ApiProviderMode } from '../../stores/settingsStore';
 import { bridge } from '../../lib/tauri-bridge';
 import { useMcpStore } from '../../stores/mcpStore';
@@ -258,6 +258,9 @@ function ApiProviderSection() {
   const [keyStatus, setKeyStatus] = useState<'empty' | 'saved' | 'editing'>('empty');
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'auth_error' | 'failed'>('idle');
   const [testError, setTestError] = useState('');
+  const [baseUrlSaved, setBaseUrlSaved] = useState(false);
+  const baseUrlTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const saveKeyTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Load existing API key status on mount
   useEffect(() => {
@@ -269,24 +272,51 @@ function ApiProviderSection() {
     }).catch(() => {});
   }, []);
 
-  const handleSaveKey = useCallback(async () => {
-    if (!apiKeyInput || apiKeyInput === '••••••••••••') return;
-    try {
-      await bridge.saveApiKey(apiKeyInput);
-      setApiKeyInput('••••••••••••');
-      setShowKey(false);
-      setKeyStatus('saved');
-    } catch (e) {
-      console.error('Failed to save API key:', e);
+  // Auto-save API key with debounce
+  const handleKeyChange = useCallback((value: string) => {
+    // If currently showing mask and user starts typing, clear it
+    if (apiKeyInput === '••••••••••••') {
+      setApiKeyInput(value.replace('••••••••••••', ''));
+    } else {
+      setApiKeyInput(value);
     }
+    setKeyStatus('editing');
+    clearTimeout(saveKeyTimerRef.current);
+    const trimmed = value.replace('••••••••••••', '').trim();
+    if (!trimmed) return;
+    saveKeyTimerRef.current = setTimeout(async () => {
+      try {
+        await bridge.saveApiKey(trimmed);
+        setKeyStatus('saved');
+      } catch (e) {
+        console.error('Failed to save API key:', e);
+      }
+    }, 800);
   }, [apiKeyInput]);
 
-  const handleKeyFocus = useCallback(() => {
-    if (keyStatus === 'saved') {
-      setApiKeyInput('');
-      setKeyStatus('editing');
+  // Eye toggle: load real key when revealing
+  const handleToggleShowKey = useCallback(async () => {
+    if (!showKey && keyStatus === 'saved') {
+      try {
+        const realKey = await bridge.loadApiKey();
+        if (realKey) {
+          setApiKeyInput(realKey);
+          setShowKey(true);
+        }
+      } catch {
+        // If load fails, just toggle type
+        setShowKey(true);
+      }
+    } else if (showKey) {
+      // Hide: re-mask if we were showing a saved key
+      if (keyStatus === 'saved') {
+        setApiKeyInput('••••••••••••');
+      }
+      setShowKey(false);
+    } else {
+      setShowKey(!showKey);
     }
-  }, [keyStatus]);
+  }, [showKey, keyStatus]);
 
   const handleTestConnection = useCallback(async () => {
     if (!baseUrl) return;
@@ -398,11 +428,26 @@ function ApiProviderSection() {
 
               {/* Base URL */}
               <div>
-                <label className="text-[10px] text-text-muted mb-1 block">{t('api.baseUrl')}</label>
+                <label className="text-[10px] text-text-muted mb-1 block">
+                  {t('api.baseUrl')}
+                  {baseUrlSaved && (
+                    <span className="ml-1.5 text-green-500">{t('api.saved')}</span>
+                  )}
+                </label>
                 <input
                   className={inputClass}
                   value={baseUrl}
-                  onChange={(e) => setBaseUrl(e.target.value)}
+                  onChange={(e) => {
+                    setBaseUrl(e.target.value);
+                    setBaseUrlSaved(false);
+                    clearTimeout(baseUrlTimerRef.current);
+                    if (e.target.value.trim()) {
+                      baseUrlTimerRef.current = setTimeout(() => {
+                        setBaseUrlSaved(true);
+                        setTimeout(() => setBaseUrlSaved(false), 2000);
+                      }, 600);
+                    }
+                  }}
                   placeholder={t('api.baseUrlPlaceholder')}
                 />
               </div>
@@ -442,25 +487,15 @@ function ApiProviderSection() {
                     className={`${inputClass} flex-1`}
                     type={showKey ? 'text' : 'password'}
                     value={apiKeyInput}
-                    onChange={(e) => { setApiKeyInput(e.target.value); setKeyStatus('editing'); }}
-                    onFocus={handleKeyFocus}
+                    onChange={(e) => handleKeyChange(e.target.value)}
                     placeholder={t('api.apiKeyPlaceholder')}
                   />
                   <button
-                    onClick={() => setShowKey(!showKey)}
+                    onClick={handleToggleShowKey}
                     className="px-2 py-1.5 rounded-lg border border-border-subtle
                       text-[10px] text-text-muted hover:bg-bg-secondary transition-smooth"
                   >
                     {showKey ? '🙈' : '👁'}
-                  </button>
-                  <button
-                    onClick={handleSaveKey}
-                    disabled={!apiKeyInput || apiKeyInput === '••••••••••••'}
-                    className="px-2.5 py-1.5 rounded-lg text-[10px] font-medium transition-smooth
-                      bg-accent/10 text-accent hover:bg-accent/20
-                      disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {t('api.save')}
                   </button>
                 </div>
               </div>

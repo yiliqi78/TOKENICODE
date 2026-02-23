@@ -6,6 +6,7 @@ import rehypeHighlight from 'rehype-highlight';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { useLightboxStore } from './ImageLightbox';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useFileStore } from '../../stores/fileStore';
 import { bridge } from '../../lib/tauri-bridge';
 import { useT } from '../../lib/i18n';
 
@@ -120,6 +121,9 @@ function extractText(node: ReactNode): string {
   }
   return '';
 }
+
+/** Detect file paths in inline code — conservative regex to avoid false positives */
+const FILE_PATH_RE = /^(?:\/|\.\/|\.\.\/|[a-zA-Z]:[/\\]|src\/|lib\/|components\/|stores\/|hooks\/|utils\/|tests\/|__tests__\/)[\w.@/-]+\.\w{1,10}$/;
 
 /* ================================================================
    MarkdownRenderer — shared markdown rendering with syntax highlighting
@@ -252,6 +256,34 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
           </pre>
         </div>
       );
+    },
+    code: ({ children, className }: { children?: ReactNode; className?: string }) => {
+      // Fenced code blocks (language-xxx) — don't intercept, let <pre> handle them
+      if (className) return <code className={className}>{children}</code>;
+
+      const text = extractText(children).trim();
+      if (FILE_PATH_RE.test(text)) {
+        const resolved = text.startsWith('/') || /^[a-zA-Z]:[/\\]/.test(text)
+          ? text
+          : resolveBase ? `${resolveBase.replace(/\/$/, '')}/${text}` : text;
+        return (
+          <button
+            onClick={() => useFileStore.getState().selectFile(resolved)}
+            className="inline-flex items-center gap-0.5 bg-bg-secondary px-1.5 py-0.5
+              rounded-md text-sm text-accent hover:bg-accent/15
+              cursor-pointer transition-smooth font-mono"
+            title={resolved}
+          >
+            <svg width="10" height="10" viewBox="0 0 12 12" fill="none"
+              stroke="currentColor" strokeWidth="1.2" className="flex-shrink-0 opacity-60">
+              <path d="M7 1H3a1 1 0 00-1 1v8a1 1 0 001 1h6a1 1 0 001-1V4L7 1z" />
+              <path d="M7 1v3h3" />
+            </svg>
+            {text}
+          </button>
+        );
+      }
+      return <code>{children}</code>;
     },
   }), [t, resolveBase]);
 

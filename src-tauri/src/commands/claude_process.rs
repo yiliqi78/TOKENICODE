@@ -90,8 +90,8 @@ pub struct StartSessionParams {
     /// When set, resume an existing Claude CLI session instead of starting a new one.
     /// The value should be the Claude CLI session ID (UUID).
     pub resume_session_id: Option<String>,
-    /// Enable extended thinking mode for the CLI process.
-    pub thinking_enabled: Option<bool>,
+    /// Thinking effort level: "off", "low", "medium", "high", or "max".
+    pub thinking_level: Option<String>,
     /// Session mode: "ask", "plan", or "auto" (default).
     pub session_mode: Option<String>,
     /// Custom environment variables for API provider override.

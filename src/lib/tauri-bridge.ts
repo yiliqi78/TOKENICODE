@@ -12,8 +12,8 @@ export interface StartSessionParams {
   dangerously_skip_permissions?: boolean;
   /** Resume an existing Claude CLI session by ID (for follow-up messages) */
   resume_session_id?: string;
-  /** Enable extended thinking mode */
-  thinking_enabled?: boolean;
+  /** Thinking effort level: 'off' | 'low' | 'medium' | 'high' | 'max' */
+  thinking_level?: string;
   /** Session mode: "ask", "plan", or undefined for auto */
   session_mode?: string;
   /** Custom environment variables for API provider override (TK-303) */

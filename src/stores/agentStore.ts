@@ -104,3 +104,18 @@ export function resolveAgentId(
   if (agents.has(parentToolUseId)) return parentToolUseId;
   return 'main';
 }
+
+/** Compute nesting depth of an agent (main = 0, direct sub-agent = 1, etc.) */
+export function getAgentDepth(
+  agentId: string,
+  agents: Map<string, AgentNode>,
+): number {
+  let depth = 0;
+  let current = agents.get(agentId);
+  while (current && !current.isMain && current.parentId) {
+    depth++;
+    current = agents.get(current.parentId);
+    if (depth > 10) break; // safety guard against cycles
+  }
+  return depth;
+}

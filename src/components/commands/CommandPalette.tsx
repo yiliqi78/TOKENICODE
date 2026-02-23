@@ -21,6 +21,7 @@ export function CommandPalette() {
   const toggleSidebar = useSettingsStore((s) => s.toggleSidebar);
   const toggleSecondaryPanel = useSettingsStore((s) => s.toggleSecondaryPanel);
   const setSecondaryTab = useSettingsStore((s) => s.setSecondaryTab);
+  const toggleAgentPanel = useSettingsStore((s) => s.toggleAgentPanel);
   const toggleTheme = useSettingsStore((s) => s.toggleTheme);
 
   const commands: CommandItem[] = useMemo(() => [
@@ -29,7 +30,7 @@ export function CommandPalette() {
       descKey: 'cmd.newChatDesc',
       categoryKey: 'cmd.chat', icon: 'M8 3v10M3 8h10',
       action: () => {
-        useChatStore.getState().clearMessages();
+        useChatStore.getState().resetSession();
       },
     },
     {
@@ -54,7 +55,7 @@ export function CommandPalette() {
       id: 'show-agents', labelKey: 'cmd.showAgents',
       descKey: 'cmd.showAgentsDesc',
       categoryKey: 'cmd.view', icon: 'M8 2a3 3 0 100 6 3 3 0 000-6z',
-      action: () => setSecondaryTab('agents'),
+      action: toggleAgentPanel,
     },
     {
       id: 'toggle-theme', labelKey: 'cmd.toggleTheme',
@@ -62,7 +63,7 @@ export function CommandPalette() {
       categoryKey: 'cmd.settings', icon: 'M8 1v2M8 13v2M1 8h2M13 8h2',
       action: toggleTheme,
     },
-  ], [toggleSidebar, toggleSecondaryPanel, setSecondaryTab, toggleTheme]);
+  ], [toggleSidebar, toggleSecondaryPanel, setSecondaryTab, toggleAgentPanel, toggleTheme]);
 
   // Fuzzy filter
   const filtered = useMemo(() => {

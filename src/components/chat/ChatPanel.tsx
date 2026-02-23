@@ -8,6 +8,8 @@ import { ExportMenu } from '../conversations/ExportMenu';
 import { useSettingsStore, MODEL_OPTIONS } from '../../stores/settingsStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useFileStore } from '../../stores/fileStore';
+import { useAgentStore } from '../../stores/agentStore';
+import { AgentPanel } from '../agents/AgentPanel';
 import { bridge, onClaudeStream, onClaudeStderr } from '../../lib/tauri-bridge';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useT } from '../../lib/i18n';
@@ -218,7 +220,7 @@ function CyclingThinkingText() {
 /** Activity indicator with elapsed time and token count */
 function ActivityIndicator({ activityStatus, sessionMeta }: {
   activityStatus: { phase: string; toolName?: string };
-  sessionMeta: { turnStartTime?: number; outputTokens?: number };
+  sessionMeta: { turnStartTime?: number; outputTokens?: number; inputTokens?: number };
 }) {
   const t = useT();
   const [now, setNow] = useState(Date.now());
@@ -235,10 +237,19 @@ function ActivityIndicator({ activityStatus, sessionMeta }: {
     : t('chat.running');
 
   const elapsed = sessionMeta.turnStartTime ? formatElapsed(now - sessionMeta.turnStartTime) : null;
+  const elapsedMs = sessionMeta.turnStartTime ? now - sessionMeta.turnStartTime : 0;
   const tokens = sessionMeta.outputTokens ? formatTokens(sessionMeta.outputTokens) : null;
   const statsText = elapsed
     ? tokens ? `(${elapsed} · ↓ ${tokens})` : `(${elapsed})`
     : null;
+
+  // Context pressure warning: show when inputTokens exceeds 120K (60% of 200K window)
+  const inputTokens = sessionMeta.inputTokens || 0;
+  const contextWarning = inputTokens > 120_000;
+
+  // Stall detection: if turn has been running > 3 minutes with zero output tokens,
+  // likely the CLI is hanging (network disconnect, API timeout, etc.)
+  const stallWarning = elapsedMs > 180_000 && !sessionMeta.outputTokens;
 
   const isThinking = activityStatus.phase === 'thinking';
 
@@ -249,9 +260,26 @@ function ActivityIndicator({ activityStatus, sessionMeta }: {
       <span className="text-sm text-text-muted">
         {isThinking ? <CyclingThinkingText /> : phaseText}
         {statsText && (
-          <span className="text-text-tertiary ml-1.5">{statsText}</span>
+          <span className={`ml-1.5 ${stallWarning ? 'text-red-400' : 'text-text-tertiary'}`}>{statsText}</span>
         )}
       </span>
+      {stallWarning && (
+        <span className="text-xs text-red-400 ml-2 flex items-center gap-1">
+          <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
+          </svg>
+          {t('chat.stallWarning')}
+        </span>
+      )}
+      {contextWarning && !stallWarning && (
+        <span className="text-xs text-amber-500 ml-2 flex items-center gap-1"
+              title={t('chat.tokenWarning')}>
+          <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.168 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+          </svg>
+          {t('chat.tokenWarning')}
+        </span>
+      )}
     </div>
   );
 }
@@ -268,10 +296,24 @@ export function ChatPanel() {
   const sidebarOpen = useSettingsStore((s) => s.sidebarOpen);
   const toggleSidebar = useSettingsStore((s) => s.toggleSidebar);
   const toggleSecondaryPanel = useSettingsStore((s) => s.toggleSecondaryPanel);
+  const agentPanelOpen = useSettingsStore((s) => s.agentPanelOpen);
+  const toggleAgentPanel = useSettingsStore((s) => s.toggleAgentPanel);
   const workingDirectory = useSettingsStore((s) => s.workingDirectory);
+  const apiProviderMode = useSettingsStore((s) => s.apiProviderMode);
+  const customProviderName = useSettingsStore((s) => s.customProviderName);
   const selectedSessionId = useSessionStore((s) => s.selectedSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const isFilePreviewMode = !!useFileStore((s) => s.selectedFile);
+
+  // Agent activity for floating button badge
+  const agents = useAgentStore((s) => s.agents);
+  const activeAgentCount = useMemo(
+    () => Array.from(agents.values()).filter(
+      (a) => a.phase !== 'completed' && a.phase !== 'error'
+    ).length,
+    [agents],
+  );
+  const totalAgentCount = agents.size;
 
   const showPlanPanel = usePlanPanelStore((s) => s.open);
   const closePlanPanel = usePlanPanelStore((s) => s.close);
@@ -405,11 +447,63 @@ export function ChatPanel() {
               {workingDirectory.split(/[\\/]/).pop()}
             </span>
           )}
+          {/* API route indicator */}
+          {apiProviderMode === 'inherit' ? (
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full
+              bg-text-tertiary/10 text-text-tertiary">
+              {t('api.routeCli')}
+            </span>
+          ) : (
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full
+              bg-accent/10 text-accent">
+              {t('api.routeApi')} · {apiProviderMode === 'official'
+                ? 'Anthropic'
+                : (customProviderName || 'Custom')}
+            </span>
+          )}
         </div>
         <ExportMenu sessionPath={currentSessionPath} />
+        {/* Agent status button + floating panel */}
+        <div className="relative ml-auto">
+          <button onClick={toggleAgentPanel}
+            className={`relative p-1.5 rounded-lg transition-smooth
+              ${agentPanelOpen
+                ? 'bg-accent/10 text-accent'
+                : 'hover:bg-bg-tertiary text-text-tertiary'}`}
+            title={t('agents.toggle')}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+              stroke="currentColor" strokeWidth="1.5">
+              <circle cx="8" cy="5" r="3" />
+              <path d="M3 14a5 5 0 0110 0" />
+            </svg>
+            {activeAgentCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px]
+                rounded-full bg-accent text-[9px] font-bold text-text-inverse
+                flex items-center justify-center px-0.5 leading-none
+                animate-pulse-soft">
+                {activeAgentCount}
+              </span>
+            )}
+            {totalAgentCount > 0 && activeAgentCount === 0 && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2
+                rounded-full bg-green-500" />
+            )}
+          </button>
+          {/* Floating agent panel popover */}
+          {agentPanelOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={toggleAgentPanel} />
+              <div className="absolute right-0 top-full mt-2 z-50
+                w-72 max-h-80 rounded-xl border border-border-subtle
+                bg-bg-primary shadow-lg overflow-hidden">
+                <AgentPanel />
+              </div>
+            </>
+          )}
+        </div>
         <button onClick={toggleSecondaryPanel}
           className="p-1.5 rounded-lg hover:bg-bg-tertiary text-text-tertiary
-            transition-smooth ml-auto" title={t('chat.toggleFiles')}>
+            transition-smooth" title={t('chat.toggleFiles')}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
             stroke="currentColor" strokeWidth="1.5">
             <rect x="1" y="2" width="14" height="12" rx="2" />
@@ -582,9 +676,7 @@ export function ChatPanel() {
 /** Start a new draft conversation for the given folder and pre-warm the CLI process */
 async function startDraftSession(folderPath: string) {
   useSettingsStore.getState().setWorkingDirectory(folderPath);
-  useChatStore.getState().clearMessages();
-  useChatStore.getState().setSessionMeta({});
-  useChatStore.getState().setSessionStatus('idle');
+  useChatStore.getState().resetSession();
 
   // Reuse existing draft tab if one is already selected, otherwise create a new one
   const currentTabId = useSessionStore.getState().selectedSessionId;
@@ -637,7 +729,7 @@ async function startDraftSession(folderPath: string) {
       model: resolveModelForProvider(useSettingsStore.getState().selectedModel),
       session_id: preWarmId,
       dangerously_skip_permissions: useSettingsStore.getState().sessionMode === 'bypass',
-      thinking_enabled: useSettingsStore.getState().thinkingEnabled,
+      thinking_level: useSettingsStore.getState().thinkingLevel,
       custom_env: buildCustomEnvVars(),
     });
 

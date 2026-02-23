@@ -1,12 +1,10 @@
 import { useSettingsStore, SecondaryPanelTab } from '../../stores/settingsStore';
 import { FileExplorer } from '../files/FileExplorer';
-import { AgentPanel } from '../agents/AgentPanel';
 import { SkillsPanel } from '../skills/SkillsPanel';
 import { useT } from '../../lib/i18n';
 
 const tabs: { id: SecondaryPanelTab; labelKey: string; icon: string }[] = [
   { id: 'files', labelKey: 'panel.files', icon: 'M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3z' },
-  { id: 'agents', labelKey: 'panel.agents', icon: 'M8 2a3 3 0 100 6 3 3 0 000-6zM4 12a4 4 0 018 0' },
   { id: 'skills', labelKey: 'panel.skills', icon: 'M8 1L1 4.5l7 3.5 7-3.5L8 1zM1 11.5l7 3.5 7-3.5M1 8l7 3.5L15 8' },
 ];
 
@@ -57,7 +55,6 @@ export function SecondaryPanel() {
       {/* Content */}
       <div className="flex-1 overflow-hidden">
         {activeTab === 'files' && <FileExplorer />}
-        {activeTab === 'agents' && <AgentPanel />}
         {activeTab === 'skills' && <SkillsPanel />}
       </div>
     </div>

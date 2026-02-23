@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo, useState, useCallback } from 'react';
 import { type ChatMessage } from '../../stores/chatStore';
 import { useFileStore } from '../../stores/fileStore';
 import { useLightboxStore } from '../shared/ImageLightbox';
@@ -35,8 +35,16 @@ export const MessageBubble = memo(function MessageBubble({ message, isFirstInGro
 /** Collapse threshold: messages longer than this are collapsed by default */
 const USER_MSG_COLLAPSE_LINES = 12;
 
+/** Extract file extension from a filename */
+function getFileExt(name: string): string {
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+}
+
 function UserMsg({ message }: Props) {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
   const attachments = message.attachments;
   const content = message.content || '';
   const lines = content.split('\n');
@@ -45,11 +53,29 @@ function UserMsg({ message }: Props) {
     ? lines.slice(0, USER_MSG_COLLAPSE_LINES).join('\n')
     : content;
 
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [content]);
+
   return (
-    <div className="flex justify-end">
-      <div className="max-w-[80%] px-4 py-3 rounded-2xl rounded-br-md
+    <div className="flex justify-end group/user relative">
+      {/* Copy button — visible on hover */}
+      <button
+        onClick={handleCopy}
+        className="absolute -top-2 right-1 z-10 opacity-0 group-hover/user:opacity-100
+          px-1.5 py-0.5 rounded-md text-[10px] font-medium
+          bg-bg-tertiary/80 text-text-muted hover:text-text-primary
+          hover:bg-bg-tertiary border border-border-subtle
+          transition-smooth cursor-pointer"
+      >
+        {copied ? t('msg.copied') : t('msg.copyText')}
+      </button>
+      <div className="max-w-[80%] px-3.5 py-2.5 rounded-2xl rounded-br-md
         bg-bg-user-msg text-text-inverse
-        text-base leading-relaxed shadow-md whitespace-pre-wrap">
+        text-sm leading-relaxed shadow-md whitespace-pre-wrap">
         {displayContent}
         {!expanded && isLong && (
           <span className="text-white/60">…</span>
@@ -70,27 +96,30 @@ function UserMsg({ message }: Props) {
                 key={i}
                 onClick={() => {
                   if (att.isImage) {
-                    // Open images in lightbox overlay
                     useLightboxStore.getState().openFile(att.path, att.name);
                   } else {
-                    // Open non-images in file preview panel
                     useFileStore.getState().selectFile(att.path);
                   }
                 }}
-                className="inline-flex items-center gap-1.5 px-2 py-1
-                  bg-white/10 hover:bg-white/20 rounded-lg
+                className="inline-flex items-center gap-2 px-2.5 py-1.5
+                  bg-white/10 hover:bg-white/20 rounded-lg border border-white/15
                   transition-smooth cursor-pointer text-left"
               >
                 {att.isImage && att.preview ? (
-                  <img src={att.preview} alt="" className="w-5 h-5 rounded object-cover" />
+                  <img src={att.preview} alt="" className="w-8 h-8 rounded object-cover" />
                 ) : (
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
-                    stroke="currentColor" strokeWidth="1.2" className="flex-shrink-0 opacity-70">
-                    <path d="M7 1H3a1 1 0 00-1 1v8a1 1 0 001 1h6a1 1 0 001-1V4L7 1z" />
-                    <path d="M7 1v3h3" />
-                  </svg>
+                  <span className="flex items-center justify-center w-8 h-8 rounded
+                    bg-white/10 text-[10px] font-mono font-semibold uppercase opacity-80">
+                    {getFileExt(att.name) || (
+                      <svg width="14" height="14" viewBox="0 0 12 12" fill="none"
+                        stroke="currentColor" strokeWidth="1.2">
+                        <path d="M7 1H3a1 1 0 00-1 1v8a1 1 0 001 1h6a1 1 0 001-1V4L7 1z" />
+                        <path d="M7 1v3h3" />
+                      </svg>
+                    )}
+                  </span>
                 )}
-                <span className="text-[11px] truncate max-w-[120px] opacity-90">{att.name}</span>
+                <span className="text-xs truncate max-w-[180px]">{att.name}</span>
               </button>
             ))}
           </div>

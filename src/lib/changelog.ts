@@ -13,6 +13,52 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.5.5',
+    date: '2026-02-23',
+    highlights: {
+      zh: [
+        'Thinking 五档选择器 — Off / Low / Med / High / Max 替代 on/off 开关，通过 CLI 原生 effort level 控制思考深度',
+        'Thinking 关闭修复 — 修复「关闭思考仍在思考」的 bug，现在显式传 alwaysThinkingEnabled:false',
+        'Output Token 上限提升 — 注入 CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000，单次回复上限翻倍',
+        'Token 预警 + Auto-compact — 上下文超 120K 琥珀色警告；超 160K 自动压缩，每会话至多一次',
+        '会话断点续传修复 — Stop 按钮泄漏、lastActiveSessionId 持久化、stall 检测、onSessionExit 备用通道等 6 项修复',
+        'Plan 审批统一 — Bypass 模式不再自动跳过计划审批，所有模式统一为「批准并执行」一键流程',
+        '对话框 UI 优化 — 用户气泡字体缩小、附件卡片化、一键复制、AI 输出路径可点击打开',
+        'Agent 监控浮动面板 — 代理状态从侧边栏移至顶栏浮动按钮，活跃时脉冲徽章提示，实时追踪 thinking/writing/tool 阶段',
+        'API 模块改造 — 顶栏显示当前 API 通路（CLI / API · 提供商名）；Base URL 输入后显示「已保存」；API Key 输入即保存，Eye 图标可查看已存储的真实 Key',
+      ],
+      en: [
+        'Thinking 5-level selector — Off / Low / Med / High / Max replaces on/off toggle, using CLI native effort level',
+        'Thinking disable fix — Fixed "thinking still active when disabled" bug with explicit alwaysThinkingEnabled:false',
+        'Output token cap raised — Injects CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000, doubling per-turn output limit',
+        'Token warning + Auto-compact — Amber alert at 120K context; auto-compact at 160K, fires at most once per session',
+        'Session resume fixes — Stop button leak, lastActiveSessionId persistence, stall detection, onSessionExit backup, and 6 total fixes',
+        'Unified plan approval — Bypass mode no longer auto-skips plan review; all modes use single "Approve & Execute" flow',
+        'Chat UI polish — Smaller user bubbles, file attachment cards, one-click copy, clickable file paths in AI output',
+        'Agent monitoring float — Agent status moved from sidebar to floating top-bar button with pulse badge, real-time phase tracking',
+        'API module revamp — Top bar shows active API route (CLI / API · provider); Base URL shows "Saved" feedback; API Key auto-saves on input, Eye icon reveals stored key',
+      ],
+    },
+  },
+  {
+    version: '0.5.4',
+    date: '2026-02-21',
+    highlights: {
+      zh: [
+        '第三方 API 切换 (TK-303) — 设置面板三种模式：继承系统配置 / 官方 API / 自定义端点 + 加密密钥 + 模型映射',
+        '连接测试 & Thinking 签名自动重试 — 一键测试连通性，切换提供商后自动重发',
+        '一键回到底部按钮 + 设置面板 CLI 管理 + 过期预热会话检测',
+        'ANSI 转义码过滤、子代理缩进、删除到回收站等 9 项修复',
+      ],
+      en: [
+        'Third-party API switching (TK-303) — 3 modes: Inherit / Official / Custom endpoint + encrypted key + model mapping',
+        'Connection test & thinking signature auto-retry — One-click test, auto re-send on provider switch',
+        'Scroll-to-bottom button + CLI management in Settings + stale pre-warm detection',
+        'ANSI escape stripping, sub-agent indentation, trash-based delete, and 9 other fixes',
+      ],
+    },
+  },
+  {
     version: '0.5.3',
     date: '2026-02-21',
     highlights: {

@@ -5,12 +5,13 @@ import { persist } from 'zustand/middleware';
 
 export type Theme = 'light' | 'dark' | 'system';
 export type ColorTheme = 'black' | 'blue' | 'orange' | 'green';
-export type SecondaryPanelTab = 'files' | 'agents' | 'skills';
+export type SecondaryPanelTab = 'files' | 'skills';
 export type ModelId = 'claude-opus-4-6' | 'claude-sonnet-4-6' | 'claude-haiku-4-5';
 export type SessionMode = 'code' | 'ask' | 'plan' | 'bypass';
 export type Locale = 'zh' | 'en';
 export type ApiProviderMode = 'inherit' | 'official' | 'custom';
 export type ApiFormat = 'anthropic' | 'openai';
+export type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'max';
 
 export interface ModelMapping {
   tier: 'opus' | 'sonnet' | 'haiku';
@@ -45,8 +46,8 @@ interface SettingsState {
   sidebarWidth: number;
   /** Whether the CLI setup wizard has been completed or skipped */
   setupCompleted: boolean;
-  /** Whether extended thinking is enabled for Claude */
-  thinkingEnabled: boolean;
+  /** Thinking effort level: off disables, low/medium/high/max set effort */
+  thinkingLevel: ThinkingLevel;
   /** Whether a newer version is available (set by auto-check on startup) */
   updateAvailable: boolean;
   /** Version string of the available update */
@@ -69,8 +70,12 @@ interface SettingsState {
   toggleTheme: () => void;
   setTheme: (theme: Theme) => void;
   setColorTheme: (colorTheme: ColorTheme) => void;
+  /** Whether the floating agent panel is open */
+  agentPanelOpen: boolean;
+
   toggleSidebar: () => void;
   toggleSecondaryPanel: () => void;
+  toggleAgentPanel: () => void;
   setSecondaryTab: (tab: SecondaryPanelTab) => void;
   setSecondaryPanelWidth: (width: number) => void;
   toggleSettings: () => void;
@@ -84,7 +89,7 @@ interface SettingsState {
   decreaseFontSize: () => void;
   setSidebarWidth: (width: number) => void;
   setSetupCompleted: (completed: boolean) => void;
-  toggleThinking: () => void;
+  setThinkingLevel: (level: ThinkingLevel) => void;
   setUpdateAvailable: (available: boolean, version?: string) => void;
   setLastSeenVersion: (version: string) => void;
 
@@ -117,6 +122,7 @@ export const useSettingsStore = create<SettingsState>()(
       secondaryPanelTab: 'files',
       secondaryPanelWidth: 300,
       settingsOpen: false,
+      agentPanelOpen: false,
       workingDirectory: '',
       selectedModel: 'claude-opus-4-6',
       sessionMode: 'code',
@@ -124,7 +130,7 @@ export const useSettingsStore = create<SettingsState>()(
       fontSize: 18,
       sidebarWidth: 280,
       setupCompleted: false,
-      thinkingEnabled: true,
+      thinkingLevel: 'high' as ThinkingLevel,
       updateAvailable: false,
       updateVersion: '',
       lastSeenVersion: '',
@@ -150,6 +156,9 @@ export const useSettingsStore = create<SettingsState>()(
         set((state) => ({
           secondaryPanelOpen: !state.secondaryPanelOpen,
         })),
+
+      toggleAgentPanel: () =>
+        set((state) => ({ agentPanelOpen: !state.agentPanelOpen })),
 
       setSecondaryTab: (tab) =>
         set(() => ({
@@ -197,8 +206,8 @@ export const useSettingsStore = create<SettingsState>()(
       setSetupCompleted: (completed) =>
         set(() => ({ setupCompleted: completed })),
 
-      toggleThinking: () =>
-        set((state) => ({ thinkingEnabled: !state.thinkingEnabled })),
+      setThinkingLevel: (level) =>
+        set(() => ({ thinkingLevel: level })),
 
       setUpdateAvailable: (available, version) =>
         set(() => ({
@@ -228,7 +237,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'tokenicode-settings',
-      version: 3,
+      version: 4,
       migrate: (persistedState: unknown, version: number) => {
         const persisted = persistedState as Record<string, unknown>;
         if (version === 0) {
@@ -255,6 +264,12 @@ export const useSettingsStore = create<SettingsState>()(
           persisted.customProviderModelMappings = [];
           persisted.customProviderApiFormat = 'anthropic';
         }
+        if (version < 4) {
+          // Migrate boolean thinkingEnabled → ThinkingLevel
+          const oldThinking = persisted.thinkingEnabled;
+          persisted.thinkingLevel = oldThinking === false ? 'off' : 'high';
+          delete persisted.thinkingEnabled;
+        }
         return persisted;
       },
       partialize: (state) => ({
@@ -269,7 +284,7 @@ export const useSettingsStore = create<SettingsState>()(
         fontSize: state.fontSize,
         sidebarWidth: state.sidebarWidth,
         setupCompleted: state.setupCompleted,
-        thinkingEnabled: state.thinkingEnabled,
+        thinkingLevel: state.thinkingLevel,
         updateAvailable: state.updateAvailable,
         updateVersion: state.updateVersion,
         lastSeenVersion: state.lastSeenVersion,
