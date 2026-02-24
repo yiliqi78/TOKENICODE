@@ -125,6 +125,38 @@ function extractText(node: ReactNode): string {
 /** Detect file paths in inline code — conservative regex to avoid false positives */
 const FILE_PATH_RE = /^(?:\/|\.\/|\.\.\/|[a-zA-Z]:[/\\]|src\/|lib\/|components\/|stores\/|hooks\/|utils\/|tests\/|__tests__\/)[\w.@/-]+\.\w{1,10}$/;
 
+/**
+ * Pre-process markdown to wrap bare file paths in backticks so the existing
+ * `code` component handler can make them clickable.
+ *
+ * Only processes text outside fenced code blocks and inline code.
+ * Matches absolute paths (/..., C:\...), relative (./..., ../...), and
+ * common project-relative paths (src/..., lib/..., etc.).
+ */
+const BARE_PATH_RE = /(?<![`\w:@#])(?:(?:\/|\.\.?\/)[\w.@/+-]+\.\w{1,10}|(?:src|lib|components|stores|hooks|utils|tests|__tests__|app|pages|public|assets|styles|config)\/[\w.@/+-]+\.\w{1,10})(?![`\w])/g;
+
+function wrapBareFilePaths(content: string): string {
+  // Split by fenced code blocks (``` ... ```) — don't touch code blocks
+  const fenced = content.split(/(```[\s\S]*?```)/g);
+  return fenced.map((part, i) => {
+    if (i % 2 === 1) return part; // inside fenced code block
+    // Split by inline code (` ... `) — don't double-wrap
+    const inlined = part.split(/(`[^`\n]+`)/g);
+    return inlined.map((seg, j) => {
+      if (j % 2 === 1) return seg; // inside inline code
+      // Also skip markdown link targets: [text](url)
+      return seg.replace(BARE_PATH_RE, (match, offset, str) => {
+        // Don't wrap if inside a markdown link target: ...](path)
+        if (offset > 0 && str[offset - 1] === '(') return match;
+        // Don't wrap if preceded by ]( (markdown link)
+        const before = str.slice(Math.max(0, offset - 2), offset);
+        if (before.endsWith('](')) return match;
+        return `\`${match}\``;
+      });
+    }).join('');
+  }).join('');
+}
+
 /* ================================================================
    MarkdownRenderer — shared markdown rendering with syntax highlighting
    ================================================================ */
@@ -143,6 +175,9 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
   const t = useT();
   const workingDirectory = useSettingsStore((s) => s.workingDirectory);
   const resolveBase = basePath || workingDirectory || '';
+
+  // Pre-process: wrap bare file paths in backticks so `code` handler makes them clickable
+  const processedContent = useMemo(() => wrapBareFilePaths(content), [content]);
 
   // Stable components object — only recreated if `t` or resolveBase changes
   const components = useMemo(() => ({
@@ -300,7 +335,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
         rehypePlugins={REHYPE_PLUGINS}
         components={components}
       >
-        {content}
+        {processedContent}
       </Markdown>
     </div>
   );

@@ -320,14 +320,13 @@ export function ChatPanel() {
 
 
   // Listen for internal file tree drag-drop (mouse-based, not HTML5 drag-and-drop)
-  // HTML5 drag events don't work in Tauri because dragDropEnabled: true intercepts them
+  // HTML5 drag events don't work in Tauri because dragDropEnabled: true intercepts them.
+  // Instead of appending plain text to input, dispatch event so InputBar can add as file chip.
   useEffect(() => {
     const onTreeDrop = () => {
       const treePath = endTreeDrag();
       if (treePath) {
-        const currentDraft = useChatStore.getState().inputDraft;
-        const prefix = currentDraft && !currentDraft.endsWith('\n') && !currentDraft.endsWith(' ') ? ' ' : '';
-        useChatStore.getState().setInputDraft(currentDraft + prefix + treePath);
+        window.dispatchEvent(new CustomEvent('tokenicode:tree-file-attach', { detail: treePath }));
       }
     };
     window.addEventListener('tree-drag-drop', onTreeDrop);
@@ -434,73 +433,73 @@ export function ChatPanel() {
             </svg>
           </button>
         )}
+        {/* Left: model name + project hint */}
         <div className="flex items-center gap-3 pointer-events-none">
           {sessionMeta.model && (
             <span className="text-sm font-medium text-text-muted">
               {getModelDisplayName(sessionMeta.model)}
             </span>
           )}
-          {/* Subtle project hint */}
           {workingDirectory && (
             <span className="text-[10px] text-text-tertiary truncate max-w-[160px]"
               title={workingDirectory}>
               {workingDirectory.split(/[\\/]/).pop()}
             </span>
           )}
-          {/* API route indicator */}
-          {apiProviderMode === 'inherit' ? (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full
-              bg-text-tertiary/10 text-text-tertiary">
-              {t('api.routeCli')}
-            </span>
-          ) : (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full
-              bg-accent/10 text-accent">
-              {t('api.routeApi')} · {apiProviderMode === 'official'
-                ? 'Anthropic'
-                : (customProviderName || 'Custom')}
-            </span>
-          )}
         </div>
-        <ExportMenu sessionPath={currentSessionPath} />
-        {/* Agent status button + floating panel */}
-        <div className="relative ml-auto">
+
+        {/* Integrated status: Agent + API route — left-aligned with color dots */}
+        <div className="relative flex items-center gap-3 ml-3">
+          {/* Agent status — clickable dot + label → opens AgentPanel */}
           <button onClick={toggleAgentPanel}
-            className={`relative p-1.5 rounded-lg transition-smooth
-              ${agentPanelOpen
-                ? 'bg-accent/10 text-accent'
-                : 'hover:bg-bg-tertiary text-text-tertiary'}`}
+            className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded-lg
+              transition-smooth text-[9px]
+              ${agentPanelOpen ? 'bg-accent/10' : 'hover:bg-bg-secondary/50'}`}
             title={t('agents.toggle')}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
-              stroke="currentColor" strokeWidth="1.5">
-              <circle cx="8" cy="5" r="3" />
-              <path d="M3 14a5 5 0 0110 0" />
-            </svg>
-            {activeAgentCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px]
-                rounded-full bg-accent text-[9px] font-bold text-text-inverse
-                flex items-center justify-center px-0.5 leading-none
-                animate-pulse-soft">
-                {activeAgentCount}
-              </span>
-            )}
-            {totalAgentCount > 0 && activeAgentCount === 0 && (
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2
-                rounded-full bg-green-500" />
-            )}
+            <span className={`w-[6px] h-[6px] rounded-full flex-shrink-0 transition-smooth
+              ${activeAgentCount > 0
+                ? 'bg-amber-400 shadow-[0_0_6px_rgba(245,158,11,0.5)] animate-pulse-soft'
+                : totalAgentCount > 0
+                  ? 'bg-success'
+                  : 'bg-text-tertiary/30'}`} />
+            <span className={`${activeAgentCount > 0 ? 'text-amber-400' : totalAgentCount > 0 ? 'text-success' : 'text-text-tertiary'}`}>
+              Agent
+            </span>
           </button>
-          {/* Floating agent panel popover */}
+
+          {/* API route status — dot + label */}
+          <div className="flex items-center gap-1.5 text-[9px]">
+            <span className={`w-[6px] h-[6px] rounded-full flex-shrink-0 transition-smooth
+              ${sessionStatus === 'running'
+                ? 'bg-success shadow-[0_0_6px_var(--color-accent-glow)] animate-pulse-soft'
+                : sessionStatus === 'error'
+                  ? 'bg-error'
+                  : 'bg-text-tertiary/30'}`} />
+            <span className="text-text-tertiary">
+              {apiProviderMode === 'inherit'
+                ? 'CLI'
+                : apiProviderMode === 'official'
+                  ? 'Anthropic'
+                  : (customProviderName || 'Custom')}
+            </span>
+          </div>
+
+          {/* Floating agent panel popover — anchored to agent button */}
           {agentPanelOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={toggleAgentPanel} />
-              <div className="absolute right-0 top-full mt-2 z-50
+              <div className="absolute left-0 top-full mt-2 z-50
                 w-72 max-h-80 rounded-xl border border-border-subtle
-                bg-bg-primary shadow-lg overflow-hidden">
+                bg-bg-primary shadow-lg overflow-y-auto">
                 <AgentPanel />
               </div>
             </>
           )}
         </div>
+
+        {/* Spacer + right-side actions */}
+        <div className="ml-auto flex items-center" />
+        <ExportMenu sessionPath={currentSessionPath} />
         <button onClick={toggleSecondaryPanel}
           className="p-1.5 rounded-lg hover:bg-bg-tertiary text-text-tertiary
             transition-smooth" title={t('chat.toggleFiles')}>

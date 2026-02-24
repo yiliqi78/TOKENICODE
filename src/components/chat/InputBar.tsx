@@ -14,8 +14,11 @@ import { useT } from '../../lib/i18n';
 import { SlashCommandPopover, getFilteredCommandList } from './SlashCommandPopover';
 import { useCommandStore } from '../../stores/commandStore';
 import { buildCustomEnvVars, envFingerprint, resolveModelForProvider } from '../../lib/api-provider';
+import { stripAnsi } from '../../lib/strip-ansi';
 import { usePlanPanelStore } from './ChatPanel';
 import { useSnapshotStore } from '../../stores/snapshotStore';
+import { PlanReviewCard } from './PlanReviewCard';
+import { QuestionCard } from './QuestionCard';
 // drag-state import removed — tree drag handled by ChatPanel
 
 /** Thinking effort level configuration data */
@@ -24,7 +27,6 @@ const THINK_LEVELS: { id: ThinkingLevel; labelKey: string }[] = [
   { id: 'low', labelKey: 'think.low' },
   { id: 'medium', labelKey: 'think.medium' },
   { id: 'high', labelKey: 'think.high' },
-  { id: 'max', labelKey: 'think.max' },
 ];
 
 /** Thinking effort level selector dropdown for the toolbar */
@@ -136,46 +138,9 @@ function PlanToggleButton() {
   );
 }
 
-/** Plan mode approval bar — shown above input when plan mode is active and Claude has replied */
-function PlanApprovalBar({ onApprove, onSwitchMode }: {
-  onApprove: () => void;
-  onSwitchMode: () => void;
-}) {
-  const t = useT();
-  return (
-    <div className="mb-2 flex items-center gap-2 px-3 py-2 rounded-xl
-      border border-accent/20 bg-accent/5 animate-scale-in">
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
-        stroke="currentColor" strokeWidth="1.5" className="text-accent flex-shrink-0">
-        <path d="M2 3.5h10M2 7h8M2 10.5h5" />
-      </svg>
-      <span className="text-xs text-text-secondary flex-1">
-        {t('msg.planReady')}
-      </span>
-      <button
-        onClick={onApprove}
-        className="px-3 py-1.5 rounded-lg text-xs font-semibold
-          bg-accent text-text-inverse hover:bg-accent-hover
-          transition-smooth shadow-sm flex items-center gap-1"
-      >
-        <svg width="10" height="10" viewBox="0 0 12 12" fill="none"
-          stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M2.5 6l2.5 2.5 4.5-4.5" />
-        </svg>
-        {t('msg.planApproveAndExecute')}
-      </button>
-      <button
-        onClick={onSwitchMode}
-        className="px-3 py-1.5 rounded-lg text-xs font-medium
-          text-text-muted border border-border-subtle
-          hover:bg-bg-secondary hover:text-text-primary
-          transition-smooth"
-      >
-        {t('msg.switchToCode')}
-      </button>
-    </div>
-  );
-}
+/* PlanApprovalBar removed — PlanReviewCard (triggered by ExitPlanMode detection)
+   is the proper plan approval UI. The fallback bar was too broad: it appeared on
+   every completed session in plan/bypass mode, even without a real plan. */
 
 export function InputBar() {
   const t = useT();
@@ -194,34 +159,37 @@ export function InputBar() {
   const selectedModel = useSettingsStore((s) => s.selectedModel);
   const sessionMode = useSettingsStore((s) => s.sessionMode);
 
-  // Plan approval bar state
-  const isStreaming = useChatStore((s) => s.isStreaming);
-  const hasLastAssistantMessage = useChatStore((s) =>
-    s.messages.some((m) => m.role === 'assistant'),
-  );
-  const hasPendingPlanReview = useChatStore((s) =>
-    s.messages.some((m) => m.type === 'plan_review' && !m.resolved),
-  );
-
   const handlePlanApprove = useCallback(async () => {
-    const stdinId = useChatStore.getState().sessionMeta.stdinId;
     const currentMode = useSettingsStore.getState().sessionMode;
+    const meta = useChatStore.getState().sessionMeta;
+    const status = useChatStore.getState().sessionStatus;
 
-    // Only switch to code mode when explicitly in plan mode.
-    // Bypass and code modes stay as-is so tool permissions remain consistent.
+    // If CLI is still alive (e.g., Bypass auto-accepted ExitPlanMode),
+    // just dismiss the card — no restart needed.
+    if (meta.stdinId && status === 'running') {
+      useChatStore.getState().setActivityStatus({ phase: 'thinking' });
+      return;
+    }
+
+    // CLI exited after ExitPlanMode (permission denied in stream-json mode).
+    // Plan mode: switch to Code mode for execution.
+    // Bypass mode: stay in Bypass (no mode switch needed).
     if (currentMode === 'plan') {
       useSettingsStore.getState().setSessionMode('code');
     }
 
-    // Kill the current process and clear stdinId so handleSubmit spawns
-    // a new process with resume_session_id to carry over context.
-    if (stdinId) {
+    // Clean up dead CLI process
+    if (meta.stdinId) {
       useChatStore.getState().setSessionMeta({ stdinId: undefined });
-      bridge.killSession(stdinId).catch(() => {});
+      bridge.killSession(meta.stdinId).catch(() => {});
+      if ((window as any).__claudeUnlisteners?.[meta.stdinId]) {
+        (window as any).__claudeUnlisteners[meta.stdinId]();
+        delete (window as any).__claudeUnlisteners[meta.stdinId];
+      }
     }
 
-    // Fill input and submit — handleSubmit will see no stdinId,
-    // spawn a new process with resume_session_id.
+    // Restart with --resume <sessionId>
+    useChatStore.getState().setActivityStatus({ phase: 'thinking' });
     setInput('Execute the plan above.');
     requestAnimationFrame(() => {
       handleSubmitRef.current();
@@ -235,11 +203,17 @@ export function InputBar() {
     return () => window.removeEventListener('tokenicode:plan-execute', handler);
   }, [handlePlanApprove]);
 
-  const handleSwitchToCode = useCallback(() => {
-    useSettingsStore.getState().setSessionMode('code');
-  }, []);
+  // Floating approval cards — unresolved plan_review / question messages
+  // are rendered above the input instead of inline in the chat flow.
+  const floatingCard = useChatStore((s) => {
+    for (let i = s.messages.length - 1; i >= 0; i--) {
+      const m = s.messages[i];
+      if ((m.type === 'plan_review' || m.type === 'question') && !m.resolved) return m;
+    }
+    return null;
+  });
 
-  const { files, setFiles, isProcessing, addFiles, removeFile, clearFiles } = useFileAttachments();
+  const { files, setFiles, isProcessing, addFiles, addFilePaths, removeFile, clearFiles } = useFileAttachments();
 
   // Sync files → store.pendingAttachments so tab switch can persist them
   const setPendingAttachments = useChatStore((s) => s.setPendingAttachments);
@@ -258,6 +232,20 @@ export function InputBar() {
     }
     prevAttachmentsRef.current = pendingAttachments;
   }, [pendingAttachments, setFiles]); // intentionally exclude `files` to avoid loop
+
+  // Listen for internal file tree drag → add as file chip instead of plain text
+  const addFilePathsRef = useRef(addFilePaths);
+  addFilePathsRef.current = addFilePaths;
+  useEffect(() => {
+    const onTreeFileAttach = (e: Event) => {
+      const path = (e as CustomEvent).detail;
+      if (path && typeof path === 'string') {
+        addFilePathsRef.current([path]);
+      }
+    };
+    window.addEventListener('tokenicode:tree-file-attach', onTreeFileAttach);
+    return () => window.removeEventListener('tokenicode:tree-file-attach', onTreeFileAttach);
+  }, []);
 
   // Auto-resize textarea whenever input changes (covers programmatic clears like send/cancel)
   useEffect(() => {
@@ -342,6 +330,10 @@ export function InputBar() {
   const handleStderrLineRef = useRef<(line: string, sid: string) => void>(() => {});
   /** Tracks whether auto-compact has been triggered in this session to avoid repeat fires */
   const autoCompactFiredRef = useRef(false);
+  /** Tracks ExitPlanMode in current turn for Code mode auto-restart */
+  const exitPlanModeSeenRef = useRef(false);
+  /** When true, next handleSubmit skips creating user message bubble (Code mode silent restart) */
+  const silentRestartRef = useRef(false);
 
   // --- Immediate command execution ---
   // All built-in commands are handled in the UI layer because they don't work
@@ -598,7 +590,10 @@ export function InputBar() {
 
   // --- Submit ---
   const handleSubmit = useCallback(async () => {
-    let text = input.trim();
+    // Read input from store directly (not closure) so that async callers
+    // like handlePlanApprove (setInput + rAF) always see the latest value.
+    const rawInput = useChatStore.getState().inputDraft || '';
+    let text = rawInput.trim();
 
     // Plan approval shortcut: empty Enter triggers approve & execute flow
     const pendingPlanReview = useChatStore.getState().messages.find(
@@ -674,17 +669,22 @@ export function InputBar() {
 
     setInput('');
 
-    // Add user message (show original text, not with prefix)
-    addMessage({
-      id: generateMessageId(),
-      role: 'user',
-      type: 'text',
-      content: input.trim(),
-      timestamp: Date.now(),
-      attachments: files.length > 0
-        ? files.map((f) => ({ name: f.name, path: f.path, isImage: f.isImage, preview: f.preview }))
-        : undefined,
-    });
+    // Silent restart: skip user message bubble (Code mode ExitPlanMode auto-recovery)
+    if (silentRestartRef.current) {
+      silentRestartRef.current = false;
+    } else {
+      // Add user message (show original text, not with prefix)
+      addMessage({
+        id: generateMessageId(),
+        role: 'user',
+        type: 'text',
+        content: rawInput.trim(),
+        timestamp: Date.now(),
+        attachments: files.length > 0
+          ? files.map((f) => ({ name: f.name, path: f.path, isImage: f.isImage, preview: f.preview }))
+          : undefined,
+      });
+    }
 
     clearFiles();
 
@@ -719,7 +719,7 @@ export function InputBar() {
     useAgentStore.getState().upsertAgent({
       id: 'main',
       parentId: null,
-      description: input.trim(),
+      description: rawInput.trim(),
       phase: 'spawning',
       startTime: Date.now(),
       isMain: true,
@@ -791,8 +791,9 @@ export function InputBar() {
         // event listeners BEFORE spawning the process.
         const preGeneratedId = `desk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-        // Reset auto-compact guard for the new session
+        // Reset guards for the new session
         autoCompactFiredRef.current = false;
+        exitPlanModeSeenRef.current = false;
 
         // Register listeners BEFORE starting the session
         const unlisten = await onClaudeStream(
@@ -839,15 +840,18 @@ export function InputBar() {
         // Spawn persistent process (first message sent via stdin inside Rust)
         // If resuming a historical session, pass resume_session_id so the CLI
         // picks up the existing conversation context.
+        // Read sessionMode from store (not closure) so plan-approve → code
+        // mode switch is visible even when called via rAF.
+        const liveSessionMode = useSettingsStore.getState().sessionMode;
         const session = await bridge.startSession({
           prompt: text,
           cwd,
           model: resolveModelForProvider(selectedModel),
           session_id: preGeneratedId,
-          dangerously_skip_permissions: sessionMode === 'bypass',
+          dangerously_skip_permissions: liveSessionMode === 'bypass',
           resume_session_id: existingSessionId || undefined,
           thinking_level: useSettingsStore.getState().thinkingLevel,
-          session_mode: (sessionMode === 'ask' || sessionMode === 'plan') ? sessionMode : undefined,
+          session_mode: (liveSessionMode === 'ask' || liveSessionMode === 'plan') ? liveSessionMode : undefined,
           custom_env: buildCustomEnvVars(),
         });
 
@@ -876,7 +880,7 @@ export function InputBar() {
         timestamp: Date.now(),
       });
     }
-  }, [input, hasActiveSession, workingDirectory, selectedModel, sessionMode, files, clearFiles]);
+  }, [hasActiveSession, workingDirectory, selectedModel, sessionMode, files, clearFiles]);
 
   // Keep ref in sync so executeImmediateCommand can call latest handleSubmit
   handleSubmitRef.current = handleSubmit;
@@ -893,39 +897,49 @@ export function InputBar() {
           const text = evt.delta.text || '';
           if (text) cache.updatePartialInCache(tabId, text);
         }
-        // Early detection: create plan_review card for background tab
+        // Early detection: create plan_review card for background tab (Plan mode only)
         if (evt.type === 'content_block_start'
             && evt.content_block?.type === 'tool_use'
-            && evt.content_block?.name === 'ExitPlanMode') {
+            && evt.content_block?.name === 'ExitPlanMode'
+            && ['plan', 'bypass'].includes(useSettingsStore.getState().sessionMode)) {
           const bgSnapshot = cache.sessionCache.get(tabId);
-          let bgPlanContent = '';
-          if (bgSnapshot) {
-            for (let i = bgSnapshot.messages.length - 1; i >= 0; i--) {
-              const m = bgSnapshot.messages[i];
-              if (m.type === 'tool_use' && m.toolName === 'Write' && m.toolInput?.content) {
-                bgPlanContent = m.toolInput.content;
-                break;
+          const bgExisting = bgSnapshot?.messages.find((m) => m.id === 'plan_review_current');
+          if (!bgExisting || !bgExisting.resolved) {
+            let bgPlanContent = '';
+            if (bgSnapshot) {
+              for (let i = bgSnapshot.messages.length - 1; i >= 0; i--) {
+                const m = bgSnapshot.messages[i];
+                if (m.type === 'tool_use' && m.toolName === 'Write' && m.toolInput?.content) {
+                  bgPlanContent = m.toolInput.content;
+                  break;
+                }
               }
             }
+            cache.addMessageToCache(tabId, {
+              id: 'plan_review_current',
+              role: 'assistant', type: 'plan_review',
+              content: bgPlanContent, planContent: bgPlanContent,
+              resolved: false, timestamp: Date.now(),
+            });
+            cache.setActivityInCache(tabId, { phase: 'awaiting' });
           }
-          cache.addMessageToCache(tabId, {
-            id: 'plan_review_current',
-            role: 'assistant', type: 'plan_review',
-            content: bgPlanContent, planContent: bgPlanContent,
-            resolved: false, timestamp: Date.now(),
-          });
-          cache.setActivityInCache(tabId, { phase: 'awaiting' });
         }
-        // Track tokens in background sessions
+        // Track tokens in background sessions (per-turn + cumulative total)
         if (evt.type === 'message_start' && evt.message?.usage?.input_tokens) {
           const snapshot = cache.sessionCache.get(tabId);
-          const current = snapshot?.sessionMeta.inputTokens || 0;
-          cache.setMetaInCache(tabId, { inputTokens: current + evt.message.usage.input_tokens });
+          const delta = evt.message.usage.input_tokens;
+          cache.setMetaInCache(tabId, {
+            inputTokens: (snapshot?.sessionMeta.inputTokens || 0) + delta,
+            totalInputTokens: (snapshot?.sessionMeta.totalInputTokens || 0) + delta,
+          });
         }
         if (evt.type === 'message_delta' && evt.usage?.output_tokens) {
           const snapshot = cache.sessionCache.get(tabId);
-          const current = snapshot?.sessionMeta.outputTokens || 0;
-          cache.setMetaInCache(tabId, { outputTokens: current + evt.usage.output_tokens });
+          const delta = evt.usage.output_tokens;
+          cache.setMetaInCache(tabId, {
+            outputTokens: (snapshot?.sessionMeta.outputTokens || 0) + delta,
+            totalOutputTokens: (snapshot?.sessionMeta.totalOutputTokens || 0) + delta,
+          });
         }
         break;
       }
@@ -962,15 +976,21 @@ export function InputBar() {
               content: block.text, timestamp: Date.now(),
             });
           } else if (block.type === 'tool_use') {
+            // Code mode: suppress EnterPlanMode/ExitPlanMode (transparent to user)
+            if (useSettingsStore.getState().sessionMode === 'code'
+                && (block.name === 'EnterPlanMode' || block.name === 'ExitPlanMode')) {
+              if (block.name === 'ExitPlanMode') exitPlanModeSeenRef.current = true;
+              continue;
+            }
             if (block.name === 'AskUserQuestion') {
               const questions = block.input?.questions;
               const bgQuestionId = block.id || generateMessageId();
-              // Guard: skip re-delivered AskUserQuestion if already resolved in background cache
+              // Guard: skip if question already exists in background cache (resolved or not)
               const bgSnap = cache.sessionCache.get(tabId);
               const bgExisting = bgSnap?.messages.find(
                 (m) => m.id === bgQuestionId && m.type === 'question',
               );
-              if (bgExisting?.resolved) break;
+              if (bgExisting) break;
 
               cache.addMessageToCache(tabId, {
                 id: bgQuestionId,
@@ -990,39 +1010,41 @@ export function InputBar() {
                 timestamp: Date.now(),
               });
             } else if (block.name === 'ExitPlanMode') {
-              // Find plan content from background session's cached messages
-              const bgSnapshot = cache.sessionCache.get(tabId);
-              let bgPlanContent = '';
-              if (bgSnapshot) {
-                for (let i = bgSnapshot.messages.length - 1; i >= 0; i--) {
-                  const m = bgSnapshot.messages[i];
-                  if (m.type === 'tool_use' && m.toolName === 'Write' && m.toolInput?.content) {
-                    bgPlanContent = m.toolInput.content;
-                    break;
-                  }
-                }
-              }
+              // Show as regular tool_use in plan/bypass modes
               cache.addMessageToCache(tabId, {
                 id: block.id || generateMessageId(),
                 role: 'assistant', type: 'tool_use',
                 content: '', toolName: block.name,
                 toolInput: block.input, timestamp: Date.now(),
               });
-              // Guard: skip re-delivered ExitPlanMode if already approved
-              const bgToolExists = block.id && bgSnapshot?.messages.some(
-                (m) => m.id === block.id && m.toolName === 'ExitPlanMode',
-              );
-              const bgResolvedReview = bgSnapshot?.messages.find(
-                (m) => m.type === 'plan_review' && m.resolved,
-              );
-              if (!(bgToolExists && bgResolvedReview)) {
-                cache.addMessageToCache(tabId, {
-                  id: 'plan_review_current',
-                  role: 'assistant', type: 'plan_review',
-                  content: bgPlanContent, planContent: bgPlanContent,
-                  resolved: false, timestamp: Date.now(),
-                });
-                cache.setActivityInCache(tabId, { phase: 'awaiting' });
+              // Only create plan_review card in Plan or Bypass mode
+              if (['plan', 'bypass'].includes(useSettingsStore.getState().sessionMode)) {
+                const bgSnapshot = cache.sessionCache.get(tabId);
+                let bgPlanContent = '';
+                if (bgSnapshot) {
+                  for (let i = bgSnapshot.messages.length - 1; i >= 0; i--) {
+                    const m = bgSnapshot.messages[i];
+                    if (m.type === 'tool_use' && m.toolName === 'Write' && m.toolInput?.content) {
+                      bgPlanContent = m.toolInput.content;
+                      break;
+                    }
+                  }
+                }
+                const bgToolExists = block.id && bgSnapshot?.messages.some(
+                  (m) => m.id === block.id && m.toolName === 'ExitPlanMode',
+                );
+                const bgResolvedReview = bgSnapshot?.messages.find(
+                  (m) => m.type === 'plan_review' && m.resolved,
+                );
+                if (!(bgToolExists && bgResolvedReview)) {
+                  cache.addMessageToCache(tabId, {
+                    id: 'plan_review_current',
+                    role: 'assistant', type: 'plan_review',
+                    content: bgPlanContent, planContent: bgPlanContent,
+                    resolved: false, timestamp: Date.now(),
+                  });
+                  cache.setActivityInCache(tabId, { phase: 'awaiting' });
+                }
               }
             } else {
               cache.addMessageToCache(tabId, {
@@ -1080,14 +1102,24 @@ export function InputBar() {
       }
       case 'result': {
         cache.setStatusInCache(tabId, msg.subtype === 'success' ? 'completed' : 'error');
-        cache.setMetaInCache(tabId, {
-          cost: msg.total_cost_usd,
-          duration: msg.duration_ms,
-          turns: msg.num_turns,
-          inputTokens: msg.usage?.input_tokens,
-          outputTokens: msg.usage?.output_tokens,
-          turnStartTime: undefined,
-        });
+        {
+          const snapshot = cache.sessionCache.get(tabId);
+          const prevMeta = snapshot?.sessionMeta;
+          const resultInput = msg.usage?.input_tokens || 0;
+          const resultOutput = msg.usage?.output_tokens || 0;
+          const streamedInput = prevMeta?.inputTokens || 0;
+          const streamedOutput = prevMeta?.outputTokens || 0;
+          cache.setMetaInCache(tabId, {
+            cost: msg.total_cost_usd,
+            duration: msg.duration_ms,
+            turns: msg.num_turns,
+            inputTokens: resultInput,
+            outputTokens: resultOutput,
+            totalInputTokens: (prevMeta?.totalInputTokens || 0) + (resultInput - streamedInput),
+            totalOutputTokens: (prevMeta?.totalOutputTokens || 0) + (resultOutput - streamedOutput),
+            turnStartTime: undefined,
+          });
+        }
         if (typeof msg.result === 'string' && msg.result) {
           // Only add if not already delivered via 'assistant' event
           const bgSnapshot = cache.sessionCache.get(tabId);
@@ -1224,48 +1256,58 @@ export function InputBar() {
             isMain: false,
           });
         }
-        // Early detection: create plan_review card as soon as ExitPlanMode
-        // starts streaming, before the full assistant message arrives.
-        // This breaks the deadlock where the CLI waits for stdin approval
-        // but the frontend waits for the full assistant message to show the card.
+        // Early detection: create plan_review card ONLY in explicit Plan mode.
+        // In Code/Bypass modes the CLI handles ExitPlanMode natively — no UI card needed.
         if (evt.type === 'content_block_start'
             && evt.content_block?.type === 'tool_use'
-            && evt.content_block?.name === 'ExitPlanMode') {
+            && evt.content_block?.name === 'ExitPlanMode'
+            && ['plan', 'bypass'].includes(useSettingsStore.getState().sessionMode)) {
           const currentMessages = useChatStore.getState().messages;
-          let planContent = '';
-          for (let i = currentMessages.length - 1; i >= 0; i--) {
-            const m = currentMessages[i];
-            if (m.type === 'tool_use' && m.toolName === 'Write' && m.toolInput?.content) {
-              planContent = m.toolInput.content;
-              break;
+
+          // Guard: if plan_review_current already exists and was resolved,
+          // this is a replay after plan approval — don't create a new card.
+          const existingReview = currentMessages.find((m) => m.id === 'plan_review_current');
+          if (!existingReview || !existingReview.resolved) {
+            let planContent = '';
+            for (let i = currentMessages.length - 1; i >= 0; i--) {
+              const m = currentMessages[i];
+              if (m.type === 'tool_use' && m.toolName === 'Write' && m.toolInput?.content) {
+                planContent = m.toolInput.content;
+                break;
+              }
             }
+
+            addMessage({
+              id: 'plan_review_current',
+              role: 'assistant',
+              type: 'plan_review',
+              content: planContent,
+              planContent: planContent,
+              resolved: false,
+              timestamp: Date.now(),
+            });
+            setActivityStatus({ phase: 'awaiting' });
           }
-
-          // Always show plan review card for user approval — even in bypass mode.
-          // The user approves via PlanReviewCard or Enter shortcut, which triggers
-          // the plan-execute flow (kill → restart with resume).
-          addMessage({
-            id: 'plan_review_current',
-            role: 'assistant',
-            type: 'plan_review',
-            content: planContent,
-            planContent: planContent,
-            resolved: false,
-            timestamp: Date.now(),
-          });
-          setActivityStatus({ phase: 'awaiting' });
         }
 
-        // Track input tokens from message_start
+        // Track input tokens from message_start (per-turn + cumulative total)
         if (evt.type === 'message_start' && evt.message?.usage?.input_tokens) {
-          const current = useChatStore.getState().sessionMeta.inputTokens || 0;
-          setSessionMeta({ inputTokens: current + evt.message.usage.input_tokens });
+          const meta = useChatStore.getState().sessionMeta;
+          const delta = evt.message.usage.input_tokens;
+          setSessionMeta({
+            inputTokens: (meta.inputTokens || 0) + delta,
+            totalInputTokens: (meta.totalInputTokens || 0) + delta,
+          });
         }
 
-        // Track output tokens from message_delta (final event per message)
+        // Track output tokens from message_delta (per-turn + cumulative total)
         if (evt.type === 'message_delta' && evt.usage?.output_tokens) {
-          const current = useChatStore.getState().sessionMeta.outputTokens || 0;
-          setSessionMeta({ outputTokens: current + evt.usage.output_tokens });
+          const meta = useChatStore.getState().sessionMeta;
+          const delta = evt.usage.output_tokens;
+          setSessionMeta({
+            outputTokens: (meta.outputTokens || 0) + delta,
+            totalOutputTokens: (meta.totalOutputTokens || 0) + delta,
+          });
         }
         break;
       }
@@ -1338,6 +1380,13 @@ export function InputBar() {
               timestamp: Date.now(),
             });
           } else if (block.type === 'tool_use') {
+            // Code mode: EnterPlanMode/ExitPlanMode are transparent — CLI handles internally.
+            // Don't show tool cards; track ExitPlanMode for auto-restart if CLI exits.
+            if (useSettingsStore.getState().sessionMode === 'code'
+                && (block.name === 'EnterPlanMode' || block.name === 'ExitPlanMode')) {
+              if (block.name === 'ExitPlanMode') exitPlanModeSeenRef.current = true;
+              continue;
+            }
             setActivityStatus({ phase: 'tool', toolName: block.name });
             if (block.name === 'Task') {
               agentActions.upsertAgent({
@@ -1358,13 +1407,16 @@ export function InputBar() {
               // instead of creating duplicate question cards (TK-103).
               const questionId = block.id || 'ask_question_current';
 
-              // Guard: skip re-delivered AskUserQuestion if already resolved
+              // Guard: skip if question already exists (resolved or not)
               const currentMessages = useChatStore.getState().messages;
               const existingQuestion = currentMessages.find(
                 (m) => m.id === questionId && m.type === 'question',
               );
-              if (existingQuestion?.resolved) {
-                // Already answered — don't overwrite with resolved:false
+              if (existingQuestion) {
+                // Already exists — just ensure awaiting state if unresolved
+                if (!existingQuestion.resolved) {
+                  setActivityStatus({ phase: 'awaiting' });
+                }
                 break;
               }
 
@@ -1396,21 +1448,9 @@ export function InputBar() {
                 timestamp: Date.now(),
               });
             } else if (block.name === 'ExitPlanMode') {
-              // Find plan content from the most recent Write tool_use message
-              const currentMessages = useChatStore.getState().messages;
-              let planContent = '';
-              for (let i = currentMessages.length - 1; i >= 0; i--) {
-                const m = currentMessages[i];
-                if (m.type === 'tool_use' && m.toolName === 'Write' && m.toolInput?.content) {
-                  planContent = m.toolInput.content;
-                  break;
-                }
-              }
-
               // Show ExitPlanMode as a collapsible tool_use (like other tools)
-              const exitPlanToolId = block.id || generateMessageId();
               addMessage({
-                id: exitPlanToolId,
+                id: block.id || generateMessageId(),
                 role: 'assistant',
                 type: 'tool_use',
                 content: '',
@@ -1420,41 +1460,40 @@ export function InputBar() {
                 timestamp: Date.now(),
               });
 
-              // Guard against re-delivered ExitPlanMode after user already approved:
-              // If this exact tool_use already existed AND the plan review was resolved,
-              // this is a replay — don't create a new unresolved card.
-              const toolAlreadyExisted = block.id && currentMessages.some(
-                (m) => m.id === block.id && m.toolName === 'ExitPlanMode',
-              );
-              const existingReview = currentMessages.find(
-                (m) => m.type === 'plan_review' && m.resolved,
-              );
-              if (toolAlreadyExisted && existingReview) {
-                // Re-delivery of already-approved plan — skip creating new card
-                break;
+              // Only create plan_review card in Plan or Bypass mode.
+              // In Code mode the CLI handles ExitPlanMode natively.
+              if (['plan', 'bypass'].includes(useSettingsStore.getState().sessionMode)) {
+                const currentMessages = useChatStore.getState().messages;
+
+                // Guard: skip if already approved (replay)
+                const toolAlreadyExisted = block.id && currentMessages.some(
+                  (m) => m.id === block.id && m.toolName === 'ExitPlanMode',
+                );
+                const existingReview = currentMessages.find(
+                  (m) => m.type === 'plan_review' && m.resolved,
+                );
+                if (!(toolAlreadyExisted && existingReview)) {
+                  let planContent = '';
+                  for (let i = currentMessages.length - 1; i >= 0; i--) {
+                    const m = currentMessages[i];
+                    if (m.type === 'tool_use' && m.toolName === 'Write' && m.toolInput?.content) {
+                      planContent = m.toolInput.content;
+                      break;
+                    }
+                  }
+
+                  addMessage({
+                    id: 'plan_review_current',
+                    role: 'assistant',
+                    type: 'plan_review',
+                    content: planContent,
+                    planContent: planContent,
+                    resolved: false,
+                    timestamp: Date.now(),
+                  });
+                  setActivityStatus({ phase: 'awaiting' });
+                }
               }
-
-              // Use a FIXED stable ID for the plan review card so that
-              // multiple ExitPlanMode deliveries (from --include-partial-messages)
-              // always update the same card instead of creating duplicates.
-              const unresolvedReview = currentMessages.find(
-                (m) => m.id === 'plan_review_current' && m.type === 'plan_review' && !m.resolved,
-              );
-              const reviewId = unresolvedReview
-                ? 'plan_review_current'  // Update existing unresolved card
-                : 'plan_review_current'; // First card — use stable ID
-
-              // Always show plan review card for user approval (all modes).
-              addMessage({
-                id: reviewId,
-                role: 'assistant',
-                type: 'plan_review',
-                content: planContent,
-                planContent: planContent,
-                resolved: false,
-                timestamp: Date.now(),
-              });
-              setActivityStatus({ phase: 'awaiting' });
             } else {
               addMessage({
                 id: block.id || generateMessageId(),
@@ -1711,6 +1750,32 @@ export function InputBar() {
           }
         }
 
+        // Code mode: Auto-restart when ExitPlanMode caused CLI exit.
+        // In stream-json mode, ExitPlanMode is treated as a permission denial,
+        // causing the CLI to exit. Silently restart with --resume to continue.
+        if (exitPlanModeSeenRef.current && useSettingsStore.getState().sessionMode === 'code'
+            && msg.subtype !== 'success') {
+          exitPlanModeSeenRef.current = false;
+          console.log('[TOKENICODE] Code mode ExitPlanMode exit detected — auto-restarting with --resume');
+          // Clean up dead process
+          const oldStdinId = useChatStore.getState().sessionMeta.stdinId;
+          if (oldStdinId) {
+            useChatStore.getState().setSessionMeta({ stdinId: undefined });
+            bridge.killSession(oldStdinId).catch(() => {});
+            if ((window as any).__claudeUnlisteners?.[oldStdinId]) {
+              (window as any).__claudeUnlisteners[oldStdinId]();
+              delete (window as any).__claudeUnlisteners[oldStdinId];
+            }
+          }
+          // Silently restart — no user message bubble
+          silentRestartRef.current = true;
+          setInput('Continue.');
+          useChatStore.getState().setActivityStatus({ phase: 'thinking' });
+          requestAnimationFrame(() => handleSubmitRef.current());
+          break;
+        }
+        exitPlanModeSeenRef.current = false;
+
         // Mark pending processing card (CLI slash command) as completed
         const pendingCmdMsgId = useChatStore.getState().sessionMeta.pendingCommandMsgId;
         if (pendingCmdMsgId) {
@@ -1785,14 +1850,25 @@ export function InputBar() {
         setSessionStatus(
           msg.subtype === 'success' ? 'completed' : 'error'
         );
-        setSessionMeta({
-          cost: msg.total_cost_usd,
-          duration: msg.duration_ms,
-          turns: msg.num_turns,
-          inputTokens: msg.usage?.input_tokens,
-          outputTokens: msg.usage?.output_tokens,
-          turnStartTime: undefined,
-        });
+        {
+          // Correct cumulative totals for any drift between streaming
+          // accumulation and the authoritative result values.
+          const meta = useChatStore.getState().sessionMeta;
+          const resultInput = msg.usage?.input_tokens || 0;
+          const resultOutput = msg.usage?.output_tokens || 0;
+          const streamedInput = meta.inputTokens || 0;
+          const streamedOutput = meta.outputTokens || 0;
+          setSessionMeta({
+            cost: msg.total_cost_usd,
+            duration: msg.duration_ms,
+            turns: msg.num_turns,
+            inputTokens: resultInput,
+            outputTokens: resultOutput,
+            totalInputTokens: (meta.totalInputTokens || 0) + (resultInput - streamedInput),
+            totalOutputTokens: (meta.totalOutputTokens || 0) + (resultOutput - streamedOutput),
+            turnStartTime: undefined,
+          });
+        }
         agentActions.completeAll(
           msg.subtype === 'success' ? 'completed' : 'error'
         );
@@ -1879,17 +1955,21 @@ export function InputBar() {
 
   // Handle stderr lines — detect permission prompts and other interactive requests
   const handleStderrLine = useCallback((line: string, _sid: string) => {
-    console.log('[TOKENICODE:stderr]', line);
-    const { addMessage } = useChatStore.getState();
+    // Strip ANSI escape codes so regex matching works on raw text
+    const clean = stripAnsi(line).trim();
+    console.log('[TOKENICODE:stderr]', clean);
+    const { addMessage, setActivityStatus } = useChatStore.getState();
 
-    // Detect ExitPlanMode prompt — create plan_review card as fallback
-    // if the stream_event early detection didn't fire
-    if (/(?:Exit|Leave)\s+plan\s+mode/i.test(line)) {
+    // Detect ExitPlanMode prompt — create plan_review card as fallback (Plan mode only).
+    // In Code mode the CLI handles this natively.
+    if (/(?:Exit|Leave)\s+plan\s+mode/i.test(clean)
+        && ['plan', 'bypass'].includes(useSettingsStore.getState().sessionMode)) {
       const store = useChatStore.getState();
-      const pendingReview = store.messages.find(
-        (m) => m.id === 'plan_review_current' && m.type === 'plan_review' && !m.resolved,
+      const existingReview = store.messages.find(
+        (m) => m.id === 'plan_review_current' && m.type === 'plan_review',
       );
-      if (!pendingReview) {
+      if (!existingReview || existingReview.resolved) {
+        if (existingReview?.resolved) return;
         let planContent = '';
         for (let i = store.messages.length - 1; i >= 0; i--) {
           const m = store.messages[i];
@@ -1909,28 +1989,50 @@ export function InputBar() {
       return;
     }
 
-    // Detect permission prompts from Claude CLI stderr
-    // Common patterns: "Allow <tool>?", "Do you want to allow", "Permission requested"
+    // Detect permission prompts from Claude CLI stderr.
+    // The CLI outputs prompts like:
+    //   "❓ Allow Bash {"command":"ls"}? (y/n)"
+    //   "Allow mcp__tool? (y/n)"
+    //   "Do you want to allow Bash? (y/n)"
+    // After ANSI stripping, match against clean text.
     const permissionPatterns = [
-      /(?:Allow|Permit|Approve)\s+(.+?)\s*\?/i,
+      // "❓ Allow <tool>" or "Allow <tool>" — primary CLI format
+      /(?:❓\s*)?(?:Allow|Permit|Approve)\s+(\S+)/i,
+      // "Do you want to allow/permit/run <tool>?"
       /(?:Do you want to (?:allow|permit|run))\s+(.+?)\s*\?/i,
+      // "Permission requested/required for <tool>"
       /Permission (?:requested|required)(?:\s+for)?\s*(.*)/i,
+      // "Press Y to allow/approve/continue"
       /(?:Press|Type)\s+[Yy]\s+to\s+(?:allow|approve|continue)/i,
     ];
 
     for (const pattern of permissionPatterns) {
-      const match = line.match(pattern);
+      const match = clean.match(pattern);
       if (match) {
+        // Guard: don't create duplicate permission cards for the same prompt
+        const store = useChatStore.getState();
+        const msgs = store.messages;
+        let recentPermission = false;
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          if (msgs[i].type === 'permission' && !msgs[i].resolved) {
+            recentPermission = true;
+            break;
+          }
+        }
+        if (recentPermission) return;
+
         addMessage({
           id: generateMessageId(),
           role: 'system',
           type: 'permission',
-          content: line.trim(),
+          content: clean,
           permissionTool: match[1]?.trim() || '',
-          permissionDescription: line.trim(),
+          permissionDescription: clean,
           resolved: false,
           timestamp: Date.now(),
         });
+        // Hold: pause generation display while awaiting user approval
+        setActivityStatus({ phase: 'awaiting' });
         return;
       }
     }
@@ -2060,10 +2162,13 @@ export function InputBar() {
           <RewindPanel onClose={() => setShowRewindPanel(false)} />
         )}
 
-        {/* Plan approval bar — fallback when plan turn completed without PlanReviewCard */}
-        {(sessionMode === 'plan' || sessionMode === 'bypass') && !isStreaming && hasLastAssistantMessage && !hasPendingPlanReview
-          && (sessionStatus === 'completed' || sessionStatus === 'error') && (
-          <PlanApprovalBar onApprove={handlePlanApprove} onSwitchMode={handleSwitchToCode} />
+        {/* Floating approval card — plan_review or question awaiting user response */}
+        {floatingCard && (
+          <div className="mb-3 animate-scale-in">
+            {floatingCard.type === 'plan_review'
+              ? <PlanReviewCard message={floatingCard} floating />
+              : <QuestionCard message={floatingCard} floating />}
+          </div>
         )}
 
         {/* File upload chips */}

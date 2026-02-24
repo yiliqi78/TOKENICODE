@@ -103,10 +103,11 @@ export function Sidebar() {
                 : sessionStatus === 'completed' ? 'bg-success'
                 : sessionStatus === 'error' ? 'bg-error'
                 : 'bg-text-tertiary'}`} />
-            {(sessionMeta.inputTokens || sessionMeta.outputTokens) ? (
+            {(sessionMeta.totalInputTokens || sessionMeta.totalOutputTokens
+              || sessionMeta.inputTokens || sessionMeta.outputTokens) ? (
               <span className="text-[10px] text-text-tertiary font-mono flex items-center gap-1.5">
-                <span title="Input tokens">↑{formatTokenCount(sessionMeta.inputTokens || 0)}</span>
-                <span title="Output tokens">↓{formatTokenCount(sessionMeta.outputTokens || 0)}</span>
+                <span title="Total input tokens (session)">↑{formatTokenCount(sessionMeta.totalInputTokens || sessionMeta.inputTokens || 0)}</span>
+                <span title="Total output tokens (session)">↓{formatTokenCount(sessionMeta.totalOutputTokens || sessionMeta.outputTokens || 0)}</span>
               </span>
             ) : (
               <span className="text-[10px] text-text-tertiary capitalize">{sessionStatus}</span>

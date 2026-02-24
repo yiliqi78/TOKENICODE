@@ -5,6 +5,8 @@ import { MarkdownRenderer } from '../shared/MarkdownRenderer';
 
 interface Props {
   message: ChatMessage;
+  /** When true, card renders in floating overlay mode (no left margin). */
+  floating?: boolean;
 }
 
 /** Extract numbered steps from plan markdown for a preview badge */
@@ -38,7 +40,7 @@ function extractStepPreview(content: string, maxSteps: number = 3): string[] {
  * - Larger approve button with "(Enter)" keyboard hint
  * - Auto-collapses to summary after approval
  */
-export function PlanReviewCard({ message }: Props) {
+export function PlanReviewCard({ message, floating }: Props) {
   const t = useT();
   const planContent = message.planContent || message.content || '';
   const isResolved = message.resolved;
@@ -68,7 +70,7 @@ export function PlanReviewCard({ message }: Props) {
   }, []);
 
   return (
-    <div className={`ml-11 ${isResolved ? 'opacity-80' : ''} animate-scale-in`}>
+    <div className={`${floating ? '' : 'ml-11'} ${isResolved ? 'opacity-80' : ''} animate-scale-in`}>
       <div className={`rounded-xl border overflow-hidden transition-all duration-200
         ${isResolved
           ? 'border-border-subtle bg-bg-secondary/30'

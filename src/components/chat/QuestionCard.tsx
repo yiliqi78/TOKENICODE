@@ -12,6 +12,8 @@ function decodeUnicodeEscapes(text: string): string {
 
 interface Props {
   message: ChatMessage;
+  /** When true, card renders in floating overlay mode (no left margin). */
+  floating?: boolean;
 }
 
 /**
@@ -23,7 +25,7 @@ interface Props {
  * - Better option styling with hover scale effect
  * - Answered questions shown with timeline connector
  */
-export function QuestionCard({ message }: Props) {
+export function QuestionCard({ message, floating }: Props) {
   const t = useT();
   const questions = message.questions || [];
   const [currentIdx, setCurrentIdx] = useState(0);
@@ -132,7 +134,7 @@ export function QuestionCard({ message }: Props) {
   }, [isFullyResolved, message.id]);
 
   return (
-    <div className={`ml-11 animate-scale-in ${isFullyResolved ? 'opacity-80' : ''}`}>
+    <div className={`${floating ? '' : 'ml-11'} animate-scale-in ${isFullyResolved ? 'opacity-80' : ''}`}>
       <div className={`rounded-xl border overflow-hidden transition-all duration-200
         ${isFullyResolved
           ? 'border-border-subtle bg-bg-secondary/20'

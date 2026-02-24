@@ -2,15 +2,11 @@ import { useEffect, useCallback, useState } from 'react';
 import { useSetupStore } from '../../stores/setupStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useT } from '../../lib/i18n';
+import { stripAnsi } from '../../lib/strip-ansi';
 import {
   bridge,
   onDownloadProgress,
 } from '../../lib/tauri-bridge';
-
-/** Strip ANSI escape sequences from a string (terminal color/cursor codes) */
-function stripAnsi(str: string): string {
-  return str.replace(/\x1b\[[0-9;]*[A-Za-z]|\x1b\].*?\x07|\x1b\[[\?]?[0-9;]*[a-zA-Z]/g, '');
-}
 
 /**
  * SetupWizard — lightweight CLI detection & direct download install.

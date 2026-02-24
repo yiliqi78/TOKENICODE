@@ -18,8 +18,12 @@ export const MessageBubble = memo(function MessageBubble({ message, isFirstInGro
   if (message.role === 'user') return <UserMsg message={message} />;
   if (message.role === 'system' && message.commandType === 'processing') return <CommandProcessingCard message={message} />;
   if (message.role === 'system' && message.commandType) return <CommandFeedbackMsg message={message} />;
+  // Unresolved question/plan_review cards are rendered as floating overlays
+  // above the InputBar. Only show them inline once resolved.
+  if (message.type === 'question' && !message.resolved) return null;
   if (message.type === 'question') return <QuestionCard message={message} />;
   if (message.type === 'todo') return <TodoMsg message={message} />;
+  if (message.type === 'plan_review' && !message.resolved) return null;
   if (message.type === 'plan_review') return <PlanReviewCard message={message} />;
   if (message.type === 'tool_use') return <ToolUseMsg message={message} />;
   if (message.type === 'thinking') return <ThinkingMsg message={message} />;

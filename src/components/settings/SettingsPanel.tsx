@@ -261,12 +261,23 @@ function ApiProviderSection() {
   const [baseUrlSaved, setBaseUrlSaved] = useState(false);
   const baseUrlTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const saveKeyTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /** Tracks whether the key input is showing the mask vs real/editing content */
+  const isMaskedRef = useRef(false);
+
+  // Clean up timers on unmount
+  useEffect(() => {
+    return () => {
+      clearTimeout(baseUrlTimerRef.current);
+      clearTimeout(saveKeyTimerRef.current);
+    };
+  }, []);
 
   // Load existing API key status on mount
   useEffect(() => {
     bridge.loadApiKey().then((key) => {
       if (key) {
         setApiKeyInput('••••••••••••');
+        isMaskedRef.current = true;
         setKeyStatus('saved');
       }
     }).catch(() => {});
@@ -274,15 +285,16 @@ function ApiProviderSection() {
 
   // Auto-save API key with debounce
   const handleKeyChange = useCallback((value: string) => {
-    // If currently showing mask and user starts typing, clear it
-    if (apiKeyInput === '••••••••••••') {
-      setApiKeyInput(value.replace('••••••••••••', ''));
-    } else {
-      setApiKeyInput(value);
+    // If currently showing mask and user starts typing, clear the mask
+    let cleanValue = value;
+    if (isMaskedRef.current) {
+      cleanValue = value.replace('••••••••••••', '');
+      isMaskedRef.current = false;
     }
+    setApiKeyInput(cleanValue);
     setKeyStatus('editing');
     clearTimeout(saveKeyTimerRef.current);
-    const trimmed = value.replace('••••••••••••', '').trim();
+    const trimmed = cleanValue.trim();
     if (!trimmed) return;
     saveKeyTimerRef.current = setTimeout(async () => {
       try {
@@ -292,7 +304,7 @@ function ApiProviderSection() {
         console.error('Failed to save API key:', e);
       }
     }, 800);
-  }, [apiKeyInput]);
+  }, []);
 
   // Eye toggle: load real key when revealing
   const handleToggleShowKey = useCallback(async () => {
@@ -301,16 +313,17 @@ function ApiProviderSection() {
         const realKey = await bridge.loadApiKey();
         if (realKey) {
           setApiKeyInput(realKey);
+          isMaskedRef.current = false;
           setShowKey(true);
         }
       } catch {
-        // If load fails, just toggle type
         setShowKey(true);
       }
     } else if (showKey) {
       // Hide: re-mask if we were showing a saved key
       if (keyStatus === 'saved') {
         setApiKeyInput('••••••••••••');
+        isMaskedRef.current = true;
       }
       setShowKey(false);
     } else {
@@ -578,10 +591,7 @@ type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' 
 
 type CliCheckStatus = 'idle' | 'checking' | 'found' | 'not_found' | 'installing' | 'installed' | 'install_failed';
 
-/** Strip ANSI escape sequences */
-function stripAnsi(s: string): string {
-  return s.replace(/\x1b\[[\?]?[0-9;]*[a-zA-Z]|\x1b\].*?\x07/g, '');
-}
+import { stripAnsi } from '../../lib/strip-ansi';
 
 function CliSection() {
   const t = useT();

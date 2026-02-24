@@ -24,6 +24,9 @@ export function PermissionCard({ message }: Props) {
     if (!stdinId || message.resolved) return;
     bridge.sendStdin(stdinId, allow ? 'y' : 'n');
     useChatStore.getState().updateMessage(message.id, { resolved: true });
+    // Resume generation display after user responds
+    useChatStore.getState().setSessionStatus('running');
+    useChatStore.getState().setActivityStatus({ phase: 'thinking' });
   }, [message.id, message.resolved]);
 
   return (

@@ -28,14 +28,14 @@ function getFileIcon(name: string, isDir: boolean): string {
 function getChangeBadge(kind: FileChangeKind | undefined) {
   if (!kind) return null;
   const colors = {
-    created: 'bg-green-500',
-    modified: 'bg-yellow-500',
-    removed: 'bg-red-500',
+    created: 'bg-success',
+    modified: 'bg-accent',
+    removed: 'bg-error',
   };
   const labels = { created: 'A', modified: 'M', removed: 'D' };
   return (
     <span className={`ml-auto flex-shrink-0 w-3.5 h-3.5 rounded text-[8px]
-      font-bold text-white flex items-center justify-center ${colors[kind]}`}>
+      font-bold text-text-inverse flex items-center justify-center ${colors[kind]}`}>
       {labels[kind]}
     </span>
   );
@@ -293,7 +293,7 @@ function TreeNode({
           ${isSelected
             ? 'bg-accent/10 text-accent'
             : changeKind
-              ? 'text-yellow-600 dark:text-yellow-400'
+              ? 'text-accent'
               : 'text-text-muted hover:bg-bg-secondary hover:text-text-primary'
           }`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
@@ -329,7 +329,7 @@ function TreeNode({
         )}
         {getChangeBadge(changeKind)}
         {!changeKind && hasChildChanges && (
-          <span className="ml-auto w-1.5 h-1.5 rounded-full bg-yellow-500
+          <span className="ml-auto w-1.5 h-1.5 rounded-full bg-accent
             flex-shrink-0" />
         )}
       </button>
@@ -513,7 +513,7 @@ export function FileExplorer() {
           </div>
           {changedCount > 0 && (
             <span className="text-[10px] px-1.5 py-0.5 rounded-full
-              bg-yellow-500/15 text-yellow-600 dark:text-yellow-400
+              bg-accent/15 text-accent
               font-medium flex-shrink-0">
               {changedCount} {t('files.changed')}
             </span>

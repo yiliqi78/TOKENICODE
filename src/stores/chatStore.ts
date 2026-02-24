@@ -72,10 +72,14 @@ export interface SessionMeta {
   stdinId?: string;
   /** Message ID of a pending processing card (for CLI slash commands) */
   pendingCommandMsgId?: string;
-  /** Accumulated input tokens from stream events (message_start) */
+  /** Accumulated input tokens from stream events (message_start) — per turn, reset each turn */
   inputTokens?: number;
-  /** Accumulated output tokens from stream events (message_delta) */
+  /** Accumulated output tokens from stream events (message_delta) — per turn, reset each turn */
   outputTokens?: number;
+  /** Cumulative input tokens across ALL turns in this session/task */
+  totalInputTokens?: number;
+  /** Cumulative output tokens across ALL turns in this session/task */
+  totalOutputTokens?: number;
   /** Timestamp (Date.now()) when the current turn started — used for elapsed timer */
   turnStartTime?: number;
   /** JSON fingerprint of custom_env used when spawning the CLI process (TK-303).
