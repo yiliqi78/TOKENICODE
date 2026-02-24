@@ -504,6 +504,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'cli.pathHint': '安装后需要重新打开终端才能生效',
     'cli.configuring': '正在配置...',
     'cli.npmFallback': '通过 npm 镜像安装...',
+    'cli.reinstallHint': '点击重新安装以修复',
     'cli.restart': '重启应用以生效',
 
     // Update
@@ -551,6 +552,12 @@ const messages: Record<Locale, Record<string, string>> = {
     'setup.start': '开始使用',
     'setup.skip': '跳过',
     'setup.version': '版本',
+    'setup.gitBashMissing': '需要安装 Git for Windows',
+    'setup.gitBashMissingDesc': 'Claude Code 在 Windows 上运行需要 Git Bash，正在自动安装...',
+    'setup.downloadGitBash': '下载 Git for Windows',
+    'setup.recheckGitBash': '已安装？点击重新检测',
+    'setup.downloadingGit': '正在下载 Git for Windows...',
+    'setup.extractingGit': '正在安装 Git...',
     'setup.downloadingNode': '正在下载 Node.js 运行环境...',
     'setup.extractingNode': '正在解压 Node.js...',
     'setup.preparingEnv': '正在准备运行环境...',
@@ -1063,6 +1070,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'cli.pathHint': 'Restart your terminal after installation',
     'cli.configuring': 'Configuring...',
     'cli.npmFallback': 'Installing via npm mirror...',
+    'cli.reinstallHint': 'Click reinstall to fix',
     'cli.restart': 'Restart app to apply',
 
     // Update
@@ -1108,6 +1116,12 @@ const messages: Record<Locale, Record<string, string>> = {
     'setup.start': 'Get Started',
     'setup.skip': 'Skip',
     'setup.version': 'Version',
+    'setup.gitBashMissing': 'Git for Windows Required',
+    'setup.gitBashMissingDesc': 'Claude Code requires Git Bash on Windows. Installing automatically...',
+    'setup.downloadGitBash': 'Download Git for Windows',
+    'setup.recheckGitBash': 'Already installed? Re-check',
+    'setup.downloadingGit': 'Downloading Git for Windows...',
+    'setup.extractingGit': 'Installing Git...',
     'setup.downloadingNode': 'Downloading Node.js runtime...',
     'setup.extractingNode': 'Extracting Node.js...',
     'setup.preparingEnv': 'Preparing runtime environment...',

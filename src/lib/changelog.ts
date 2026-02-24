@@ -13,6 +13,64 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.6.1',
+    date: '2026-02-24',
+    highlights: {
+      zh: [
+        'Windows Git Bash 自动安装 — 首次安装 CLI 时自动下载并部署 PortableGit，无需手动安装 Git for Windows',
+        'Git 下载三源降级 — npmmirror → 华为云 → GitHub，15 秒连接超时快速切换，国内用户无感',
+        '安装流程优化 — 移除手动「下载 Git」步骤，整个环境部署全自动（Git → Node.js → CLI）',
+        'CLI 启动预检增强 — 自动注入 CLAUDE_CODE_GIT_BASH_PATH，找不到 Git 时给出明确错误提示',
+      ],
+      en: [
+        'Windows Git Bash auto-install — PortableGit is automatically downloaded and deployed during CLI setup, no manual Git installation needed',
+        'Git download with 3-source fallback — npmmirror → Huawei Cloud → GitHub, 15s connect timeout for fast failover',
+        'Streamlined setup — Removed manual "Download Git" step, entire environment deployment is fully automatic (Git → Node.js → CLI)',
+        'CLI pre-flight enhancement — Auto-injects CLAUDE_CODE_GIT_BASH_PATH, clear error message when Git is missing',
+      ],
+    },
+  },
+  {
+    version: '0.6.0',
+    date: '2026-02-24',
+    highlights: {
+      zh: [
+        'Node.js 本地部署 — 首次启动若无 npm，自动下载 Node.js LTS v22 到应用目录，无需管理员权限',
+        '三层 CLI 安装降级 — GCS 直接下载 → npm 安装 → 自动部署 Node.js 后 npm 安装，每层失败优雅降级',
+        '国内镜像支持 — Node.js 和 npm 包自动切换 npmmirror 国内镜像，防火墙内无需 VPN',
+        '防火墙错误检测 — 网络超时、DNS 失败等错误显示友好提示，建议使用代理',
+        'Windows PATH 自动配置 — 安装后自动添加 cli/、node/bin、npm-global/bin 到用户 PATH',
+      ],
+      en: [
+        'Node.js local deployment — Auto-downloads Node.js LTS v22 on first launch if npm is missing, no admin required',
+        'Three-tier CLI install fallback — GCS direct download → npm install → auto-deploy Node.js + npm, graceful fallback',
+        'China mirror support — Node.js and npm packages auto-switch to npmmirror when official sources are unreachable',
+        'Firewall error detection — Friendly hints for network timeout, DNS failure, suggesting VPN or proxy',
+        'Windows PATH auto-config — Adds cli/, node/bin, npm-global/bin to user PATH after installation',
+      ],
+    },
+  },
+  {
+    version: '0.5.6',
+    date: '2026-02-24',
+    highlights: {
+      zh: [
+        'Tiptap 富文本编辑器 — 输入框升级为 Tiptap 编辑器，支持行内文件标签、更好的光标控制',
+        '文件拖拽内联标签 — 拖入文件显示为可删除的行内标签，替代旧的文件列表样式',
+        '默认模型切换 Sonnet 4.6 — 新安装默认使用 claude-sonnet-4-6，性价比更高',
+        'Windows CLI PATH 修复 — 修复 CLI 安装后 PATH 未正确写入导致的启动失败问题',
+        'Thinking 默认关闭 — 新安装默认关闭 Thinking，按需开启',
+      ],
+      en: [
+        'Tiptap rich text editor — Input bar upgraded to Tiptap with inline file chips and better cursor control',
+        'File drag-and-drop inline chips — Dragged files appear as removable inline chips instead of a list',
+        'Default model switched to Sonnet 4.6 — New installs default to claude-sonnet-4-6 for better cost efficiency',
+        'Windows CLI PATH fix — Fixed PATH not written correctly after CLI installation causing launch failures',
+        'Thinking off by default — New installs start with Thinking disabled, enable as needed',
+      ],
+    },
+  },
+  {
     version: '0.5.5',
     date: '2026-02-24',
     highlights: {

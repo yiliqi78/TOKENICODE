@@ -52,6 +52,26 @@ fn cli_download_dir() -> Option<std::path::PathBuf> {
     dirs::data_local_dir().map(|d| d.join("com.tinyzhuang.tokenicode").join("cli"))
 }
 
+/// Path to the local Git installation directory (Windows only).
+#[cfg(target_os = "windows")]
+fn git_download_dir() -> Result<std::path::PathBuf, String> {
+    dirs::data_local_dir()
+        .map(|d| d.join("com.tinyzhuang.tokenicode").join("git"))
+        .ok_or_else(|| "Cannot determine app data directory".to_string())
+}
+
+/// Check if app-local PortableGit bash.exe exists (Windows only).
+#[cfg(target_os = "windows")]
+fn get_local_git_bash() -> Option<String> {
+    let git_dir = git_download_dir().ok()?;
+    let bash = git_dir.join("bin").join("bash.exe");
+    if bash.exists() {
+        Some(bash.to_string_lossy().to_string())
+    } else {
+        None
+    }
+}
+
 /// Find the claude binary by checking common installation paths
 /// Validate that a file is a real executable (PE header check on Windows, file-exists on Unix)
 fn is_valid_executable(path: &std::path::Path) -> bool {
@@ -80,6 +100,11 @@ fn is_valid_executable(path: &std::path::Path) -> bool {
 /// Returns the path to bash.exe if found.
 #[cfg(target_os = "windows")]
 fn find_git_bash() -> Option<String> {
+    // 1. Check app-local PortableGit first (auto-installed by TOKENICODE)
+    if let Some(local) = get_local_git_bash() {
+        return Some(local);
+    }
+    // 2. Check standard installation paths
     let candidates = [
         r"C:\Program Files\Git\bin\bash.exe",
         r"C:\Program Files (x86)\Git\bin\bash.exe",
@@ -324,6 +349,22 @@ fn build_enriched_path() -> String {
     // App-local CLI download directory
     if let Some(cli_dir) = cli_download_dir() {
         paths.push(cli_dir.to_string_lossy().to_string());
+    }
+
+    // App-local Git (PortableGit) bin directory (Windows only)
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(git_dir) = git_download_dir() {
+            let git_bin = git_dir.join("bin");
+            if git_bin.exists() {
+                paths.push(git_bin.to_string_lossy().to_string());
+            }
+            // Also add cmd/ for git.exe
+            let git_cmd = git_dir.join("cmd");
+            if git_cmd.exists() {
+                paths.push(git_cmd.to_string_lossy().to_string());
+            }
+        }
     }
 
     if let Some(home) = dirs::home_dir() {
@@ -639,6 +680,15 @@ async fn start_claude_session(
         if !resolved_env.contains_key("CLAUDE_CODE_GIT_BASH_PATH") {
             if let Some(bash_path) = find_git_bash() {
                 resolved_env.insert("CLAUDE_CODE_GIT_BASH_PATH".to_string(), bash_path);
+            } else {
+                // git-bash is a hard requirement for Claude Code on Windows.
+                // Fail fast with a clear error instead of spawning and getting a silent exit.
+                return Err(
+                    "Claude Code requires Git Bash on Windows.\n\
+                     Please reinstall Claude Code via Settings to auto-install Git,\n\
+                     or install Git for Windows manually: https://git-scm.com/downloads/win"
+                    .to_string()
+                );
             }
         }
     }
@@ -2328,6 +2378,7 @@ struct CliStatus {
     installed: bool,
     path: Option<String>,
     version: Option<String>,
+    git_bash_missing: bool,
 }
 
 /// Run a Claude CLI subcommand (e.g. `claude doctor`) as a one-shot process
@@ -2381,9 +2432,15 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
                 }
                 _ => None,
             };
-            Ok(CliStatus { installed: true, path: Some(path), version })
+            // On Windows, check if git-bash is available (hard requirement for Claude Code)
+            #[cfg(target_os = "windows")]
+            let git_bash_missing = find_git_bash().is_none();
+            #[cfg(not(target_os = "windows"))]
+            let git_bash_missing = false;
+
+            Ok(CliStatus { installed: true, path: Some(path), version, git_bash_missing })
         }
-        None => Ok(CliStatus { installed: false, path: None, version: None }),
+        None => Ok(CliStatus { installed: false, path: None, version: None, git_bash_missing: false }),
     }
 }
 
@@ -2622,11 +2679,34 @@ async fn run_claude_install(target_path: &std::path::Path) -> bool {
 }
 
 /// Install the Claude CLI with multi-tier fallback:
+/// 0. (Windows) Ensure git-bash is available — auto-install PortableGit if missing
 /// 1. Try GCS direct binary download (fastest, no Node.js needed)
 /// 2. If GCS fails → check npm availability → use npm to install
 /// 3. If npm unavailable → download Node.js locally → then npm install
 #[tauri::command]
 async fn install_claude_cli(app: AppHandle) -> Result<(), String> {
+    // Phase 0 (Windows only): Ensure git-bash is available
+    #[cfg(target_os = "windows")]
+    {
+        if find_git_bash().is_none() {
+            eprintln!("git-bash not found, auto-installing PortableGit...");
+            install_git_bash_inner(&app).await.map_err(|e| {
+                format!(
+                    "Failed to install Git for Windows: {}. \
+                     Please install Git for Windows manually: https://git-scm.com/downloads/win",
+                    e
+                )
+            })?;
+        }
+
+        // If CLI is already installed (only git-bash was missing), skip download phases
+        if find_claude_binary().is_some() {
+            eprintln!("CLI already installed, git-bash was the only missing dependency");
+            finalize_cli_install_paths(&app);
+            return Ok(());
+        }
+    }
+
     // Phase 1: Try GCS direct download (fast path — works when not behind firewall)
     match install_cli_via_gcs(&app).await {
         Ok(()) => {
@@ -2675,6 +2755,17 @@ fn finalize_cli_install_paths(app: &AppHandle) {
         }
         if let Some(npm_bin) = get_npm_global_bin() {
             dirs_to_add.push(npm_bin.to_string_lossy().to_string());
+        }
+        // Include local PortableGit bin and cmd directories
+        if let Ok(git_dir) = git_download_dir() {
+            let git_bin = git_dir.join("bin");
+            if git_bin.exists() {
+                dirs_to_add.push(git_bin.to_string_lossy().to_string());
+            }
+            let git_cmd = git_dir.join("cmd");
+            if git_cmd.exists() {
+                dirs_to_add.push(git_cmd.to_string_lossy().to_string());
+            }
         }
 
         for dir in &dirs_to_add {
@@ -2941,6 +3032,145 @@ async fn install_node_env_inner(app: &AppHandle) -> Result<(), String> {
     }));
 
     eprintln!("Node.js {} installed to {:?}", NODE_LTS_VERSION, install_dir);
+    Ok(())
+}
+
+// ─── Git for Windows (PortableGit) local deployment ─────────────────────────
+
+/// PortableGit version for auto-deployment on Windows (when git-bash is missing).
+#[cfg(target_os = "windows")]
+const GIT_PORTABLE_VERSION: &str = "2.47.1.2";
+
+/// Git for Windows release tag (used in download URLs).
+#[cfg(target_os = "windows")]
+const GIT_RELEASE_TAG: &str = "v2.47.1.windows.2";
+
+/// GitHub releases URL for Git for Windows.
+#[cfg(target_os = "windows")]
+const GIT_DIST_GITHUB: &str = "https://github.com/git-for-windows/git/releases/download";
+
+/// China mirror: npmmirror binary mirror.
+#[cfg(target_os = "windows")]
+const GIT_DIST_NPMMIRROR: &str = "https://registry.npmmirror.com/-/binary/git-for-windows";
+
+/// China mirror: Huawei Cloud.
+#[cfg(target_os = "windows")]
+const GIT_DIST_HUAWEI: &str = "https://mirrors.huaweicloud.com/git-for-windows";
+
+/// Download and install PortableGit to provide bash.exe on Windows.
+/// The .7z.exe self-extracting archive is downloaded and executed silently.
+#[cfg(target_os = "windows")]
+async fn install_git_bash_inner(app: &AppHandle) -> Result<(), String> {
+    let install_dir = git_download_dir()?;
+
+    // If an incomplete installation exists (no bash.exe), clean it up
+    if install_dir.exists() {
+        let bash = install_dir.join("bin").join("bash.exe");
+        if !bash.exists() {
+            eprintln!("Incomplete Git installation found, cleaning up...");
+            let _ = std::fs::remove_dir_all(&install_dir);
+        }
+    }
+
+    // Already installed?
+    if install_dir.join("bin").join("bash.exe").exists() {
+        eprintln!("PortableGit already installed at {:?}", install_dir);
+        return Ok(());
+    }
+
+    std::fs::create_dir_all(&install_dir)
+        .map_err(|e| format!("Failed to create git dir: {}", e))?;
+
+    // Determine architecture: x64 or arm64 (64-bit only)
+    let arch_suffix = match std::env::consts::ARCH {
+        "aarch64" => "arm64",
+        _ => "64", // x86_64 and fallback
+    };
+    let filename = format!("PortableGit-{}-{}-bit.7z.exe", GIT_PORTABLE_VERSION, arch_suffix);
+
+    let sources = [
+        // China mirrors first (target audience is primarily Chinese users)
+        format!("{}/{}/{}", GIT_DIST_NPMMIRROR, GIT_RELEASE_TAG, filename),
+        format!("{}/{}/{}", GIT_DIST_HUAWEI, GIT_RELEASE_TAG, filename),
+        // GitHub as last resort (may be slow/blocked behind firewall)
+        format!("{}/{}/{}", GIT_DIST_GITHUB, GIT_RELEASE_TAG, filename),
+    ];
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(15)) // Fast failover between mirrors
+        .timeout(std::time::Duration::from_secs(300)) // 5 min for large download
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))?;
+
+    let mut last_err = String::new();
+    let mut archive_bytes: Option<Vec<u8>> = None;
+
+    for url in &sources {
+        eprintln!("Trying PortableGit download: {}", url);
+        let _ = app.emit("setup:download:progress", serde_json::json!({
+            "downloaded": 0, "total": 0, "percent": 0, "phase": "git_downloading"
+        }));
+
+        match download_with_progress(app, &client, url, "git_downloading").await {
+            Ok(bytes) => {
+                eprintln!("PortableGit download succeeded ({} bytes)", bytes.len());
+                archive_bytes = Some(bytes);
+                break;
+            }
+            Err(e) => {
+                last_err = format!("Source {}: {}", url, e);
+                eprintln!("{}", last_err);
+            }
+        }
+    }
+
+    let bytes = archive_bytes
+        .ok_or_else(|| format!("All Git download sources failed: {}", last_err))?;
+
+    // Write the .7z.exe to a temp file
+    let temp_path = install_dir.join(&filename);
+    std::fs::write(&temp_path, &bytes)
+        .map_err(|e| format!("Failed to write PortableGit archive: {}", e))?;
+
+    let _ = app.emit("setup:download:progress", serde_json::json!({
+        "downloaded": 0, "total": 0, "percent": 85, "phase": "git_extracting"
+    }));
+
+    // Run the self-extracting archive silently: -o<dir> -y
+    eprintln!("Extracting PortableGit to {:?}...", install_dir);
+    let extract_result = Command::new(&temp_path)
+        .args([&format!("-o{}", install_dir.display()), "-y"])
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .output()
+        .await;
+
+    // Clean up the downloaded archive regardless of result
+    let _ = std::fs::remove_file(&temp_path);
+
+    match extract_result {
+        Ok(output) if output.status.success() => {
+            eprintln!("PortableGit extraction succeeded");
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("PortableGit extraction failed (exit {}): {}", output.status, stderr));
+        }
+        Err(e) => {
+            return Err(format!("Failed to run PortableGit extractor: {}", e));
+        }
+    }
+
+    // Verify bash.exe exists
+    let bash = install_dir.join("bin").join("bash.exe");
+    if !bash.exists() {
+        return Err("bash.exe not found after PortableGit extraction".to_string());
+    }
+
+    let _ = app.emit("setup:download:progress", serde_json::json!({
+        "downloaded": 0, "total": 0, "percent": 100, "phase": "git_complete"
+    }));
+
+    eprintln!("PortableGit installed to {:?}", install_dir);
     Ok(())
 }
 

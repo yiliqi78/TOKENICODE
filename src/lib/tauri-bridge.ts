@@ -80,6 +80,7 @@ export interface CliStatus {
   installed: boolean;
   path: string | null;
   version: string | null;
+  git_bash_missing: boolean;
 }
 
 export interface AuthStatus {
@@ -101,7 +102,8 @@ export interface DownloadProgressEvent {
   percent: number;
   phase: 'version' | 'downloading' | 'installing' | 'complete'
        | 'npm_fallback'
-       | 'node_downloading' | 'node_extracting' | 'node_complete';
+       | 'node_downloading' | 'node_extracting' | 'node_complete'
+       | 'git_downloading' | 'git_extracting' | 'git_complete';
 }
 
 export interface NodeEnvStatus {

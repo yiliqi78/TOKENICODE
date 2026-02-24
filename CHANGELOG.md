@@ -6,6 +6,40 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.6.1] - 2026-02-24
+
+### New Features
+
+- **Windows Git Bash Auto-Install** — On first CLI installation on Windows, TOKENICODE now automatically downloads and deploys PortableGit (v2.47.1.2). Users no longer need to manually install Git for Windows. The `bash.exe` is deployed to the app-local `git/` directory.
+
+- **Git Download Three-Source Fallback** — PortableGit download uses a 3-source chain: npmmirror → Huawei Cloud → GitHub. Each source has a 15-second connect timeout for fast failover, ensuring Chinese users behind the firewall can download without issues.
+
+- **Streamlined Setup Flow** — Removed the manual "Download Git" step from the setup wizard. The entire environment deployment (Git → Node.js → CLI) is now fully automatic on Windows.
+
+### Changed
+
+- **CLI Pre-flight Enhancement** — `start_claude_session` now auto-injects `CLAUDE_CODE_GIT_BASH_PATH` pointing to the app-local git-bash. When git-bash is missing, the error message provides clear guidance to reinstall via Settings.
+
+- **Windows PATH Expanded** — `finalize_cli_install_paths()` now also adds the local git `bin/` and `cmd/` directories to the user PATH.
+
+---
+
+### 新功能
+
+- **Windows Git Bash 自动安装** — 在 Windows 上首次安装 CLI 时，TOKENICODE 自动下载并部署 PortableGit (v2.47.1.2)。用户无需手动安装 Git for Windows。`bash.exe` 部署到应用本地 `git/` 目录。
+
+- **Git 下载三源降级** — PortableGit 下载采用三源降级链：npmmirror → 华为云 → GitHub。每个源 15 秒连接超时快速切换，确保国内用户无感下载。
+
+- **安装流程简化** — 移除安装向导中的手动「下载 Git」步骤，整个环境部署（Git → Node.js → CLI）在 Windows 上全自动完成。
+
+### 变更
+
+- **CLI 启动预检增强** — `start_claude_session` 自动注入 `CLAUDE_CODE_GIT_BASH_PATH` 指向应用本地 git-bash。找不到 git-bash 时提供明确错误提示，建议通过设置重新安装。
+
+- **Windows PATH 扩展** — `finalize_cli_install_paths()` 新增将本地 git 的 `bin/` 和 `cmd/` 目录加入用户 PATH。
+
+---
+
 ## [0.6.0] - 2026-02-24
 
 ### New Features

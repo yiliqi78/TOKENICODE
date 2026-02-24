@@ -17,6 +17,7 @@ import {
  *   installing → installed → auto-complete
  *   install_failed → retry | skip
  *
+ * On Windows, git-bash (PortableGit) is auto-installed as part of the flow.
  * Auth/login is handled separately in Settings (TK-303).
  */
 export function SetupWizard() {
@@ -39,10 +40,15 @@ export function SetupWizard() {
       try {
         const status = await bridge.checkClaudeCli();
         if (cancelled) return;
-        if (status.installed) {
+        if (status.installed && !status.git_bash_missing) {
           setCliInfo(status.version ?? null, status.path ?? null);
           setSetupCompleted(true);
           return;
+        }
+        // CLI installed but git-bash missing → treat as needing install
+        // (install_claude_cli will auto-install git-bash then detect existing CLI)
+        if (status.installed && status.git_bash_missing) {
+          setCliInfo(status.version ?? null, status.path ?? null);
         }
         setStep('not_installed');
       } catch {
@@ -98,6 +104,9 @@ export function SetupWizard() {
     : downloadPhase === 'node_extracting' ? t('setup.extractingNode') || 'Extracting Node.js...'
     : downloadPhase === 'node_complete' ? t('setup.preparingEnv') || 'Preparing environment...'
     : downloadPhase === 'npm_fallback' ? t('setup.installingCli') || 'Installing CLI via npm...'
+    : downloadPhase === 'git_downloading' ? t('setup.downloadingGit') || 'Downloading Git...'
+    : downloadPhase === 'git_extracting' ? t('setup.extractingGit') || 'Installing Git...'
+    : downloadPhase === 'git_complete' ? t('setup.preparingEnv') || 'Preparing environment...'
     : '';
 
   return (

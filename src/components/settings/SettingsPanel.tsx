@@ -621,8 +621,9 @@ function CliSection() {
   const [cliVersion, setCliVersion] = useState<string | null>(null);
   const [cliPath, setCliPath] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [gitBashMissing, setGitBashMissing] = useState(false);
   const [downloadPercent, setDownloadPercent] = useState(0);
-  const [phase, setPhase] = useState<'idle' | 'downloading' | 'configuring' | 'npm_fallback' | 'node_downloading' | 'node_extracting'>('idle');
+  const [phase, setPhase] = useState<'idle' | 'downloading' | 'configuring' | 'npm_fallback' | 'node_downloading' | 'node_extracting' | 'git_downloading' | 'git_extracting'>('idle');
 
   // Auto-check on mount
   useEffect(() => {
@@ -630,6 +631,7 @@ function CliSection() {
       if (result.installed) {
         setCliVersion(result.version ?? null);
         setCliPath(result.path ?? null);
+        setGitBashMissing(result.git_bash_missing ?? false);
         setStatus('found');
       } else {
         setStatus('not_found');
@@ -645,6 +647,7 @@ function CliSection() {
       if (result.installed) {
         setCliVersion(result.version ?? null);
         setCliPath(result.path ?? null);
+        setGitBashMissing(result.git_bash_missing ?? false);
         setStatus('found');
       } else {
         setStatus('not_found');
@@ -664,7 +667,11 @@ function CliSection() {
     const { onDownloadProgress } = await import('../../lib/tauri-bridge');
     const unlisten = await onDownloadProgress((event) => {
       setDownloadPercent(event.percent);
-      if (event.phase === 'npm_fallback') {
+      if (event.phase === 'git_downloading') {
+        setPhase('git_downloading');
+      } else if (event.phase === 'git_extracting') {
+        setPhase('git_extracting');
+      } else if (event.phase === 'npm_fallback') {
         setPhase('npm_fallback');
       } else if (event.phase === 'node_downloading') {
         setPhase('node_downloading');
@@ -720,6 +727,15 @@ function CliSection() {
         </div>
       )}
 
+      {/* Git Bash missing warning (Windows) — will be auto-installed on next install/reinstall */}
+      {gitBashMissing && (status === 'found' || status === 'idle') && (
+        <div className="py-1 px-2 rounded-lg bg-amber-500/10">
+          <p className="text-[11px] text-amber-500 font-medium">
+            {t('setup.gitBashMissing')} — {t('cli.reinstallHint') || 'Click reinstall to fix'}
+          </p>
+        </div>
+      )}
+
       {status === 'not_found' && (
         <p className="text-[11px] text-amber-500">{t('cli.notFound')}</p>
       )}
@@ -768,14 +784,18 @@ function CliSection() {
                     ? t('setup.downloadingNode')
                     : phase === 'node_extracting'
                       ? t('setup.extractingNode')
-                      : t('cli.installing')}
+                      : phase === 'git_downloading'
+                        ? t('setup.downloadingGit')
+                        : phase === 'git_extracting'
+                          ? t('setup.extractingGit')
+                          : t('cli.installing')}
             </span>
-            {(phase === 'downloading' || phase === 'node_downloading') && downloadPercent > 0 && (
+            {(phase === 'downloading' || phase === 'node_downloading' || phase === 'git_downloading') && downloadPercent > 0 && (
               <span className="text-[11px] text-text-tertiary">{downloadPercent}%</span>
             )}
           </div>
           <div className="w-full h-1.5 rounded-full bg-bg-tertiary overflow-hidden">
-            {(phase === 'downloading' || phase === 'node_downloading') && downloadPercent > 0 ? (
+            {(phase === 'downloading' || phase === 'node_downloading' || phase === 'git_downloading') && downloadPercent > 0 ? (
               <div
                 className="h-full bg-accent rounded-full transition-all duration-300"
                 style={{ width: `${downloadPercent}%` }}
