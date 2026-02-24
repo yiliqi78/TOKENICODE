@@ -6,6 +6,24 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.6.4] - 2026-02-25
+
+### Bug Fixes
+
+- **Windows CMD Window — Final 4 Spots** — Added `CREATE_NO_WINDOW` to the last 4 missing subprocess spawns: `run_git_command` (git operations for file tree), `run_claude_install` (post-install validation), `open_in_vscode`, and `reveal_in_finder` (Explorer). All 25 spawn points in the codebase now have the flag on Windows.
+
+- **CLI Terminal Usage** — `finalize_cli_install_paths` now sets `CLAUDE_CODE_GIT_BASH_PATH` as a persistent Windows user environment variable, pointing to the app-local PortableGit bash.exe. Running `claude` directly from PowerShell or CMD no longer fails with "requires git-bash" error.
+
+---
+
+### 修复
+
+- **Windows CMD 窗口 — 最后 4 处** — 为最后 4 个遗漏的子进程添加 `CREATE_NO_WINDOW`：`run_git_command`（文件树 git 操作）、`run_claude_install`（安装后验证）、`open_in_vscode`、`reveal_in_finder`（Explorer 定位）。代码库中全部 25 个 spawn 点现已在 Windows 上添加该标志。
+
+- **CLI 终端可用** — `finalize_cli_install_paths` 现在会将 `CLAUDE_CODE_GIT_BASH_PATH` 设为持久化的 Windows 用户环境变量，指向应用内置的 PortableGit bash.exe。从 PowerShell 或 CMD 直接运行 `claude` 不再报"requires git-bash"错误。
+
+---
+
 ## [0.6.3] - 2026-02-24
 
 ### New Features

@@ -1402,9 +1402,11 @@ async fn load_session(path: String) -> Result<Vec<Value>, String> {
 
 #[tauri::command]
 async fn open_in_vscode(path: String) -> Result<(), String> {
-    Command::new("code")
-        .arg(&path)
-        .spawn()
+    let mut cmd = Command::new("code");
+    cmd.arg(&path);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000);
+    cmd.spawn()
         .map_err(|e| format!("Failed to open VS Code: {}", e))?;
     Ok(())
 }
@@ -1421,9 +1423,10 @@ async fn reveal_in_finder(path: String) -> Result<(), String> {
     }
     #[cfg(target_os = "windows")]
     {
-        Command::new("explorer")
-            .args(["/select,", &path])
-            .spawn()
+        let mut cmd = Command::new("explorer");
+        cmd.args(["/select,", &path]);
+        cmd.creation_flags(0x08000000);
+        cmd.spawn()
             .map_err(|e| format!("Failed to reveal in Explorer: {}", e))?;
     }
     #[cfg(target_os = "linux")]
@@ -2458,9 +2461,11 @@ async fn run_git_command(cwd: String, args: Vec<String>) -> Result<String, Strin
         return Err(format!("Git subcommand '{}' not allowed", subcmd));
     }
 
-    let output = Command::new("git")
-        .args(&args)
-        .current_dir(&cwd)
+    let mut cmd = Command::new("git");
+    cmd.args(&args).current_dir(&cwd);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000);
+    let output = cmd
         .output()
         .await
         .map_err(|e| format!("Failed to run git: {}", e))?;
@@ -2884,11 +2889,11 @@ async fn install_cli_via_npm(app: &AppHandle) -> Result<(), String> {
 /// Run `claude install` to set up symlinks, PATH entries, etc. Non-fatal on failure.
 async fn run_claude_install(target_path: &std::path::Path) -> bool {
     let enriched_path = build_enriched_path();
-    let install_result = Command::new(target_path.to_string_lossy().to_string())
-        .arg("install")
-        .env("PATH", &enriched_path)
-        .output()
-        .await;
+    let mut cmd = Command::new(target_path.to_string_lossy().to_string());
+    cmd.arg("install").env("PATH", &enriched_path);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000);
+    let install_result = cmd.output().await;
 
     match install_result {
         Ok(output) if output.status.success() => true,
@@ -3019,6 +3024,28 @@ fn finalize_cli_install_paths(app: &AppHandle) {
                     eprintln!("Failed to add to PATH: {}", stderr);
                 }
                 Err(e) => eprintln!("Failed to run PowerShell for PATH: {}", e),
+            }
+        }
+
+        // Set CLAUDE_CODE_GIT_BASH_PATH user env var so `claude` works from any terminal
+        if let Some(bash_path) = find_git_bash() {
+            let ps_script = format!(
+                "[Environment]::SetEnvironmentVariable('CLAUDE_CODE_GIT_BASH_PATH', '{}', 'User')",
+                bash_path.replace('\'', "''"),
+            );
+            let result = std::process::Command::new("powershell")
+                .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
+                .creation_flags(0x08000000)
+                .output();
+            match result {
+                Ok(output) if output.status.success() => {
+                    eprintln!("Set CLAUDE_CODE_GIT_BASH_PATH={}", bash_path);
+                }
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    eprintln!("Failed to set CLAUDE_CODE_GIT_BASH_PATH: {}", stderr);
+                }
+                Err(e) => eprintln!("Failed to run PowerShell for env var: {}", e),
             }
         }
     }
