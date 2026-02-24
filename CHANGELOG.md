@@ -14,6 +14,8 @@ All notable changes to TOKENICODE will be documented in this file.
 
 - **CLI Terminal Usage** — `finalize_cli_install_paths` now sets `CLAUDE_CODE_GIT_BASH_PATH` as a persistent Windows user environment variable, pointing to the app-local PortableGit bash.exe. Running `claude` directly from PowerShell or CMD no longer fails with "requires git-bash" error.
 
+- **Install Flow Hang Protection** — All installation subprocesses now use `stdin(Stdio::null())` to prevent interactive prompt hangs, plus `tokio::time::timeout` as a safety net: version checks (10s), npm install (5min), PortableGit extraction (2min), `claude install` (30s). No more stuck CMD windows during setup.
+
 ---
 
 ### 修复
@@ -21,6 +23,8 @@ All notable changes to TOKENICODE will be documented in this file.
 - **Windows CMD 窗口 — 最后 4 处** — 为最后 4 个遗漏的子进程添加 `CREATE_NO_WINDOW`：`run_git_command`（文件树 git 操作）、`run_claude_install`（安装后验证）、`open_in_vscode`、`reveal_in_finder`（Explorer 定位）。代码库中全部 25 个 spawn 点现已在 Windows 上添加该标志。
 
 - **CLI 终端可用** — `finalize_cli_install_paths` 现在会将 `CLAUDE_CODE_GIT_BASH_PATH` 设为持久化的 Windows 用户环境变量，指向应用内置的 PortableGit bash.exe。从 PowerShell 或 CMD 直接运行 `claude` 不再报"requires git-bash"错误。
+
+- **安装流程防卡死** — 所有安装子进程添加 `stdin(Stdio::null())` 防止交互式提示挂起，并用 `tokio::time::timeout` 兜底：版本检查（10s）、npm 安装（5min）、PortableGit 解压（2min）、`claude install`（30s）。安装过程不再出现 CMD 窗口卡住。
 
 ---
 

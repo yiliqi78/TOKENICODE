@@ -2849,36 +2849,40 @@ async fn install_cli_via_npm(app: &AppHandle) -> Result<(), String> {
             cmd.arg("/C").arg(&npm_path);
             cmd.args(&args_str);
             cmd.env("PATH", &enriched_path)
-                .creation_flags(0x08000000)
-                .output()
-                .await
+                .stdin(Stdio::null())
+                .creation_flags(0x08000000);
+            tokio::time::timeout(std::time::Duration::from_secs(300), cmd.output()).await
         };
         #[cfg(not(target_os = "windows"))]
         let result = {
-            Command::new(&npm_path)
-                .args(&args_str)
+            let mut cmd = Command::new(&npm_path);
+            cmd.args(&args_str)
                 .env("PATH", &enriched_path)
-                .output()
-                .await
+                .stdin(Stdio::null());
+            tokio::time::timeout(std::time::Duration::from_secs(300), cmd.output()).await
         };
 
         match result {
-            Ok(output) if output.status.success() => {
+            Ok(Ok(output)) if output.status.success() => {
                 eprintln!("npm install succeeded via {}", registry);
                 let _ = app.emit("setup:download:progress", serde_json::json!({
                     "downloaded": 0, "total": 0, "percent": 100, "phase": "installing"
                 }));
                 return Ok(());
             }
-            Ok(output) => {
+            Ok(Ok(output)) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 last_err = format!("npm install failed ({}): {}", registry, stderr);
                 eprintln!("{}", last_err);
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 last_err = format!("npm not found or failed to run: {}", e);
                 eprintln!("{}", last_err);
                 return Err(last_err);
+            }
+            Err(_) => {
+                last_err = format!("npm install timed out ({})", registry);
+                eprintln!("{}", last_err);
             }
         }
     }
@@ -2887,23 +2891,36 @@ async fn install_cli_via_npm(app: &AppHandle) -> Result<(), String> {
 }
 
 /// Run `claude install` to set up symlinks, PATH entries, etc. Non-fatal on failure.
+/// Uses stdin(null) to prevent interactive prompts and a 30s timeout to avoid hangs.
 async fn run_claude_install(target_path: &std::path::Path) -> bool {
     let enriched_path = build_enriched_path();
     let mut cmd = Command::new(target_path.to_string_lossy().to_string());
-    cmd.arg("install").env("PATH", &enriched_path);
+    cmd.arg("install")
+        .env("PATH", &enriched_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     #[cfg(target_os = "windows")]
     cmd.creation_flags(0x08000000);
-    let install_result = cmd.output().await;
+
+    let install_result = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        cmd.output(),
+    ).await;
 
     match install_result {
-        Ok(output) if output.status.success() => true,
-        Ok(output) => {
+        Ok(Ok(output)) if output.status.success() => true,
+        Ok(Ok(output)) => {
             let stderr = strip_ansi(&String::from_utf8_lossy(&output.stderr));
             eprintln!("claude install warning: {}", stderr);
             false
         },
-        Err(e) => {
+        Ok(Err(e)) => {
             eprintln!("claude install failed to run: {} (non-fatal)", e);
+            false
+        },
+        Err(_) => {
+            eprintln!("claude install timed out after 30s (non-fatal)");
             false
         }
     }
@@ -3128,20 +3145,24 @@ fn get_node_archive_info() -> Result<(String, &'static str), String> {
 async fn is_system_npm_available() -> bool {
     let enriched_path = build_enriched_path();
     #[cfg(target_os = "windows")]
-    let result = Command::new("cmd")
-        .args(["/C", "npm.cmd", "--version"])
-        .env("PATH", &enriched_path)
-        .creation_flags(0x08000000)
-        .output()
-        .await;
+    let result = {
+        let mut cmd = Command::new("cmd");
+        cmd.args(["/C", "npm.cmd", "--version"])
+            .env("PATH", &enriched_path)
+            .stdin(Stdio::null())
+            .creation_flags(0x08000000);
+        tokio::time::timeout(std::time::Duration::from_secs(10), cmd.output()).await
+    };
     #[cfg(not(target_os = "windows"))]
-    let result = Command::new("npm")
-        .arg("--version")
-        .env("PATH", &enriched_path)
-        .output()
-        .await;
+    let result = {
+        let mut cmd = Command::new("npm");
+        cmd.arg("--version")
+            .env("PATH", &enriched_path)
+            .stdin(Stdio::null());
+        tokio::time::timeout(std::time::Duration::from_secs(10), cmd.output()).await
+    };
 
-    matches!(result, Ok(output) if output.status.success())
+    matches!(result, Ok(Ok(output)) if output.status.success())
 }
 
 #[derive(Serialize)]
@@ -3160,10 +3181,13 @@ async fn check_node_env() -> Result<NodeEnvStatus, String> {
     if let Some(local_bin) = get_local_node_bin() {
         let node_path = local_bin.join(if cfg!(target_os = "windows") { "node.exe" } else { "node" });
         let mut node_cmd = Command::new(&node_path);
-        node_cmd.arg("--version");
+        node_cmd.arg("--version").stdin(Stdio::null());
         #[cfg(target_os = "windows")]
         node_cmd.creation_flags(0x08000000);
-        if let Ok(output) = node_cmd.output().await {
+        if let Ok(Ok(output)) = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            node_cmd.output(),
+        ).await {
             if output.status.success() {
                 let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 return Ok(NodeEnvStatus {
@@ -3178,21 +3202,25 @@ async fn check_node_env() -> Result<NodeEnvStatus, String> {
 
     // 2. Check system Node.js
     #[cfg(target_os = "windows")]
-    let node_result = Command::new("cmd")
-        .args(["/C", "node", "--version"])
-        .env("PATH", &enriched_path)
-        .creation_flags(0x08000000)
-        .output()
-        .await;
+    let node_result = {
+        let mut cmd = Command::new("cmd");
+        cmd.args(["/C", "node", "--version"])
+            .env("PATH", &enriched_path)
+            .stdin(Stdio::null())
+            .creation_flags(0x08000000);
+        tokio::time::timeout(std::time::Duration::from_secs(10), cmd.output()).await
+    };
     #[cfg(not(target_os = "windows"))]
-    let node_result = Command::new("node")
-        .arg("--version")
-        .env("PATH", &enriched_path)
-        .output()
-        .await;
+    let node_result = {
+        let mut cmd = Command::new("node");
+        cmd.arg("--version")
+            .env("PATH", &enriched_path)
+            .stdin(Stdio::null());
+        tokio::time::timeout(std::time::Duration::from_secs(10), cmd.output()).await
+    };
 
     match node_result {
-        Ok(output) if output.status.success() => {
+        Ok(Ok(output)) if output.status.success() => {
             let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
             let npm_available = is_system_npm_available().await;
             Ok(NodeEnvStatus {
@@ -3395,25 +3423,31 @@ async fn install_git_bash_inner(app: &AppHandle) -> Result<(), String> {
 
     // Run the self-extracting archive silently: -o<dir> -y
     eprintln!("Extracting PortableGit to {:?}...", install_dir);
-    let extract_result = Command::new(&temp_path)
-        .args([&format!("-o{}", install_dir.display()), "-y"])
-        .creation_flags(0x08000000) // CREATE_NO_WINDOW
-        .output()
-        .await;
+    let extract_result = tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        Command::new(&temp_path)
+            .args([&format!("-o{}", install_dir.display()), "-y"])
+            .stdin(Stdio::null())
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .output(),
+    ).await;
 
     // Clean up the downloaded archive regardless of result
     let _ = std::fs::remove_file(&temp_path);
 
     match extract_result {
-        Ok(output) if output.status.success() => {
+        Ok(Ok(output)) if output.status.success() => {
             eprintln!("PortableGit extraction succeeded");
         }
-        Ok(output) => {
+        Ok(Ok(output)) => {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(format!("PortableGit extraction failed (exit {}): {}", output.status, stderr));
         }
-        Err(e) => {
+        Ok(Err(e)) => {
             return Err(format!("Failed to run PortableGit extractor: {}", e));
+        }
+        Err(_) => {
+            return Err("PortableGit extraction timed out after 120s".to_string());
         }
     }
 
