@@ -206,17 +206,30 @@ export function SettingsPanel() {
             </div>
           </div>
 
-          {/* API Provider (TK-303) */}
-          <ApiProviderSection />
-
-          {/* MCP Servers */}
-          <McpSection />
-
           {/* CLI Management */}
           <CliSection />
 
           {/* About & Update */}
           <UpdateSection />
+
+          {/* ── Advanced ── */}
+          <div className="pt-3 mt-1 border-t border-border-subtle">
+            <h3 className="text-[10px] font-semibold text-text-tertiary uppercase
+              tracking-widest mb-3 flex items-center gap-2">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
+                stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                <path d="M8 1v2M8 13v2M1 8h2M13 8h2" />
+                <circle cx="8" cy="8" r="3" />
+              </svg>
+              {t('settings.advanced')}
+            </h3>
+
+            {/* API Provider (TK-303) */}
+            <ApiProviderSection />
+
+            {/* MCP Servers */}
+            <McpSection />
+          </div>
         </div>
       </div>
     </div>
@@ -679,7 +692,7 @@ function CliSection() {
       )}
 
       {status === 'found' && (
-        <div className="py-1.5 text-center space-y-0.5">
+        <div className="py-1.5 text-center space-y-1.5">
           <span className="text-[11px] text-green-500 font-medium">
             ✓ {t('cli.installed')}
           </span>
@@ -688,6 +701,14 @@ function CliSection() {
               {cliPath}
             </p>
           )}
+          <button
+            onClick={handleInstall}
+            className="w-full py-1 text-[10px] font-medium rounded-lg
+              border border-border-subtle text-text-tertiary
+              hover:bg-bg-secondary hover:text-text-muted transition-smooth"
+          >
+            {t('cli.reinstall')}
+          </button>
         </div>
       )}
 
@@ -720,7 +741,7 @@ function CliSection() {
       )}
 
       {status === 'installed' && (
-        <div className="py-1.5 text-center space-y-0.5">
+        <div className="py-1.5 text-center space-y-1.5">
           <span className="text-[11px] text-green-500 font-medium">
             ✓ {t('cli.installDone')}
           </span>
@@ -729,6 +750,9 @@ function CliSection() {
               {cliPath}
             </p>
           )}
+          <p className="text-[10px] text-text-tertiary/70">
+            {t('cli.pathHint')}
+          </p>
         </div>
       )}
 

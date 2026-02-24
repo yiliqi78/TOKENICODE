@@ -579,3 +579,31 @@ input, textarea, [contenteditable="true"],
   user-select: none;
   touch-action: none;
 }
+
+/* ================================================================
+   Tiptap editor — chat input styling
+   ================================================================ */
+
+/* Remove default paragraph margins inside the editor */
+.tiptap p {
+  margin: 0;
+  padding: 0;
+}
+
+/* Placeholder text (via @tiptap/extension-placeholder) */
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--color-text-tertiary);
+  pointer-events: none;
+  height: 0;
+}
+
+/* Auto-size: min/max height for the editor area */
+.tiptap {
+  min-height: 24px;
+  max-height: 50vh;
+  overflow-y: auto;
+  outline: none;
+  line-height: 1.5;
+}

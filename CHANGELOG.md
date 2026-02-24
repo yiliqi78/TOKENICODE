@@ -6,6 +6,66 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.5.6] - 2026-02-24
+
+### New Features
+
+- **Tiptap Rich Text Editor** — Replaced the plain textarea with a tiptap contenteditable editor. File references now render as inline chips instead of raw text. FileChip nodes serialize to backtick-wrapped paths for Claude CLI.
+
+- **Inline File Chip** — Dragging a file from the file manager into the input area inserts an inline chip at cursor position. Hover shows full path tooltip (position:fixed to escape overflow clipping). Click opens the file in the sidebar explorer.
+
+- **Default Model Mappings** — Custom provider model mappings now ship with three pre-filled defaults: claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001.
+
+### Bug Fixes
+
+- **Windows CLI PATH** — After `claude install`, if the CLI is still not found, automatically adds the installation directory to user PATH via PowerShell `[Environment]::SetEnvironmentVariable`.
+
+- **Thinking Auto-Scroll** — The streaming thinking block now auto-scrolls to bottom as new content arrives, using a dedicated `thinkingPreRef`.
+
+- **Multi-SubAgent Output Interruption** — Fixed single-tab scenario where sub-agent outputs could interrupt parent message flow. Added `parent_tool_use_id` check in `case 'result'`.
+
+- **React #31 Crash** — Fixed `{text, type}` objects being rendered as JSX children (React Minified error #31). Added `safeContent()` helper to extract text strings.
+
+- **Reinstall CLI Button** — Settings panel now shows a "Reinstall" button when CLI is detected, allowing users to re-run the installation.
+
+### Changed
+
+- **Default Model** — Changed from Opus 4.6 to Sonnet 4.6.
+- **Default Thinking** — Changed from `high` to `off`; users choose their own thinking depth.
+- **Settings Layout** — API provider and MCP servers moved to bottom under a distinct "Advanced" section header.
+- **Rewind Button Hidden** — Temporarily hidden from UI pending UX refactor (TK-307).
+
+---
+
+### 新功能
+
+- **Tiptap 富文本编辑器** — 用 tiptap contenteditable 替代原有 textarea。文件引用渲染为行内 chip，不再是纯文本。FileChip 节点序列化为反引号包裹的路径，传给 Claude CLI。
+
+- **行内文件 Chip** — 从文件管理器拖拽文件到输入区，在光标位置插入行内 chip。悬停显示完整路径 tooltip（position:fixed 解决溢出裁剪）。点击在侧边栏打开文件。
+
+- **默认模型映射** — 自定义提供商模型映射预填三个默认值：claude-opus-4-6、claude-sonnet-4-6、claude-haiku-4-5-20251001。
+
+### 修复
+
+- **Windows CLI PATH** — `claude install` 后若 CLI 仍不可用，自动通过 PowerShell `[Environment]::SetEnvironmentVariable` 将安装目录加入用户 PATH。
+
+- **思考块自动滚动** — 流式思考块现在随内容生成自动滚到底部，使用专用 `thinkingPreRef`。
+
+- **多子代理输出中断** — 修复单 tab 场景下子代理输出可能打断父消息流的问题，在 `case 'result'` 中添加 `parent_tool_use_id` 校验。
+
+- **React #31 崩溃** — 修复 `{text, type}` 对象被当作 JSX 子节点渲染导致的 React Minified error #31，新增 `safeContent()` 辅助函数。
+
+- **重新安装 CLI 按钮** — 设置面板在已检测到 CLI 时显示「重新安装」按钮。
+
+### 变更
+
+- **默认模型** — 从 Opus 4.6 改为 Sonnet 4.6。
+- **默认思考** — 从 `high` 改为 `off`，用户自行选择思考深度。
+- **设置布局** — API 提供商和 MCP 服务器移至底部，新增「高级」分区标题。
+- **回退按钮隐藏** — 暂时从 UI 隐藏，等待 UX 重构（TK-307）。
+
+---
+
 ## [0.5.5] - 2026-02-24
 
 ### New Features

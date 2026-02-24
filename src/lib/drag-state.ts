@@ -10,6 +10,8 @@
  */
 let _pendingTreeDragPath: string | null = null;
 let _treeDragActive = false;
+let _lastDragX = 0;
+let _lastDragY = 0;
 
 /** Ghost element shown during drag */
 let _ghostEl: HTMLDivElement | null = null;
@@ -41,6 +43,8 @@ export function startTreeDrag(path: string, isDir = false) {
 }
 
 export function moveTreeDrag(x: number, y: number) {
+  _lastDragX = x;
+  _lastDragY = y;
   if (_ghostEl) {
     _ghostEl.style.left = `${x}px`;
     _ghostEl.style.top = `${y}px`;
@@ -70,4 +74,8 @@ export function endTreeDrag(): string | null {
 
 export function isTreeDragActive(): boolean {
   return _treeDragActive;
+}
+
+export function getLastDragPosition(): { x: number; y: number } {
+  return { x: _lastDragX, y: _lastDragY };
 }

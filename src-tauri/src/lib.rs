@@ -2395,8 +2395,40 @@ async fn install_claude_cli(app: AppHandle) -> Result<(), String> {
 
     // `claude install` failure is non-fatal — TOKENICODE manages the CLI path internally
     // via find_claude_binary() which checks the app-local directory first.
-    // Users never need to run `claude` from their terminal.
-    let _ = install_ok;
+
+    // Windows fallback: if `claude install` didn't set PATH, add the CLI directory
+    // to the user's PATH so `claude` is available in PowerShell/cmd.
+    #[cfg(target_os = "windows")]
+    if !install_ok {
+        let cli_dir = install_dir.to_string_lossy().to_string();
+        // Use PowerShell to check and modify the user-level PATH via .NET API
+        // (avoids the 1024-char limit of `setx`)
+        let ps_script = format!(
+            "$old = [Environment]::GetEnvironmentVariable('Path','User'); \
+             if ($old -and -not $old.Contains('{}')) {{ \
+               [Environment]::SetEnvironmentVariable('Path', $old + ';{}', 'User') \
+             }} elseif (-not $old) {{ \
+               [Environment]::SetEnvironmentVariable('Path', '{}', 'User') \
+             }}",
+            cli_dir.replace('\'', "''"),
+            cli_dir.replace('\'', "''"),
+            cli_dir.replace('\'', "''"),
+        );
+        let path_result = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .output();
+        match path_result {
+            Ok(output) if output.status.success() => {
+                eprintln!("Added CLI directory to user PATH: {}", cli_dir);
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                eprintln!("Failed to add CLI to PATH: {}", stderr);
+            }
+            Err(e) => eprintln!("Failed to run PowerShell for PATH: {}", e),
+        }
+    }
 
     let _ = app.emit("setup:download:progress", serde_json::json!({
         "downloaded": downloaded, "total": total, "percent": 100, "phase": "complete"

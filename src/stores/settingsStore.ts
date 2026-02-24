@@ -124,13 +124,13 @@ export const useSettingsStore = create<SettingsState>()(
       settingsOpen: false,
       agentPanelOpen: false,
       workingDirectory: '',
-      selectedModel: 'claude-opus-4-6',
+      selectedModel: 'claude-sonnet-4-6',
       sessionMode: 'code',
       locale: 'zh',
       fontSize: 18,
       sidebarWidth: 280,
       setupCompleted: false,
-      thinkingLevel: 'high' as ThinkingLevel,
+      thinkingLevel: 'off' as ThinkingLevel,
       updateAvailable: false,
       updateVersion: '',
       lastSeenVersion: '',
@@ -139,7 +139,11 @@ export const useSettingsStore = create<SettingsState>()(
       apiProviderMode: 'inherit',
       customProviderName: '',
       customProviderBaseUrl: '',
-      customProviderModelMappings: [],
+      customProviderModelMappings: [
+        { tier: 'opus', providerModel: 'claude-opus-4-6' },
+        { tier: 'sonnet', providerModel: 'claude-sonnet-4-6' },
+        { tier: 'haiku', providerModel: 'claude-haiku-4-5-20251001' },
+      ],
       customProviderApiFormat: 'anthropic',
 
       toggleTheme: () =>

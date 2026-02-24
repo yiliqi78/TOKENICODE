@@ -16,7 +16,7 @@ import { useT } from '../../lib/i18n';
 import { buildCustomEnvVars, envFingerprint, resolveModelForProvider } from '../../lib/api-provider';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
 import { SetupWizard } from '../setup/SetupWizard';
-import { endTreeDrag } from '../../lib/drag-state';
+import { endTreeDrag, getLastDragPosition } from '../../lib/drag-state';
 
 /** Shared plan panel toggle — used by ChatPanel (panel) and InputBar (button) */
 export const usePlanPanelStore = create<{
@@ -325,14 +325,39 @@ export function ChatPanel() {
   useEffect(() => {
     const onTreeDrop = () => {
       const treePath = endTreeDrag();
-      if (treePath) {
-        window.dispatchEvent(new CustomEvent('tokenicode:tree-file-attach', { detail: treePath }));
+      if (!treePath) return;
+
+      // If the drop landed inside the chat editor area, insert inline at cursor.
+      // Otherwise fall back to attaching as a file chip.
+      const { x, y } = getLastDragPosition();
+      const editorEl = document.querySelector<HTMLElement>('[data-chat-input]');
+      if (editorEl) {
+        const rect = editorEl.getBoundingClientRect();
+        if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+          window.dispatchEvent(new CustomEvent('tokenicode:tree-file-inline', { detail: treePath }));
+          return;
+        }
       }
+
+      window.dispatchEvent(new CustomEvent('tokenicode:tree-file-attach', { detail: treePath }));
     };
     window.addEventListener('tree-drag-drop', onTreeDrop);
     return () => {
       window.removeEventListener('tree-drag-drop', onTreeDrop);
     };
+  }, []);
+
+  // Listen for file-chip click → open file in secondary panel's file browser
+  useEffect(() => {
+    const onOpenFile = (e: Event) => {
+      const filePath = (e as CustomEvent<string>).detail;
+      if (!filePath) return;
+      // Open secondary panel to files tab and select the file
+      useSettingsStore.getState().setSecondaryTab('files');
+      useFileStore.getState().selectFile(filePath);
+    };
+    window.addEventListener('tokenicode:open-file', onOpenFile);
+    return () => window.removeEventListener('tokenicode:open-file', onOpenFile);
   }, []);
 
   // --- Tool grouping: group 3+ consecutive tool_use messages ---
@@ -373,6 +398,7 @@ export function ChatPanel() {
   )?.path;
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const thinkingPreRef = useRef<HTMLPreElement>(null);
   const isNearBottomRef = useRef(true);
   // When user scrolls up via wheel, suppress auto-scroll until they return to bottom
   const userScrollingUpRef = useRef(false);
@@ -414,6 +440,14 @@ export function ChatPanel() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, partialText, partialThinking, activityStatus]);
+
+  // Auto-scroll the internal thinking <pre> to bottom as new content streams in
+  useEffect(() => {
+    const el = thinkingPreRef.current;
+    if (el && partialThinking) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [partialThinking]);
 
   return (
     <div className="flex flex-col h-full">
@@ -581,7 +615,7 @@ export function ChatPanel() {
                     <span className="inline-block w-1.5 h-3 bg-text-tertiary ml-0.5
                       animate-pulse-soft rounded-sm" />
                   </summary>
-                  <pre className="ml-5 mt-0.5 text-[11px] text-text-tertiary
+                  <pre ref={thinkingPreRef} className="ml-5 mt-0.5 text-[11px] text-text-tertiary
                     whitespace-pre-wrap max-h-48 overflow-y-auto
                     font-mono leading-relaxed">
                     {partialThinking}

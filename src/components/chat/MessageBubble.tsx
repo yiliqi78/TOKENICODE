@@ -14,6 +14,14 @@ interface Props {
   isFirstInGroup?: boolean;
 }
 
+/** Guard against raw content-block objects ({text, type}) being rendered as
+ *  JSX children — causes Minified React error #31. */
+function safeContent(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value == null) return '';
+  return JSON.stringify(value);
+}
+
 export const MessageBubble = memo(function MessageBubble({ message, isFirstInGroup = true }: Props) {
   if (message.role === 'user') return <UserMsg message={message} />;
   if (message.role === 'system' && message.commandType === 'processing') return <CommandProcessingCard message={message} />;
@@ -50,7 +58,7 @@ function UserMsg({ message }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const attachments = message.attachments;
-  const content = message.content || '';
+  const content = safeContent(message.content);
   const lines = content.split('\n');
   const isLong = lines.length > USER_MSG_COLLAPSE_LINES || content.length > 600;
   const displayContent = (!expanded && isLong)
@@ -156,7 +164,7 @@ function CommandFeedbackMsg({ message }: Props) {
           bg-gradient-to-r ${colorClass} border
           shadow-sm transition-all duration-300`}>
           <span className="text-base">{data.icon}</span>
-          <span className="text-xs font-medium">{message.content}</span>
+          <span className="text-xs font-medium">{safeContent(message.content)}</span>
         </div>
       </div>
     );
@@ -178,7 +186,7 @@ function CommandFeedbackMsg({ message }: Props) {
             </div>
             <pre className="px-3 py-2 text-[11px] font-mono text-text-primary
               whitespace-pre-wrap break-words overflow-x-auto max-h-60 overflow-y-auto">
-              {message.content}
+              {safeContent(message.content)}
             </pre>
           </div>
         </div>
@@ -193,7 +201,7 @@ function CommandFeedbackMsg({ message }: Props) {
           <div className="flex items-center gap-2 px-3 py-1.5
             border-b border-border-subtle/50 bg-bg-tertiary/30">
             <span className="text-xs font-semibold text-text-primary">
-              {data.title || message.content}
+              {data.title || safeContent(message.content)}
             </span>
           </div>
           {/* Rows */}
@@ -238,7 +246,7 @@ function CommandFeedbackMsg({ message }: Props) {
             border-b border-border-subtle/50 bg-bg-tertiary/30">
             <span className="text-xs">📖</span>
             <span className="text-xs font-semibold text-text-primary">
-              {message.content}
+              {safeContent(message.content)}
             </span>
           </div>
           {/* Built-in commands */}
@@ -279,7 +287,7 @@ function CommandFeedbackMsg({ message }: Props) {
           ) : (
             <span className="text-sm">✓</span>
           )}
-          <span>{message.content}</span>
+          <span>{safeContent(message.content)}</span>
         </div>
       </div>
     );
@@ -296,7 +304,7 @@ function CommandFeedbackMsg({ message }: Props) {
             <circle cx="6" cy="6" r="5" />
             <path d="M6 4v2.5M6 8v.5" />
           </svg>
-          <span>{message.content}</span>
+          <span>{safeContent(message.content)}</span>
         </div>
       </div>
     );
@@ -305,7 +313,7 @@ function CommandFeedbackMsg({ message }: Props) {
   // Fallback: render as plain text
   return (
     <div className="flex justify-center my-1 animate-fade-in">
-      <span className="text-[11px] text-text-tertiary">{message.content}</span>
+      <span className="text-[11px] text-text-tertiary">{safeContent(message.content)}</span>
     </div>
   );
 }
@@ -325,7 +333,7 @@ function AssistantMsg({ message, isFirstInGroup = true }: Props) {
         <div className="w-8 flex-shrink-0" />
       )}
       <div className="flex-1 min-w-0 text-base text-text-primary leading-relaxed">
-        <MarkdownRenderer content={message.content} />
+        <MarkdownRenderer content={safeContent(message.content)} />
       </div>
     </div>
   );
@@ -691,7 +699,7 @@ export const ToolUseMsg = memo(function ToolUseMsg({ message }: Props) {
 function ToolResultMsg({ message }: Props) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
-  const content = message.content || '';
+  const content = safeContent(message.content);
   const depth = message.subAgentDepth ?? 0;
 
   // Show a short one-line preview on the same line as the "Result" label
@@ -753,7 +761,7 @@ function ThinkingMsg({ message }: Props) {
         <pre className="ml-5 mt-0.5 text-[11px] text-text-tertiary
           whitespace-pre-wrap max-h-48 overflow-y-auto
           font-mono leading-relaxed">
-          {message.content}
+          {safeContent(message.content)}
         </pre>
       </details>
     </div>

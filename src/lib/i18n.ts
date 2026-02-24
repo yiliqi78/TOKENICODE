@@ -267,6 +267,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'settings.defaultModel': '默认模型',
     'settings.fontSize': '字体大小',
     'settings.fontSizeHint': '{mod}+/- 快捷调整，{mod}+0 重置',
+    'settings.advanced': '高级设置',
 
     // API Provider (TK-303)
     'api.title': 'API 提供商',
@@ -499,6 +500,8 @@ const messages: Record<Locale, Record<string, string>> = {
     'cli.installDone': '安装成功',
     'cli.installFail': '安装失败',
     'cli.retry': '重试',
+    'cli.reinstall': '重新安装',
+    'cli.pathHint': '安装后需要重新打开终端才能生效',
 
     // Update
     'update.check': '检查更新',
@@ -813,6 +816,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'settings.defaultModel': 'Default Model',
     'settings.fontSize': 'Font Size',
     'settings.fontSizeHint': '{mod}+/- to adjust, {mod}+0 to reset',
+    'settings.advanced': 'Advanced',
 
     // API Provider (TK-303)
     'api.title': 'API Provider',
@@ -1045,6 +1049,8 @@ const messages: Record<Locale, Record<string, string>> = {
     'cli.installDone': 'Installation complete',
     'cli.installFail': 'Installation failed',
     'cli.retry': 'Retry',
+    'cli.reinstall': 'Reinstall',
+    'cli.pathHint': 'Restart your terminal after installation',
 
     // Update
     'update.check': 'Check for Updates',

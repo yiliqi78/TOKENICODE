@@ -19,6 +19,7 @@ import { usePlanPanelStore } from './ChatPanel';
 import { useSnapshotStore } from '../../stores/snapshotStore';
 import { PlanReviewCard } from './PlanReviewCard';
 import { QuestionCard } from './QuestionCard';
+import { TiptapEditor, type TiptapEditorHandle } from './TiptapEditor';
 // drag-state import removed — tree drag handled by ChatPanel
 
 /** Thinking effort level configuration data */
@@ -149,7 +150,14 @@ export function InputBar() {
   // Local alias for the store-backed draft
   const input = inputDraft;
   const setInput = setInputDraft;
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = useRef<TiptapEditorHandle>(null);
+  /** Sync both the Zustand store and the tiptap editor.
+   *  Use this for all programmatic input changes (clear, set, etc.).
+   *  The editor's onUpdate callback uses setInput directly to avoid circular updates. */
+  const setInputSync = useCallback((text: string) => {
+    setInput(text);
+    textareaRef.current?.setText(text);
+  }, [setInput]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sessionStatus = useChatStore((s) => s.sessionStatus);
   const addMessage = useChatStore((s) => s.addMessage);
@@ -190,11 +198,11 @@ export function InputBar() {
 
     // Restart with --resume <sessionId>
     useChatStore.getState().setActivityStatus({ phase: 'thinking' });
-    setInput('Execute the plan above.');
+    setInputSync('Execute the plan above.');
     requestAnimationFrame(() => {
       handleSubmitRef.current();
     });
-  }, [setInput]);
+  }, [setInputSync]);
 
   // Listen for plan-execute events from PlanReviewCard and Enter shortcut
   useEffect(() => {
@@ -247,14 +255,24 @@ export function InputBar() {
     return () => window.removeEventListener('tokenicode:tree-file-attach', onTreeFileAttach);
   }, []);
 
-  // Auto-resize textarea whenever input changes (covers programmatic clears like send/cancel)
+  // Inline file insertion: drop landed inside the editor → insert a file chip at cursor
   useEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    const maxH = Math.max(128, Math.floor(window.innerHeight * 0.5));
-    el.style.height = `${Math.min(el.scrollHeight, maxH)}px`;
-  }, [input]);
+    const onTreeFileInline = (e: Event) => {
+      const fullPath = (e as CustomEvent<string>).detail;
+      if (!fullPath || !textareaRef.current) return;
+
+      // Convert to path relative to working directory for readability
+      const cwd = useSettingsStore.getState().workingDirectory;
+      let displayPath = fullPath;
+      if (cwd && fullPath.startsWith(cwd)) {
+        displayPath = fullPath.slice(cwd.length).replace(/^[\\/]/, '');
+      }
+
+      textareaRef.current.insertFileChip({ fullPath, label: displayPath });
+    };
+    window.addEventListener('tokenicode:tree-file-inline', onTreeFileInline);
+    return () => window.removeEventListener('tokenicode:tree-file-inline', onTreeFileInline);
+  }, []);
 
   // Slash command state
   const [slashQuery, setSlashQuery] = useState('');
@@ -343,7 +361,7 @@ export function InputBar() {
     const { addMessage } = useChatStore.getState();
 
     // Always clear the input box first
-    setInput('');
+    setInputSync('');
 
     // Helper: resolve model ID to display name
     const modelLabel = (id: string | undefined): string => {
@@ -570,7 +588,7 @@ export function InputBar() {
   // --- Slash command selection ---
   const handleSlashSelect = useCallback((cmd: UnifiedCommand) => {
     setSlashVisible(false);
-    setInput('');
+    setInputSync('');
 
     if (cmd.immediate) {
       if (cmd.has_args) {
@@ -632,7 +650,7 @@ export function InputBar() {
           // Directly apply the mode prefix and continue with submission
           text = `${cmdPart} ${restText}`;
         } else {
-          setInput('');
+          setInputSync('');
           const modeVal = modeMap[cmdPart];
           const modeKey = `cmd.switchedTo${modeVal.charAt(0).toUpperCase() + modeVal.slice(1)}` as any;
           const iconMap: Record<string, string> = { ask: '💬', plan: '📋', code: '⚡' };
@@ -654,7 +672,7 @@ export function InputBar() {
           (c) => c.immediate && c.name.toLowerCase() === cmdPart
         );
         if (match) {
-          setInput('');
+          setInputSync('');
           executeImmediateCommand(match.name, restText || undefined);
           return;
         }
@@ -667,7 +685,7 @@ export function InputBar() {
       text = `${text}\n\n${t('input.attachedFiles')}\n${filePaths}`;
     }
 
-    setInput('');
+    setInputSync('');
 
     // Silent restart: skip user message bubble (Code mode ExitPlanMode auto-recovery)
     if (silentRestartRef.current) {
@@ -1065,7 +1083,7 @@ export function InputBar() {
           for (const block of userContent) {
             if (block.type === 'tool_result') {
               const resultText = Array.isArray(block.content)
-                ? block.content.map((b: any) => b.text || b.content || '').join('')
+                ? block.content.map((b: any) => typeof b.text === 'string' ? b.text : typeof b.content === 'string' ? b.content : '').join('')
                 : typeof block.content === 'string' ? block.content : '';
               if (block.tool_use_id && resultText) {
                 cache.updateMessageInCache(tabId, block.tool_use_id, { toolResultContent: resultText });
@@ -1077,7 +1095,7 @@ export function InputBar() {
       }
       case 'tool_result': {
         const resultContent = Array.isArray(msg.content)
-          ? msg.content.map((b: any) => b.text || b.content || '').join('')
+          ? msg.content.map((b: any) => typeof b.text === 'string' ? b.text : typeof b.content === 'string' ? b.content : '').join('')
           : typeof msg.content === 'string' ? msg.content : msg.output || '';
         if (msg.tool_use_id) {
           // Backfill AskUserQuestion type/questions in background cache
@@ -1555,7 +1573,7 @@ export function InputBar() {
           for (const block of userContent) {
             if (block.type === 'tool_result') {
               const resultText = Array.isArray(block.content)
-                ? block.content.map((b: any) => b.text || b.content || '').join('')
+                ? block.content.map((b: any) => typeof b.text === 'string' ? b.text : typeof b.content === 'string' ? b.content : '').join('')
                 : typeof block.content === 'string'
                   ? block.content
                   : '';
@@ -1591,7 +1609,7 @@ export function InputBar() {
 
       case 'tool_result': {
         const resultContent = Array.isArray(msg.content)
-          ? msg.content.map((b: any) => b.text || b.content || '').join('')
+          ? msg.content.map((b: any) => typeof b.text === 'string' ? b.text : typeof b.content === 'string' ? b.content : '').join('')
           : typeof msg.content === 'string'
             ? msg.content
             : msg.output || '';
@@ -1641,6 +1659,19 @@ export function InputBar() {
 
       case 'result': {
         console.log('[TOKENICODE] result event full:', JSON.stringify(msg));
+
+        // Sub-agent results carry parent_tool_use_id — they must NOT terminate the
+        // main session. Only the main agent's result (no parent_tool_use_id) ends the
+        // session. Without this guard, the first parallel sub-agent to complete would
+        // call setSessionStatus('completed') and freeze the UI mid-run.
+        if (msg.parent_tool_use_id) {
+          agentActions.completeAgent(
+            resolveAgentId(msg.parent_tool_use_id, agentActions.agents),
+            msg.subtype === 'success' ? 'completed' : 'error',
+          );
+          break;
+        }
+
         // Clear any remaining partial text before marking turn complete
         clearPartial();
 
@@ -1769,7 +1800,7 @@ export function InputBar() {
           }
           // Silently restart — no user message bubble
           silentRestartRef.current = true;
-          setInput('Continue.');
+          setInputSync('Continue.');
           useChatStore.getState().setActivityStatus({ phase: 'thinking' });
           requestAnimationFrame(() => handleSubmitRef.current());
           break;
@@ -2056,7 +2087,10 @@ export function InputBar() {
   }, [handleStreamMessage]);
 
   // --- Keyboard handler ---
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  /** Keyboard handler for the tiptap editor.
+   *  Receives a native KeyboardEvent (not React.KeyboardEvent).
+   *  Return true to prevent tiptap default handling. */
+  const handleKeyDown = (e: KeyboardEvent): boolean | void => {
     // Slash command navigation
     if (slashVisible) {
       const filtered = getFilteredCommandList(slashCommands, slashQuery);
@@ -2064,60 +2098,51 @@ export function InputBar() {
       if (e.key === 'ArrowUp') {
         e.preventDefault();
         setSlashIndex((prev) => (prev - 1 + count) % count);
-        return;
+        return true;
       }
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setSlashIndex((prev) => (prev + 1) % count);
-        return;
+        return true;
       }
       if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey)) {
         e.preventDefault();
         if (filtered[slashIndex]) {
           handleSlashSelect(filtered[slashIndex]);
         }
-        return;
+        return true;
       }
       if (e.key === 'Escape') {
         e.preventDefault();
         setSlashVisible(false);
-        return;
+        return true;
       }
     }
 
     // Backspace at position 0 with empty input removes active prefix
-    if (e.key === 'Backspace' && activePrefix && input === '') {
+    if (e.key === 'Backspace' && activePrefix && (textareaRef.current?.isEmpty() ?? true)) {
       e.preventDefault();
       useCommandStore.getState().clearPrefix();
-      return;
+      return true;
     }
 
     if (e.key !== 'Enter') return;
 
     // Skip if IME composition is in progress (e.g. Chinese/Japanese input method
     // confirming a candidate with Enter — should NOT send the message)
-    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    if (e.isComposing || e.keyCode === 229) return;
 
     if (e.metaKey || e.ctrlKey) {
-      // Cmd+Enter / Ctrl+Enter → insert newline
-      e.preventDefault();
-      const textarea = textareaRef.current;
-      if (textarea) {
-        const { selectionStart, selectionEnd } = textarea;
-        const val = textarea.value;
-        const newVal = val.slice(0, selectionStart) + '\n' + val.slice(selectionEnd);
-        // Update React state + restore cursor position
-        setInput(newVal);
-        requestAnimationFrame(() => {
-          textarea.selectionStart = textarea.selectionEnd = selectionStart + 1;
-        });
-      }
+      // Cmd+Enter / Ctrl+Enter → let tiptap insert newline (default behavior)
+      return false;
     } else if (!e.shiftKey) {
       // Plain Enter → send message
       e.preventDefault();
       handleSubmit();
+      return true;
     }
-    // Shift+Enter → default browser behavior (inserts newline in textarea)
+    // Shift+Enter → let tiptap handle (inserts hard break / new paragraph)
+    return false;
   };
 
   // --- File handling ---
@@ -2129,11 +2154,12 @@ export function InputBar() {
     }
   }, [addFiles]);
 
-  const handlePaste = useCallback((e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.files;
+  const handlePaste = useCallback((e: ClipboardEvent) => {
+    const items = (e as any).clipboardData?.files as FileList | undefined;
     if (items && items.length > 0) {
       e.preventDefault();
       addFiles(items);
+      return true;
     }
   }, [addFiles]);
 
@@ -2226,19 +2252,12 @@ export function InputBar() {
                 </span>
               </div>
             )}
-            <textarea
+            <TiptapEditor
               ref={textareaRef}
-              value={input}
-              onChange={(e) => {
-                const val = e.target.value;
-                setInput(val);
-                // Detect slash command
-                detectSlashCommand(val);
-                // Auto-shrink when text is deleted (onInput may not catch React state updates)
-                const el = e.target;
-                el.style.height = 'auto';
-                const maxH = Math.max(128, Math.floor(window.innerHeight * 0.5));
-                el.style.height = `${Math.min(el.scrollHeight, maxH)}px`;
+              data-chat-input
+              onUpdate={(text) => {
+                setInput(text);
+                detectSlashCommand(text);
               }}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
@@ -2247,21 +2266,9 @@ export function InputBar() {
                 : isRunning
                   ? t('input.followUp')
                   : t('input.placeholder')}
-              rows={1}
               className="flex-1 bg-transparent text-sm text-text-primary
                 placeholder:text-text-tertiary resize-none outline-none
                 leading-normal overflow-y-auto min-w-0 py-0.5"
-              style={{
-                height: 'auto',
-                minHeight: '24px',
-                maxHeight: '50vh',
-              }}
-              onInput={(e) => {
-                const el = e.currentTarget;
-                el.style.height = 'auto';
-                const maxH = Math.max(128, Math.floor(window.innerHeight * 0.5));
-                el.style.height = `${Math.min(el.scrollHeight, maxH)}px`;
-              }}
             />
           </div>
           {/* Shortcut hint — visible when input area is not focused and input is empty */}
@@ -2353,34 +2360,7 @@ export function InputBar() {
           {/* Think toggle */}
           <ThinkLevelSelector disabled={isRunning} />
 
-          {/* Rewind button */}
-          {showRewind && (
-            <button
-              onClick={() => {
-                if (!canRewind) return;
-                setShowRewindPanel(!showRewindPanel);
-              }}
-              disabled={!canRewind}
-              className={`p-1.5 rounded-lg transition-smooth flex items-center gap-1
-                ${!canRewind
-                  ? 'opacity-30 cursor-not-allowed text-text-tertiary'
-                  : showRewindPanel
-                    ? 'bg-amber-500/10 text-amber-500'
-                    : 'text-text-tertiary hover:text-text-primary hover:bg-bg-secondary'
-                }`}
-              title={canRewind
-                ? `${t('rewind.title')} (Esc×2)`
-                : t('rewind.disabled')}
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
-                stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                <path d="M2 8a6 6 0 0110.97-3.35M14 8a6 6 0 01-10.97 3.35" />
-                <path d="M13 2v3h-3" strokeLinejoin="round" />
-                <path d="M3 14v-3h3" strokeLinejoin="round" />
-              </svg>
-              <span className="text-[10px]">{t('rewind.title')}</span>
-            </button>
-          )}
+          {/* Rewind button — temporarily hidden (TK-TODO: refactor rewind UX) */}
 
           {/* Spacer */}
           <div className="flex-1" />
