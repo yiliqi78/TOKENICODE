@@ -13,6 +13,22 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.6.2',
+    date: '2026-02-24',
+    highlights: {
+      zh: [
+        'Windows CLI 启动修复 — 修复 GCS 下载的 claude.exe 无效导致 error 193 的问题',
+        'CLI 检测优化 — Windows 优先使用 npm 安装的 claude.cmd（更可靠），GCS 二进制作为后备',
+        '自动清理机制 — 检测到无效二进制时自动删除并切换到可用版本',
+      ],
+      en: [
+        'Windows CLI launch fix — Fixed error 193 caused by invalid GCS-downloaded claude.exe',
+        'CLI detection improved — Windows now prefers npm-installed claude.cmd (more reliable), GCS binary as fallback',
+        'Auto-cleanup — Automatically removes invalid binaries and switches to working alternatives',
+      ],
+    },
+  },
+  {
     version: '0.6.1',
     date: '2026-02-24',
     highlights: {

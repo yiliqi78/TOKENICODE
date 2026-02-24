@@ -6,6 +6,28 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.6.2] - 2026-02-24
+
+### Bug Fixes
+
+- **Windows Error 193 Fix** — Fixed `Failed to spawn claude (os error 193)` caused by invalid GCS-downloaded `claude.exe`. The binary search now prefers npm-installed `claude.cmd` (more reliable) over GCS standalone binary on Windows.
+
+- **Corrupt Binary Auto-Cleanup** — When a CLI binary fails to execute (error 193), it is automatically deleted and an alternative binary is searched. This handles corrupt downloads and incompatible GCS binaries.
+
+- **GCS Post-Download Validation** — After downloading from GCS, the binary is now validated by running `--version`. Invalid binaries are immediately removed and the install falls through to npm.
+
+---
+
+### 修复
+
+- **Windows Error 193 修复** — 修复 GCS 下载的 `claude.exe` 无效导致的 `Failed to spawn claude (os error 193)` 错误。Windows 上现在优先使用更可靠的 npm 安装的 `claude.cmd`，GCS 二进制作为后备。
+
+- **损坏二进制自动清理** — CLI 二进制执行失败（error 193）时自动删除并搜索替代版本。处理下载损坏和 GCS 二进制不兼容的情况。
+
+- **GCS 下载后验证** — GCS 下载完成后运行 `--version` 验证二进制有效性。无效文件立即删除，降级到 npm 安装。
+
+---
+
 ## [0.6.1] - 2026-02-24
 
 ### New Features

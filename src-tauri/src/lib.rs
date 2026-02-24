@@ -141,6 +141,18 @@ fn find_git_bash() -> Option<String> {
 }
 
 fn find_claude_binary() -> Option<String> {
+    // On Windows, prefer npm-global/bin first — .cmd shims are more reliable than
+    // GCS standalone binaries which may be incompatible with some Windows versions.
+    #[cfg(target_os = "windows")]
+    if let Some(npm_bin) = get_npm_global_bin() {
+        for name in &["claude.cmd", "claude.exe", "claude"] {
+            let path = npm_bin.join(name);
+            if path.exists() {
+                return Some(path.to_string_lossy().to_string());
+            }
+        }
+    }
+
     // 0. Check app-local download directory (our own downloaded CLI)
     if let Some(cli_dir) = cli_download_dir() {
         #[cfg(target_os = "windows")]
@@ -154,10 +166,9 @@ fn find_claude_binary() -> Option<String> {
     }
 
     // 0b. Check npm-global/bin (installed via local npm --prefix)
+    // On Windows this was already checked above; on other platforms check here.
+    #[cfg(not(target_os = "windows"))]
     if let Some(npm_bin) = get_npm_global_bin() {
-        #[cfg(target_os = "windows")]
-        let names = &["claude.cmd", "claude.exe", "claude"];
-        #[cfg(not(target_os = "windows"))]
         let names = &["claude"];
         for name in names {
             let path = npm_bin.join(name);
@@ -696,33 +707,56 @@ async fn start_claude_session(
     // On Windows, .cmd/.bat files must be launched via cmd /C
     #[cfg(target_os = "windows")]
     let mut child = {
-        // Also wrap bare names (no path separator, no extension) via cmd /C
-        // so that Windows can resolve .cmd shims on PATH
-        let needs_cmd = claude_bin.ends_with(".cmd")
-            || claude_bin.ends_with(".bat")
-            || (!claude_bin.contains('\\') && !claude_bin.contains('/') && !claude_bin.contains('.'));
-        let mut cmd = if needs_cmd {
-            let mut c = Command::new("cmd");
-            c.arg("/C").arg(&claude_bin);
-            c
-        } else {
-            Command::new(&claude_bin)
+        // Helper: build and spawn a Command for the given binary
+        let spawn_win = |bin: &str| {
+            let needs_cmd = bin.ends_with(".cmd")
+                || bin.ends_with(".bat")
+                || (!bin.contains('\\') && !bin.contains('/') && !bin.contains('.'));
+            let mut cmd = if needs_cmd {
+                let mut c = Command::new("cmd");
+                c.arg("/C").arg(bin);
+                c
+            } else {
+                Command::new(bin)
+            };
+            cmd.args(&args)
+                .current_dir(&params.cwd)
+                .env("PATH", &enriched_path)
+                .env_remove("CLAUDECODE");
+            for (key, value) in &resolved_env {
+                cmd.env(key, value);
+            }
+            cmd.stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .creation_flags(0x08000000)
+                .spawn()
         };
-        cmd.args(&args)
-            .current_dir(&params.cwd)
-            .env("PATH", &enriched_path)
-            .env_remove("CLAUDECODE");
-        // Inject custom API provider env vars
-        for (key, value) in &resolved_env {
-            cmd.env(key, value);
+
+        match spawn_win(&claude_bin) {
+            Ok(c) => c,
+            Err(e) if e.raw_os_error() == Some(193) => {
+                // Error 193: not a valid Win32 application — binary is corrupt.
+                // Clean up the bad binary and try to find an alternative.
+                eprintln!("error 193 on '{}', cleaning up and retrying...", claude_bin);
+                if let Some(cli_dir) = cli_download_dir() {
+                    let suspect = cli_dir.join("claude.exe");
+                    if suspect.exists() {
+                        let _ = std::fs::remove_file(&suspect);
+                    }
+                }
+                let alt_bin = find_claude_binary().unwrap_or_else(|| "claude.cmd".to_string());
+                if alt_bin == claude_bin {
+                    return Err(format!("Failed to spawn claude (tried '{}'): {}", claude_bin, e));
+                }
+                eprintln!("Retrying with alternative: {}", alt_bin);
+                spawn_win(&alt_bin)
+                    .map_err(|e2| format!("Failed to spawn claude (tried '{}' then '{}'): {}", claude_bin, alt_bin, e2))?
+            }
+            Err(e) => {
+                return Err(format!("Failed to spawn claude (tried '{}'): {}", claude_bin, e));
+            }
         }
-        cmd.stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            // Hide console window on Windows
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .spawn()
-            .map_err(|e| format!("Failed to spawn claude (tried '{}'): {}", claude_bin, e))?
     };
     #[cfg(not(target_os = "windows"))]
     let mut child = {
@@ -2420,17 +2454,72 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
         Some(path) => {
             // Try to get the version
             let enriched_path = build_enriched_path();
-            let version = match Command::new(&path)
+
+            // On Windows, .cmd files need cmd /C wrapper
+            #[cfg(target_os = "windows")]
+            let output_result = {
+                let needs_cmd = path.ends_with(".cmd") || path.ends_with(".bat");
+                if needs_cmd {
+                    Command::new("cmd")
+                        .args(["/C", &path, "--version"])
+                        .env("PATH", &enriched_path)
+                        .output()
+                        .await
+                } else {
+                    Command::new(&path)
+                        .arg("--version")
+                        .env("PATH", &enriched_path)
+                        .output()
+                        .await
+                }
+            };
+            #[cfg(not(target_os = "windows"))]
+            let output_result = Command::new(&path)
                 .arg("--version")
                 .env("PATH", &enriched_path)
                 .output()
-                .await
-            {
+                .await;
+
+            let version = match output_result {
                 Ok(output) if output.status.success() => {
                     let raw = strip_ansi(&String::from_utf8_lossy(&output.stdout)).trim().to_string();
                     if raw.is_empty() { None } else { Some(raw) }
                 }
-                _ => None,
+                Ok(_) => None,
+                Err(ref e) => {
+                    eprintln!("check_claude_cli: failed to execute '{}': {}", path, e);
+                    // On Windows, error 193 means the binary is corrupt/incompatible.
+                    // Delete it and try to find a working alternative.
+                    #[cfg(target_os = "windows")]
+                    {
+                        if e.raw_os_error() == Some(193) {
+                            eprintln!("error 193: removing corrupt binary and re-searching...");
+                            if let Some(cli_dir) = cli_download_dir() {
+                                let suspect = cli_dir.join("claude.exe");
+                                if suspect.exists() {
+                                    let _ = std::fs::remove_file(&suspect);
+                                }
+                            }
+                            let alt = find_claude_binary();
+                            let git_bash_missing = find_git_bash().is_none();
+                            return match alt {
+                                Some(alt_path) => Ok(CliStatus {
+                                    installed: true,
+                                    path: Some(alt_path),
+                                    version: None,
+                                    git_bash_missing,
+                                }),
+                                None => Ok(CliStatus {
+                                    installed: false,
+                                    path: None,
+                                    version: None,
+                                    git_bash_missing: false,
+                                }),
+                            };
+                        }
+                    }
+                    None
+                }
             };
             // On Windows, check if git-bash is available (hard requirement for Claude Code)
             #[cfg(target_os = "windows")]
@@ -2541,6 +2630,31 @@ async fn install_cli_via_gcs(app: &AppHandle) -> Result<(), String> {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&target_path, std::fs::Permissions::from_mode(0o755))
             .map_err(|e| format!("Failed to set permissions: {}", e))?;
+    }
+
+    // 5b. (Windows) Sanity-check: verify the binary is a valid PE that can actually run.
+    //     GCS standalone binaries may not work on all Windows configurations.
+    #[cfg(target_os = "windows")]
+    {
+        match std::process::Command::new(&target_path)
+            .arg("--version")
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .output()
+        {
+            Ok(output) if output.status.success() => {
+                eprintln!("GCS binary validated OK");
+            }
+            Ok(output) => {
+                eprintln!("GCS binary exited with {:?}, removing", output.status);
+                let _ = std::fs::remove_file(&target_path);
+                return Err("Downloaded CLI binary exited with error on validation".to_string());
+            }
+            Err(e) => {
+                eprintln!("GCS binary failed to execute: {}, removing", e);
+                let _ = std::fs::remove_file(&target_path);
+                return Err(format!("Downloaded CLI binary is not a valid Windows executable: {}", e));
+            }
+        }
     }
 
     let _ = app.emit("setup:download:progress", serde_json::json!({
