@@ -6,6 +6,36 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.6.3] - 2026-02-24
+
+### New Features
+
+- **API Settings Persistence** — Credentials (`credentials.enc`) and API provider settings (`api_settings.json`) are now backed up to `~/.tokenicode/`, a location that survives Windows NSIS updates. On startup, if localStorage was wiped, settings are automatically restored from the backup.
+
+### Bug Fixes
+
+- **Windows CMD Window Elimination** — Added `CREATE_NO_WINDOW` flag to all subprocess spawns on Windows (`check_claude_cli`, `run_claude_command`, `check_claude_auth`, `check_node_env`, `open_with_default_app`). No more flashing CMD windows during normal usage.
+
+- **Permission Loop Fix** — GUI now always passes `--dangerously-skip-permissions` to Claude CLI regardless of session mode. The previous `--permission-mode acceptEdits` caused an infinite loop because the GUI cannot handle CLI stdin permission prompts.
+
+- **NSIS Install Mode** — Configured NSIS installer to `currentUser` mode, reducing the chance of elevated permission issues on Windows.
+
+---
+
+### 新功能
+
+- **API 设置持久化** — 凭证文件 (`credentials.enc`) 和 API 配置 (`api_settings.json`) 现在备份到 `~/.tokenicode/`，该路径不受 Windows NSIS 更新影响。启动时如果 localStorage 被清空，自动从备份恢复设置。
+
+### 修复
+
+- **Windows 命令行窗口消除** — 为所有 Windows 后台进程添加 `CREATE_NO_WINDOW` 标志（`check_claude_cli`、`run_claude_command`、`check_claude_auth`、`check_node_env`、`open_with_default_app`），彻底消灭发送消息时闪烁的 CMD 窗口。
+
+- **权限循环修复** — GUI 现在始终向 Claude CLI 传递 `--dangerously-skip-permissions`，不再使用 `--permission-mode acceptEdits`。之前的模式会导致 CLI 通过 stdin 请求权限，但 GUI 无法处理，造成死循环。
+
+- **NSIS 安装模式** — 配置 NSIS 安装器为 `currentUser` 模式，减少 Windows 上的权限提升问题。
+
+---
+
 ## [0.6.2] - 2026-02-24
 
 ### Bug Fixes

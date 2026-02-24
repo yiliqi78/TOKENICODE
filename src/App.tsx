@@ -7,7 +7,7 @@ import { CommandPalette } from './components/commands/CommandPalette';
 import { SettingsPanel } from './components/settings/SettingsPanel';
 import { ImageLightbox } from './components/shared/ImageLightbox';
 import { ChangelogModal } from './components/shared/ChangelogModal';
-import { useSettingsStore } from './stores/settingsStore';
+import { useSettingsStore, restoreApiSettingsIfNeeded } from './stores/settingsStore';
 import type { ColorTheme, Theme } from './stores/settingsStore';
 import { useFileStore } from './stores/fileStore';
 import { useChatStore } from './stores/chatStore';
@@ -101,8 +101,10 @@ function App() {
   }, []);
 
   // Load custom session names from disk on startup
+  // Restore API provider settings if localStorage was wiped (Windows NSIS update)
   useEffect(() => {
     useSessionStore.getState().loadCustomPreviewsFromDisk();
+    restoreApiSettingsIfNeeded();
   }, []);
 
   // Changelog modal state

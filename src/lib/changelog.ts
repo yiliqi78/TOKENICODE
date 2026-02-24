@@ -13,6 +13,22 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.6.3',
+    date: '2026-02-24',
+    highlights: {
+      zh: [
+        'API 设置持久化 — 凭证和 API 配置备份到 ~/.tokenicode/，Windows 更新后不再丢失',
+        'Windows 命令行窗口消除 — 所有后台进程添加 CREATE_NO_WINDOW，彻底消灭闪烁的 CMD 窗口',
+        '权限循环修复 — GUI 始终跳过 CLI 权限提示，解决无法授权导致的死循环',
+      ],
+      en: [
+        'API settings persistence — Credentials and API config backed up to ~/.tokenicode/, survives Windows updates',
+        'Windows CMD window elimination — All background processes use CREATE_NO_WINDOW, no more flashing CMD windows',
+        'Permission loop fix — GUI always skips CLI permission prompts, resolving the infinite authorization loop',
+      ],
+    },
+  },
+  {
     version: '0.6.2',
     date: '2026-02-24',
     highlights: {

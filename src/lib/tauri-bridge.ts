@@ -113,6 +113,14 @@ export interface NodeEnvStatus {
   npm_available: boolean;
 }
 
+export interface ApiSettingsBackup {
+  apiProviderMode: string;
+  customProviderName: string;
+  customProviderBaseUrl: string;
+  customProviderModelMappings: { tier: string; providerModel: string }[];
+  customProviderApiFormat: string;
+}
+
 export interface UnifiedCommand {
   name: string;
   description: string;
@@ -301,6 +309,14 @@ export const bridge = {
 
   testApiConnection: (baseUrl: string, apiFormat: string, model: string) =>
     invoke<string>('test_api_connection', { baseUrl, apiFormat, model }),
+
+  // --- API Settings Backup (survives NSIS update on Windows) ---
+
+  saveApiSettings: (settings: ApiSettingsBackup) =>
+    invoke<void>('save_api_settings', { settings }),
+
+  loadApiSettings: () =>
+    invoke<ApiSettingsBackup | null>('load_api_settings'),
 };
 
 // --- Event Listeners ---

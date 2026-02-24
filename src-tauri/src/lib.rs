@@ -414,16 +414,29 @@ fn build_enriched_path() -> String {
 
 // --- Credential storage (TK-303) ---
 
-/// Directory for TOKENICODE app data
+/// Directory for TOKENICODE app data (may be wiped by NSIS installer on Windows)
 fn app_data_dir() -> Result<std::path::PathBuf, String> {
     dirs::data_local_dir()
         .map(|d| d.join("com.tinyzhuang.tokenicode"))
         .ok_or_else(|| "Cannot determine app data directory".to_string())
 }
 
-/// Path to encrypted credentials file
-fn credentials_path() -> Result<std::path::PathBuf, String> {
+/// Safe directory in user's home — survives Windows NSIS updates.
+/// Uses ~/.tokenicode/ which already stores tracked_sessions.txt.
+fn safe_data_dir() -> Result<std::path::PathBuf, String> {
+    dirs::home_dir()
+        .map(|d| d.join(".tokenicode"))
+        .ok_or_else(|| "Cannot determine home directory".to_string())
+}
+
+/// Legacy path (may be wiped on Windows update)
+fn legacy_credentials_path() -> Result<std::path::PathBuf, String> {
     Ok(app_data_dir()?.join("credentials.enc"))
+}
+
+/// Primary path for encrypted credentials (safe from NSIS cleanup)
+fn credentials_path() -> Result<std::path::PathBuf, String> {
+    Ok(safe_data_dir()?.join("credentials.enc"))
 }
 
 /// Derive a machine-specific 256-bit key for credential encryption.
@@ -441,6 +454,7 @@ fn derive_encryption_key() -> [u8; 32] {
 }
 
 /// Encrypt and store an API key to disk.
+/// Dual-write: primary to ~/.tokenicode/ (safe), fallback to legacy app data dir.
 fn encrypt_and_save(plaintext: &str) -> Result<(), String> {
     let key_bytes = derive_encryption_key();
     let cipher = Aes256Gcm::new_from_slice(&key_bytes)
@@ -458,6 +472,7 @@ fn encrypt_and_save(plaintext: &str) -> Result<(), String> {
     data.extend_from_slice(&nonce_bytes);
     data.extend_from_slice(&ciphertext);
 
+    // Primary: write to ~/.tokenicode/credentials.enc (safe from NSIS cleanup)
     let path = credentials_path()?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
@@ -465,16 +480,46 @@ fn encrypt_and_save(plaintext: &str) -> Result<(), String> {
     }
     std::fs::write(&path, &data)
         .map_err(|e| format!("Cannot write credentials: {}", e))?;
+
+    // Legacy fallback: also write to old location (best-effort, for backward compat)
+    if let Ok(legacy_path) = legacy_credentials_path() {
+        if let Some(parent) = legacy_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&legacy_path, &data);
+    }
+
     Ok(())
 }
 
 /// Load and decrypt an API key from disk.
+/// Reads from safe path first; if missing, migrates from legacy path.
 fn load_and_decrypt() -> Result<Option<String>, String> {
-    let path = credentials_path()?;
-    if !path.exists() {
+    let safe_path = credentials_path()?;
+    let legacy_path = legacy_credentials_path().ok();
+
+    // Determine which file to read
+    let read_path = if safe_path.exists() {
+        safe_path
+    } else if let Some(ref lp) = legacy_path {
+        if lp.exists() {
+            // Migrate: copy from legacy to safe location
+            if let Ok(legacy_data) = std::fs::read(lp) {
+                if let Some(parent) = safe_path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let _ = std::fs::write(&safe_path, &legacy_data);
+                eprintln!("Migrated credentials.enc to safe location");
+            }
+            if safe_path.exists() { safe_path } else { lp.clone() }
+        } else {
+            return Ok(None);
+        }
+    } else {
         return Ok(None);
-    }
-    let data = std::fs::read(&path)
+    };
+
+    let data = std::fs::read(&read_path)
         .map_err(|e| format!("Cannot read credentials: {}", e))?;
     if data.len() < 13 {
         return Err("Corrupted credentials file".to_string());
@@ -580,12 +625,65 @@ fn load_api_key() -> Result<Option<String>, String> {
 
 #[tauri::command]
 fn delete_api_key() -> Result<(), String> {
+    // Delete from safe location
     let path = credentials_path()?;
     if path.exists() {
         std::fs::remove_file(&path)
             .map_err(|e| format!("Cannot delete credentials: {}", e))?;
     }
+    // Delete from legacy location (best-effort)
+    if let Ok(legacy_path) = legacy_credentials_path() {
+        if legacy_path.exists() {
+            let _ = std::fs::remove_file(&legacy_path);
+        }
+    }
     Ok(())
+}
+
+// --- API settings backup (survives NSIS update) ---
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ApiSettings {
+    api_provider_mode: String,
+    custom_provider_name: String,
+    custom_provider_base_url: String,
+    custom_provider_model_mappings: Vec<ApiModelMapping>,
+    custom_provider_api_format: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ApiModelMapping {
+    tier: String,
+    provider_model: String,
+}
+
+#[tauri::command]
+fn save_api_settings(settings: ApiSettings) -> Result<(), String> {
+    let path = safe_data_dir()?.join("api_settings.json");
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Cannot create dir: {}", e))?;
+    }
+    let json = serde_json::to_string_pretty(&settings)
+        .map_err(|e| format!("Serialize error: {}", e))?;
+    std::fs::write(&path, json)
+        .map_err(|e| format!("Write error: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn load_api_settings() -> Result<Option<ApiSettings>, String> {
+    let path = safe_data_dir()?.join("api_settings.json");
+    if !path.exists() {
+        return Ok(None);
+    }
+    let data = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Cannot read settings: {}", e))?;
+    serde_json::from_str(&data)
+        .map(Some)
+        .map_err(|e| format!("Cannot parse settings: {}", e))
 }
 
 #[tauri::command]
@@ -630,12 +728,9 @@ async fn start_claude_session(
         }
     }
 
-    if params.dangerously_skip_permissions.unwrap_or(false) {
-        args.push("--dangerously-skip-permissions".to_string());
-    } else {
-        args.push("--permission-mode".to_string());
-        args.push("acceptEdits".to_string());
-    }
+    // GUI wrapper cannot handle CLI stdin permission prompts, so always skip.
+    // The frontend sessionMode ('code'/'ask'/'plan'/'bypass') is a UI concept only.
+    args.push("--dangerously-skip-permissions".to_string());
 
     // Session mode: ask, plan, or auto (default)
     if let Some(ref mode) = params.session_mode {
@@ -1347,6 +1442,7 @@ async fn open_with_default_app(path: String) -> Result<(), String> {
     {
         Command::new("cmd")
             .args(["/C", "start", "", &path])
+            .creation_flags(0x08000000)
             .spawn()
             .map_err(|e| format!("Failed to open file: {}", e))?;
     }
@@ -2427,6 +2523,8 @@ async fn run_claude_command(subcommand: String, cwd: Option<String>) -> Result<S
     cmd.env("PATH", &enriched_path);
     cmd.env_remove("CLAUDECODE");
     cmd.stdin(Stdio::null());
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000);
     if let Some(ref dir) = cwd {
         cmd.current_dir(dir);
     }
@@ -2463,12 +2561,14 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
                     Command::new("cmd")
                         .args(["/C", &path, "--version"])
                         .env("PATH", &enriched_path)
+                        .creation_flags(0x08000000)
                         .output()
                         .await
                 } else {
                     Command::new(&path)
                         .arg("--version")
                         .env("PATH", &enriched_path)
+                        .creation_flags(0x08000000)
                         .output()
                         .await
                 }
@@ -3020,7 +3120,11 @@ async fn check_node_env() -> Result<NodeEnvStatus, String> {
     // 1. Check local Node.js first
     if let Some(local_bin) = get_local_node_bin() {
         let node_path = local_bin.join(if cfg!(target_os = "windows") { "node.exe" } else { "node" });
-        if let Ok(output) = Command::new(&node_path).arg("--version").output().await {
+        let mut node_cmd = Command::new(&node_path);
+        node_cmd.arg("--version");
+        #[cfg(target_os = "windows")]
+        node_cmd.creation_flags(0x08000000);
+        if let Ok(output) = node_cmd.output().await {
             if output.status.success() {
                 let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 return Ok(NodeEnvStatus {
@@ -3525,13 +3629,15 @@ async fn check_claude_auth() -> Result<AuthStatus, String> {
     }
 
     // Fallback: run `claude doctor` with a shorter timeout
+    let mut cmd = Command::new(&claude_bin);
+    cmd.args(["doctor"])
+        .env("PATH", &enriched_path)
+        .env_remove("CLAUDECODE");
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000);
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(8),
-        Command::new(&claude_bin)
-            .args(["doctor"])
-            .env("PATH", &enriched_path)
-            .env_remove("CLAUDECODE")
-            .output(),
+        cmd.output(),
     )
     .await;
 
@@ -3775,6 +3881,8 @@ pub fn run() {
             load_api_key,
             delete_api_key,
             test_api_connection,
+            save_api_settings,
+            load_api_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

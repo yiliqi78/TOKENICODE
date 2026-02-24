@@ -301,3 +301,74 @@ export const useSettingsStore = create<SettingsState>()(
     },
   ),
 );
+
+// --- Auto-backup API settings to ~/.tokenicode/api_settings.json ---
+// Survives Windows NSIS updates that wipe localStorage.
+
+const API_SETTINGS_KEYS = [
+  'apiProviderMode',
+  'customProviderName',
+  'customProviderBaseUrl',
+  'customProviderModelMappings',
+  'customProviderApiFormat',
+] as const;
+
+let _backupTimer: ReturnType<typeof setTimeout> | undefined;
+
+useSettingsStore.subscribe((state, prevState) => {
+  const changed = API_SETTINGS_KEYS.some(
+    (key) => JSON.stringify(state[key]) !== JSON.stringify(prevState[key]),
+  );
+  if (!changed) return;
+
+  clearTimeout(_backupTimer);
+  _backupTimer = setTimeout(async () => {
+    try {
+      const { bridge } = await import('../lib/tauri-bridge');
+      await bridge.saveApiSettings({
+        apiProviderMode: state.apiProviderMode,
+        customProviderName: state.customProviderName,
+        customProviderBaseUrl: state.customProviderBaseUrl,
+        customProviderModelMappings: state.customProviderModelMappings.map((m) => ({
+          tier: m.tier,
+          providerModel: m.providerModel,
+        })),
+        customProviderApiFormat: state.customProviderApiFormat,
+      });
+    } catch {
+      // Best-effort backup; ignore errors
+    }
+  }, 500);
+});
+
+/**
+ * Restore API provider settings from disk backup if localStorage was wiped.
+ * Call once on app startup (e.g. in App.tsx useEffect).
+ */
+export async function restoreApiSettingsIfNeeded(): Promise<void> {
+  const state = useSettingsStore.getState();
+
+  // Only restore if settings look like defaults (localStorage was wiped)
+  if (state.apiProviderMode !== 'inherit' || state.customProviderBaseUrl) return;
+
+  try {
+    const { bridge } = await import('../lib/tauri-bridge');
+    const backup = await bridge.loadApiSettings();
+    if (!backup) return;
+    // Only restore if backup has non-default data
+    if (backup.apiProviderMode === 'inherit' && !backup.customProviderBaseUrl) return;
+
+    useSettingsStore.setState({
+      apiProviderMode: backup.apiProviderMode as ApiProviderMode,
+      customProviderName: backup.customProviderName,
+      customProviderBaseUrl: backup.customProviderBaseUrl,
+      customProviderModelMappings: backup.customProviderModelMappings.map((m) => ({
+        tier: m.tier as 'opus' | 'sonnet' | 'haiku',
+        providerModel: m.providerModel,
+      })),
+      customProviderApiFormat: backup.customProviderApiFormat as ApiFormat,
+    });
+  } catch {
+    // Best-effort restore; ignore errors
+  }
+}
