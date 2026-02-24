@@ -502,6 +502,9 @@ const messages: Record<Locale, Record<string, string>> = {
     'cli.retry': '重试',
     'cli.reinstall': '重新安装',
     'cli.pathHint': '安装后需要重新打开终端才能生效',
+    'cli.configuring': '正在配置...',
+    'cli.npmFallback': '通过 npm 镜像安装...',
+    'cli.restart': '重启应用以生效',
 
     // Update
     'update.check': '检查更新',
@@ -514,6 +517,9 @@ const messages: Record<Locale, Record<string, string>> = {
     'update.error': '检查更新失败',
     'update.version': '新版本',
     'update.install': '下载并安装',
+
+    // Network / firewall hints
+    'network.firewallHint': '网络连接失败，可能需要 VPN 或代理才能访问',
 
     // Changelog modal
     'changelog.title': '更新内容',
@@ -545,6 +551,10 @@ const messages: Record<Locale, Record<string, string>> = {
     'setup.start': '开始使用',
     'setup.skip': '跳过',
     'setup.version': '版本',
+    'setup.downloadingNode': '正在下载 Node.js 运行环境...',
+    'setup.extractingNode': '正在解压 Node.js...',
+    'setup.preparingEnv': '正在准备运行环境...',
+    'setup.installingCli': '正在通过 npm 安装 CLI...',
 
     // Permission dialog
     'perm.title': '需要文件访问权限',
@@ -1051,6 +1061,9 @@ const messages: Record<Locale, Record<string, string>> = {
     'cli.retry': 'Retry',
     'cli.reinstall': 'Reinstall',
     'cli.pathHint': 'Restart your terminal after installation',
+    'cli.configuring': 'Configuring...',
+    'cli.npmFallback': 'Installing via npm mirror...',
+    'cli.restart': 'Restart app to apply',
 
     // Update
     'update.check': 'Check for Updates',
@@ -1064,7 +1077,8 @@ const messages: Record<Locale, Record<string, string>> = {
     'update.version': 'New version',
     'update.install': 'Download & Install',
 
-    // Changelog modal
+    // Network / firewall hints
+    'network.firewallHint': 'Network error — you may need a VPN or proxy to connect',
     'changelog.title': "What's New",
     'changelog.dismiss': 'Got it',
     'changelog.view': "What's New",
@@ -1094,6 +1108,10 @@ const messages: Record<Locale, Record<string, string>> = {
     'setup.start': 'Get Started',
     'setup.skip': 'Skip',
     'setup.version': 'Version',
+    'setup.downloadingNode': 'Downloading Node.js runtime...',
+    'setup.extractingNode': 'Extracting Node.js...',
+    'setup.preparingEnv': 'Preparing runtime environment...',
+    'setup.installingCli': 'Installing CLI via npm...',
 
     // Permission dialog
     'perm.title': 'File Access Required',

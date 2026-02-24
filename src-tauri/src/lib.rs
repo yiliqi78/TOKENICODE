@@ -53,6 +53,68 @@ fn cli_download_dir() -> Option<std::path::PathBuf> {
 }
 
 /// Find the claude binary by checking common installation paths
+/// Validate that a file is a real executable (PE header check on Windows, file-exists on Unix)
+fn is_valid_executable(path: &std::path::Path) -> bool {
+    if !path.exists() {
+        return false;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // Check MZ magic bytes (PE executable header)
+        if let Ok(mut f) = std::fs::File::open(path) {
+            use std::io::Read;
+            let mut magic = [0u8; 2];
+            if f.read_exact(&mut magic).is_ok() {
+                return magic == [0x4D, 0x5A]; // "MZ"
+            }
+        }
+        false
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        true
+    }
+}
+
+/// On Windows, find git-bash (bash.exe) to satisfy Claude Code's requirement.
+/// Returns the path to bash.exe if found.
+#[cfg(target_os = "windows")]
+fn find_git_bash() -> Option<String> {
+    let candidates = [
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Program Files (x86)\Git\bin\bash.exe",
+    ];
+    for c in &candidates {
+        if std::path::Path::new(c).exists() {
+            return Some(c.to_string());
+        }
+    }
+    // Check user-level scoop/chocolatey installs
+    if let Some(home) = dirs::home_dir() {
+        let scoop = home.join(r"scoop\apps\git\current\bin\bash.exe");
+        if scoop.exists() {
+            return Some(scoop.to_string_lossy().to_string());
+        }
+    }
+    // Try `where bash` as last resort
+    if let Ok(output) = std::process::Command::new("cmd")
+        .args(["/C", "where", "bash"])
+        .creation_flags(0x08000000)
+        .output()
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if let Some(path) = stdout.lines().next() {
+                let path = path.trim().to_string();
+                if !path.is_empty() && std::path::Path::new(&path).exists() {
+                    return Some(path);
+                }
+            }
+        }
+    }
+    None
+}
+
 fn find_claude_binary() -> Option<String> {
     // 0. Check app-local download directory (our own downloaded CLI)
     if let Some(cli_dir) = cli_download_dir() {
@@ -61,8 +123,22 @@ fn find_claude_binary() -> Option<String> {
         #[cfg(not(target_os = "windows"))]
         let bin_name = "claude";
         let path = cli_dir.join(bin_name);
-        if path.exists() {
+        if path.exists() && is_valid_executable(&path) {
             return Some(path.to_string_lossy().to_string());
+        }
+    }
+
+    // 0b. Check npm-global/bin (installed via local npm --prefix)
+    if let Some(npm_bin) = get_npm_global_bin() {
+        #[cfg(target_os = "windows")]
+        let names = &["claude.cmd", "claude.exe", "claude"];
+        #[cfg(not(target_os = "windows"))]
+        let names = &["claude"];
+        for name in names {
+            let path = npm_bin.join(name);
+            if path.exists() {
+                return Some(path.to_string_lossy().to_string());
+            }
         }
     }
 
@@ -234,6 +310,21 @@ fn build_enriched_path() -> String {
     let separator = ";";
     #[cfg(not(target_os = "windows"))]
     let separator = ":";
+
+    // Highest priority: local npm-global/bin (where CLI is installed via local npm)
+    if let Some(npm_bin) = get_npm_global_bin() {
+        paths.push(npm_bin.to_string_lossy().to_string());
+    }
+
+    // Local Node.js bin (for running npm-installed CLI)
+    if let Some(node_bin) = get_local_node_bin() {
+        paths.push(node_bin.to_string_lossy().to_string());
+    }
+
+    // App-local CLI download directory
+    if let Some(cli_dir) = cli_download_dir() {
+        paths.push(cli_dir.to_string_lossy().to_string());
+    }
 
     if let Some(home) = dirs::home_dir() {
         #[cfg(target_os = "windows")]
@@ -540,6 +631,17 @@ async fn start_claude_session(
     // when generating large files (e.g. HTML presentations).
     resolved_env.entry("CLAUDE_CODE_MAX_OUTPUT_TOKENS".to_string())
         .or_insert_with(|| "64000".to_string());
+
+    // On Windows, auto-detect git-bash and inject CLAUDE_CODE_GIT_BASH_PATH
+    // so Claude Code CLI can find bash.exe without user manual configuration.
+    #[cfg(target_os = "windows")]
+    {
+        if !resolved_env.contains_key("CLAUDE_CODE_GIT_BASH_PATH") {
+            if let Some(bash_path) = find_git_bash() {
+                resolved_env.insert("CLAUDE_CODE_GIT_BASH_PATH".to_string(), bash_path);
+            }
+        }
+    }
 
     // On Windows, .cmd/.bat files must be launched via cmd /C
     #[cfg(target_os = "windows")]
@@ -1563,8 +1665,24 @@ async fn get_file_size(path: String) -> Result<u64, String> {
 /// Save a file to a temp directory and return its path.
 /// Uses a unique suffix to avoid name collisions (e.g. multiple pasted images all named "image.png").
 #[tauri::command]
-async fn save_temp_file(name: String, data: Vec<u8>) -> Result<String, String> {
-    let tmp = std::env::temp_dir().join("tokenicode");
+async fn save_temp_file(name: String, data: Vec<u8>, cwd: Option<String>) -> Result<String, String> {
+    // If a working directory is provided, save inside it so Claude CLI can access the file.
+    // Falls back to system temp if cwd is not set.
+    let tmp = if let Some(ref dir) = cwd {
+        let p = std::path::PathBuf::from(dir).join(".tokenicode").join("tmp");
+        if std::fs::create_dir_all(&p).is_ok() {
+            // Ensure .tokenicode is gitignored in user's project
+            let gitignore = std::path::PathBuf::from(dir).join(".tokenicode").join(".gitignore");
+            if !gitignore.exists() {
+                let _ = std::fs::write(&gitignore, "*\n");
+            }
+            p
+        } else {
+            std::env::temp_dir().join("tokenicode")
+        }
+    } else {
+        std::env::temp_dir().join("tokenicode")
+    };
     std::fs::create_dir_all(&tmp).map_err(|e| format!("Failed to create temp dir: {}", e))?;
 
     // Split name into stem + extension, append timestamp + counter for uniqueness
@@ -2285,15 +2403,16 @@ fn get_cli_platform() -> Result<(&'static str, &'static str), String> {
     }
 }
 
-/// Download the Claude CLI binary directly via HTTP.
-///
-/// Flow: fetch latest version → download manifest → download binary → verify SHA256 → run `claude install`.
-#[tauri::command]
-async fn install_claude_cli(app: AppHandle) -> Result<(), String> {
+/// Try GCS direct download. Returns Ok(()) on success, Err on failure.
+async fn install_cli_via_gcs(app: &AppHandle) -> Result<(), String> {
     let (platform, bin_name) = get_cli_platform()?;
 
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
     // 1. Fetch latest version
-    let client = reqwest::Client::new();
     let version = client.get(format!("{}/latest", CLI_DIST_BASE))
         .send().await.map_err(|e| format!("Failed to fetch latest version: {}", e))?
         .text().await.map_err(|e| format!("Failed to read version: {}", e))?
@@ -2354,7 +2473,6 @@ async fn install_claude_cli(app: AppHandle) -> Result<(), String> {
     if let Some(expected) = expected_sha {
         let actual = format!("{:x}", hasher.finalize());
         if actual != expected {
-            // Clean up the bad download
             let _ = std::fs::remove_file(&target_path);
             return Err(format!("Checksum mismatch: expected {}, got {}", expected, actual));
         }
@@ -2372,7 +2490,116 @@ async fn install_claude_cli(app: AppHandle) -> Result<(), String> {
         "downloaded": downloaded, "total": total, "percent": 100, "phase": "installing"
     }));
 
-    // 6. Run `claude install` to complete setup (creates symlinks, PATH entries, etc.)
+    // 6. Run `claude install` to complete setup
+    run_claude_install(&target_path).await;
+
+    Ok(())
+}
+
+/// Try npm install as fallback (uses npmmirror registry for China users).
+/// Install Claude CLI via npm. Supports system npm or local Node.js npm.
+/// Uses --prefix to install into app-local directory when using local Node.js.
+async fn install_cli_via_npm(app: &AppHandle) -> Result<(), String> {
+    let _ = app.emit("setup:download:progress", serde_json::json!({
+        "downloaded": 0, "total": 0, "percent": 0, "phase": "npm_fallback"
+    }));
+
+    // Determine npm path: local Node.js takes priority, then system npm
+    let (npm_path, use_prefix) = if let Some(local_bin) = get_local_node_bin() {
+        #[cfg(target_os = "windows")]
+        let npm = local_bin.join("npm.cmd");
+        #[cfg(not(target_os = "windows"))]
+        let npm = local_bin.join("npm");
+        (npm.to_string_lossy().to_string(), true)
+    } else {
+        #[cfg(target_os = "windows")]
+        let npm = "npm.cmd".to_string();
+        #[cfg(not(target_os = "windows"))]
+        let npm = "npm".to_string();
+        (npm, false)
+    };
+
+    // Build PATH that includes local Node.js bin
+    let enriched_path = build_enriched_path();
+
+    // Prepare --prefix arg for local installs
+    let prefix_dir = npm_global_dir()?;
+    if use_prefix {
+        std::fs::create_dir_all(&prefix_dir)
+            .map_err(|e| format!("Failed to create npm-global dir: {}", e))?;
+    }
+
+    let registries = [
+        "https://registry.npmmirror.com",
+        "https://registry.npmjs.org",
+    ];
+
+    let mut last_err = String::new();
+    for registry in &registries {
+        eprintln!("Trying npm install with registry: {} (prefix: {})", registry, use_prefix);
+
+        let _ = app.emit("setup:download:progress", serde_json::json!({
+            "downloaded": 0, "total": 0, "percent": 50, "phase": "npm_fallback"
+        }));
+
+        // Build args
+        let mut args: Vec<String> = vec![
+            "install".to_string(),
+            "-g".to_string(),
+            "@anthropic-ai/claude-code".to_string(),
+            format!("--registry={}", registry),
+        ];
+        if use_prefix {
+            args.push(format!("--prefix={}", prefix_dir.display()));
+        }
+
+        let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+
+        #[cfg(target_os = "windows")]
+        let result = {
+            let mut cmd = Command::new("cmd");
+            cmd.arg("/C").arg(&npm_path);
+            cmd.args(&args_str);
+            cmd.env("PATH", &enriched_path)
+                .creation_flags(0x08000000)
+                .output()
+                .await
+        };
+        #[cfg(not(target_os = "windows"))]
+        let result = {
+            Command::new(&npm_path)
+                .args(&args_str)
+                .env("PATH", &enriched_path)
+                .output()
+                .await
+        };
+
+        match result {
+            Ok(output) if output.status.success() => {
+                eprintln!("npm install succeeded via {}", registry);
+                let _ = app.emit("setup:download:progress", serde_json::json!({
+                    "downloaded": 0, "total": 0, "percent": 100, "phase": "installing"
+                }));
+                return Ok(());
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                last_err = format!("npm install failed ({}): {}", registry, stderr);
+                eprintln!("{}", last_err);
+            }
+            Err(e) => {
+                last_err = format!("npm not found or failed to run: {}", e);
+                eprintln!("{}", last_err);
+                return Err(last_err);
+            }
+        }
+    }
+
+    Err(last_err)
+}
+
+/// Run `claude install` to set up symlinks, PATH entries, etc. Non-fatal on failure.
+async fn run_claude_install(target_path: &std::path::Path) -> bool {
     let enriched_path = build_enriched_path();
     let install_result = Command::new(target_path.to_string_lossy().to_string())
         .arg("install")
@@ -2380,7 +2607,7 @@ async fn install_claude_cli(app: AppHandle) -> Result<(), String> {
         .output()
         .await;
 
-    let install_ok = match install_result {
+    match install_result {
         Ok(output) if output.status.success() => true,
         Ok(output) => {
             let stderr = strip_ansi(&String::from_utf8_lossy(&output.stderr));
@@ -2391,50 +2618,436 @@ async fn install_claude_cli(app: AppHandle) -> Result<(), String> {
             eprintln!("claude install failed to run: {} (non-fatal)", e);
             false
         }
-    };
+    }
+}
 
-    // `claude install` failure is non-fatal — TOKENICODE manages the CLI path internally
-    // via find_claude_binary() which checks the app-local directory first.
+/// Install the Claude CLI with multi-tier fallback:
+/// 1. Try GCS direct binary download (fastest, no Node.js needed)
+/// 2. If GCS fails → check npm availability → use npm to install
+/// 3. If npm unavailable → download Node.js locally → then npm install
+#[tauri::command]
+async fn install_claude_cli(app: AppHandle) -> Result<(), String> {
+    // Phase 1: Try GCS direct download (fast path — works when not behind firewall)
+    match install_cli_via_gcs(&app).await {
+        Ok(()) => {
+            eprintln!("CLI installed via GCS direct download");
+            finalize_cli_install_paths(&app);
+            return Ok(());
+        }
+        Err(gcs_err) => {
+            eprintln!("GCS download failed: {}", gcs_err);
+        }
+    }
 
-    // Windows fallback: if `claude install` didn't set PATH, add the CLI directory
-    // to the user's PATH so `claude` is available in PowerShell/cmd.
+    // Phase 2: Ensure npm is available
+    let has_npm = is_system_npm_available().await || get_local_node_bin().is_some();
+
+    if !has_npm {
+        // Phase 2a: Download and deploy Node.js locally
+        eprintln!("npm not available, deploying Node.js locally...");
+        install_node_env_inner(&app).await.map_err(|e| {
+            format!("Failed to install Node.js runtime: {}. Please install Node.js manually.", e)
+        })?;
+    }
+
+    // Phase 3: Install CLI via npm (local or system)
+    install_cli_via_npm(&app).await.map_err(|npm_err| {
+        format!("CLI installation failed via npm: {}", npm_err)
+    })?;
+
+    eprintln!("CLI installed via npm");
+    finalize_cli_install_paths(&app);
+    Ok(())
+}
+
+/// Post-install: add relevant directories to Windows user PATH and emit completion.
+fn finalize_cli_install_paths(app: &AppHandle) {
     #[cfg(target_os = "windows")]
-    if !install_ok {
-        let cli_dir = install_dir.to_string_lossy().to_string();
-        // Use PowerShell to check and modify the user-level PATH via .NET API
-        // (avoids the 1024-char limit of `setx`)
-        let ps_script = format!(
-            "$old = [Environment]::GetEnvironmentVariable('Path','User'); \
-             if ($old -and -not $old.Contains('{}')) {{ \
-               [Environment]::SetEnvironmentVariable('Path', $old + ';{}', 'User') \
-             }} elseif (-not $old) {{ \
-               [Environment]::SetEnvironmentVariable('Path', '{}', 'User') \
-             }}",
-            cli_dir.replace('\'', "''"),
-            cli_dir.replace('\'', "''"),
-            cli_dir.replace('\'', "''"),
-        );
-        let path_result = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .output();
-        match path_result {
-            Ok(output) if output.status.success() => {
-                eprintln!("Added CLI directory to user PATH: {}", cli_dir);
+    {
+        // Collect all directories that should be on PATH
+        let mut dirs_to_add: Vec<String> = vec![];
+
+        if let Some(cli_dir) = cli_download_dir() {
+            dirs_to_add.push(cli_dir.to_string_lossy().to_string());
+        }
+        if let Some(node_bin) = get_local_node_bin() {
+            dirs_to_add.push(node_bin.to_string_lossy().to_string());
+        }
+        if let Some(npm_bin) = get_npm_global_bin() {
+            dirs_to_add.push(npm_bin.to_string_lossy().to_string());
+        }
+
+        for dir in &dirs_to_add {
+            let ps_script = format!(
+                "$old = [Environment]::GetEnvironmentVariable('Path','User'); \
+                 if ($old -and -not $old.Contains('{}')) {{ \
+                   [Environment]::SetEnvironmentVariable('Path', $old + ';{}', 'User') \
+                 }} elseif (-not $old) {{ \
+                   [Environment]::SetEnvironmentVariable('Path', '{}', 'User') \
+                 }}",
+                dir.replace('\'', "''"),
+                dir.replace('\'', "''"),
+                dir.replace('\'', "''"),
+            );
+            let path_result = std::process::Command::new("powershell")
+                .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
+                .creation_flags(0x08000000)
+                .output();
+            match path_result {
+                Ok(output) if output.status.success() => {
+                    eprintln!("Added to user PATH: {}", dir);
+                }
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    eprintln!("Failed to add to PATH: {}", stderr);
+                }
+                Err(e) => eprintln!("Failed to run PowerShell for PATH: {}", e),
             }
-            Ok(output) => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                eprintln!("Failed to add CLI to PATH: {}", stderr);
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    let _ = app;
+
+    let _ = app.emit("setup:download:progress", serde_json::json!({
+        "downloaded": 0, "total": 0, "percent": 100, "phase": "complete"
+    }));
+}
+
+// ─── Node.js local deployment ──────────────────────────────────────────
+
+/// Hardcoded Node.js LTS version for local deployment.
+const NODE_LTS_VERSION: &str = "v22.22.0";
+
+/// Primary Node.js download base URL.
+const NODE_DIST_BASE: &str = "https://nodejs.org/dist";
+
+/// China mirror for Node.js downloads.
+const NODE_DIST_MIRROR: &str = "https://registry.npmmirror.com/mirrors/node";
+
+/// Directory for app-local Node.js installation.
+fn node_download_dir() -> Result<std::path::PathBuf, String> {
+    app_data_dir().map(|d| d.join("node"))
+}
+
+/// Directory for npm global installs (--prefix target).
+fn npm_global_dir() -> Result<std::path::PathBuf, String> {
+    app_data_dir().map(|d| d.join("npm-global"))
+}
+
+/// Get the bin directory of the local Node.js installation, if it exists.
+fn get_local_node_bin() -> Option<std::path::PathBuf> {
+    let node_dir = node_download_dir().ok()?;
+    #[cfg(target_os = "windows")]
+    {
+        // Windows: node.exe is at the root of the extracted directory
+        let node_exe = node_dir.join("node.exe");
+        if node_exe.exists() {
+            return Some(node_dir);
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let bin = node_dir.join("bin");
+        if bin.join("node").exists() {
+            return Some(bin);
+        }
+    }
+    None
+}
+
+/// Get the bin directory of npm-global, if it exists.
+fn get_npm_global_bin() -> Option<std::path::PathBuf> {
+    let dir = npm_global_dir().ok()?;
+    #[cfg(target_os = "windows")]
+    let bin = dir.clone();
+    #[cfg(not(target_os = "windows"))]
+    let bin = dir.join("bin");
+    if bin.exists() { Some(bin) } else { None }
+}
+
+/// Determine Node.js archive filename and format for the current platform.
+fn get_node_archive_info() -> Result<(String, &'static str), String> {
+    // Returns (filename, extension)
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("macos", "aarch64") => Ok((format!("node-{}-darwin-arm64", NODE_LTS_VERSION), "tar.gz")),
+        ("macos", "x86_64")  => Ok((format!("node-{}-darwin-x64", NODE_LTS_VERSION), "tar.gz")),
+        ("windows", "x86_64") => Ok((format!("node-{}-win-x64", NODE_LTS_VERSION), "zip")),
+        ("windows", "aarch64") => Ok((format!("node-{}-win-arm64", NODE_LTS_VERSION), "zip")),
+        ("linux", "x86_64")  => Ok((format!("node-{}-linux-x64", NODE_LTS_VERSION), "tar.gz")),
+        ("linux", "aarch64") => Ok((format!("node-{}-linux-arm64", NODE_LTS_VERSION), "tar.gz")),
+        (os, arch) => Err(format!("Unsupported platform for Node.js: {}-{}", os, arch)),
+    }
+}
+
+/// Check if npm is available on the system (not counting local Node.js).
+async fn is_system_npm_available() -> bool {
+    let enriched_path = build_enriched_path();
+    #[cfg(target_os = "windows")]
+    let result = Command::new("cmd")
+        .args(["/C", "npm.cmd", "--version"])
+        .env("PATH", &enriched_path)
+        .creation_flags(0x08000000)
+        .output()
+        .await;
+    #[cfg(not(target_os = "windows"))]
+    let result = Command::new("npm")
+        .arg("--version")
+        .env("PATH", &enriched_path)
+        .output()
+        .await;
+
+    matches!(result, Ok(output) if output.status.success())
+}
+
+#[derive(Serialize)]
+struct NodeEnvStatus {
+    node_available: bool,
+    node_version: Option<String>,
+    node_source: Option<String>, // "system" | "local"
+    npm_available: bool,
+}
+
+#[tauri::command]
+async fn check_node_env() -> Result<NodeEnvStatus, String> {
+    let enriched_path = build_enriched_path();
+
+    // 1. Check local Node.js first
+    if let Some(local_bin) = get_local_node_bin() {
+        let node_path = local_bin.join(if cfg!(target_os = "windows") { "node.exe" } else { "node" });
+        if let Ok(output) = Command::new(&node_path).arg("--version").output().await {
+            if output.status.success() {
+                let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                return Ok(NodeEnvStatus {
+                    node_available: true,
+                    node_version: Some(version),
+                    node_source: Some("local".to_string()),
+                    npm_available: true, // local Node.js always comes with npm
+                });
             }
-            Err(e) => eprintln!("Failed to run PowerShell for PATH: {}", e),
+        }
+    }
+
+    // 2. Check system Node.js
+    #[cfg(target_os = "windows")]
+    let node_result = Command::new("cmd")
+        .args(["/C", "node", "--version"])
+        .env("PATH", &enriched_path)
+        .creation_flags(0x08000000)
+        .output()
+        .await;
+    #[cfg(not(target_os = "windows"))]
+    let node_result = Command::new("node")
+        .arg("--version")
+        .env("PATH", &enriched_path)
+        .output()
+        .await;
+
+    match node_result {
+        Ok(output) if output.status.success() => {
+            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let npm_available = is_system_npm_available().await;
+            Ok(NodeEnvStatus {
+                node_available: true,
+                node_version: Some(version),
+                node_source: Some("system".to_string()),
+                npm_available,
+            })
+        }
+        _ => Ok(NodeEnvStatus {
+            node_available: false,
+            node_version: None,
+            node_source: None,
+            npm_available: is_system_npm_available().await,
+        }),
+    }
+}
+
+/// Download and extract Node.js LTS to the local app directory.
+#[tauri::command]
+async fn install_node_env(app: AppHandle) -> Result<(), String> {
+    install_node_env_inner(&app).await
+}
+
+async fn install_node_env_inner(app: &AppHandle) -> Result<(), String> {
+    let (archive_name, ext) = get_node_archive_info()?;
+    let filename = format!("{}.{}", archive_name, ext);
+
+    let install_dir = node_download_dir()?;
+    std::fs::create_dir_all(&install_dir)
+        .map_err(|e| format!("Failed to create node dir: {}", e))?;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))?;
+
+    // Try official first, then China mirror
+    let sources = [
+        format!("{}/{}/{}", NODE_DIST_BASE, NODE_LTS_VERSION, filename),
+        format!("{}/{}/{}", NODE_DIST_MIRROR, NODE_LTS_VERSION, filename),
+    ];
+
+    let mut last_err = String::new();
+    let mut archive_bytes: Option<Vec<u8>> = None;
+
+    for (i, url) in sources.iter().enumerate() {
+        eprintln!("Trying Node.js download: {}", url);
+        let _ = app.emit("setup:download:progress", serde_json::json!({
+            "downloaded": 0, "total": 0, "percent": 0, "phase": "node_downloading"
+        }));
+
+        match download_with_progress(app, &client, url, "node_downloading").await {
+            Ok(bytes) => {
+                eprintln!("Node.js download succeeded from source {}", i);
+                archive_bytes = Some(bytes);
+                break;
+            }
+            Err(e) => {
+                last_err = format!("Source {}: {}", url, e);
+                eprintln!("{}", last_err);
+            }
+        }
+    }
+
+    let bytes = archive_bytes.ok_or_else(|| format!("All Node.js download sources failed: {}", last_err))?;
+
+    // Extract
+    let _ = app.emit("setup:download:progress", serde_json::json!({
+        "downloaded": 0, "total": 0, "percent": 85, "phase": "node_extracting"
+    }));
+
+    extract_node_archive(&bytes, ext, &archive_name, &install_dir)?;
+
+    // Set executable permissions on Unix
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let bin_dir = install_dir.join("bin");
+        if bin_dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(&bin_dir) {
+                for entry in entries.flatten() {
+                    let _ = std::fs::set_permissions(
+                        entry.path(),
+                        std::fs::Permissions::from_mode(0o755),
+                    );
+                }
+            }
         }
     }
 
     let _ = app.emit("setup:download:progress", serde_json::json!({
-        "downloaded": downloaded, "total": total, "percent": 100, "phase": "complete"
+        "downloaded": 0, "total": 0, "percent": 100, "phase": "node_complete"
     }));
 
+    eprintln!("Node.js {} installed to {:?}", NODE_LTS_VERSION, install_dir);
     Ok(())
+}
+
+/// Download a URL with streaming progress events.
+async fn download_with_progress(
+    app: &AppHandle,
+    client: &reqwest::Client,
+    url: &str,
+    phase: &str,
+) -> Result<Vec<u8>, String> {
+    let resp = client.get(url)
+        .send().await
+        .map_err(|e| format!("Request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+
+    let total = resp.content_length().unwrap_or(0);
+    let mut downloaded: u64 = 0;
+    let mut bytes = Vec::with_capacity(total as usize);
+    let mut stream = resp.bytes_stream();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Stream error: {}", e))?;
+        bytes.extend_from_slice(&chunk);
+        downloaded += chunk.len() as u64;
+
+        let percent = if total > 0 { (downloaded * 80 / total) as u8 } else { 0 };
+        let _ = app.emit("setup:download:progress", serde_json::json!({
+            "downloaded": downloaded, "total": total, "percent": percent, "phase": phase
+        }));
+    }
+
+    Ok(bytes)
+}
+
+/// Extract a Node.js archive (tar.gz or zip) into the target directory.
+fn extract_node_archive(
+    data: &[u8],
+    ext: &str,
+    archive_name: &str,
+    install_dir: &std::path::Path,
+) -> Result<(), String> {
+    match ext {
+        "tar.gz" => {
+            let decoder = flate2::read::GzDecoder::new(std::io::Cursor::new(data));
+            let mut archive = tar::Archive::new(decoder);
+
+            // Node.js tar.gz extracts to a subdirectory like "node-v22.22.0-darwin-arm64/"
+            // We want the contents directly in install_dir
+            for entry in archive.entries().map_err(|e| format!("tar error: {}", e))? {
+                let mut entry = entry.map_err(|e| format!("tar entry error: {}", e))?;
+                let path = entry.path().map_err(|e| format!("path error: {}", e))?;
+
+                // Strip the top-level directory (e.g., "node-v22.22.0-darwin-arm64/bin/node" -> "bin/node")
+                let stripped: std::path::PathBuf = path.components()
+                    .skip(1) // skip "node-v22.22.0-platform/"
+                    .collect();
+
+                if stripped.as_os_str().is_empty() {
+                    continue; // skip the top-level dir itself
+                }
+
+                let target = install_dir.join(&stripped);
+                if let Some(parent) = target.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+
+                entry.unpack(&target)
+                    .map_err(|e| format!("unpack error for {:?}: {}", stripped, e))?;
+            }
+            Ok(())
+        }
+        "zip" => {
+            let reader = std::io::Cursor::new(data);
+            let mut archive = zip::ZipArchive::new(reader)
+                .map_err(|e| format!("zip open error: {}", e))?;
+
+            for i in 0..archive.len() {
+                let mut file = archive.by_index(i)
+                    .map_err(|e| format!("zip entry error: {}", e))?;
+
+                let name = file.name().to_string();
+                // Strip top-level directory (e.g., "node-v22.22.0-win-x64/node.exe" -> "node.exe")
+                let stripped: String = name.splitn(2, '/').nth(1).unwrap_or("").to_string();
+                if stripped.is_empty() {
+                    continue;
+                }
+
+                let target = install_dir.join(&stripped);
+                if file.is_dir() {
+                    let _ = std::fs::create_dir_all(&target);
+                } else {
+                    if let Some(parent) = target.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    let mut outfile = std::fs::File::create(&target)
+                        .map_err(|e| format!("create file error: {}", e))?;
+                    std::io::copy(&mut file, &mut outfile)
+                        .map_err(|e| format!("write error: {}", e))?;
+                }
+            }
+            Ok(())
+        }
+        _ => Err(format!("Unsupported archive format: {}", ext)),
+    }
 }
 
 /// Start the Claude OAuth login flow by running `claude login`.
@@ -2807,6 +3420,8 @@ pub fn run() {
             run_claude_command,
             check_claude_cli,
             install_claude_cli,
+            check_node_env,
+            install_node_env,
             start_claude_login,
             check_claude_auth,
             open_terminal_login,

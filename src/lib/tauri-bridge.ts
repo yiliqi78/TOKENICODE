@@ -99,7 +99,16 @@ export interface DownloadProgressEvent {
   downloaded: number;
   total: number;
   percent: number;
-  phase: 'version' | 'downloading' | 'installing' | 'complete';
+  phase: 'version' | 'downloading' | 'installing' | 'complete'
+       | 'npm_fallback'
+       | 'node_downloading' | 'node_extracting' | 'node_complete';
+}
+
+export interface NodeEnvStatus {
+  node_available: boolean;
+  node_version: string | null;
+  node_source: string | null; // "system" | "local"
+  npm_available: boolean;
 }
 
 export interface UnifiedCommand {
@@ -191,8 +200,8 @@ export const bridge = {
   unwatchDirectory: (path: string) =>
     invoke<void>('unwatch_directory', { path }),
 
-  saveTempFile: (name: string, data: number[]) =>
-    invoke<string>('save_temp_file', { name, data }),
+  saveTempFile: (name: string, data: number[], cwd?: string) =>
+    invoke<string>('save_temp_file', { name, data, cwd: cwd || null }),
 
   getFileSize: (path: string) =>
     invoke<number>('get_file_size', { path }),
@@ -254,6 +263,12 @@ export const bridge = {
 
   installClaudeCli: () =>
     invoke<void>('install_claude_cli'),
+
+  checkNodeEnv: () =>
+    invoke<NodeEnvStatus>('check_node_env'),
+
+  installNodeEnv: () =>
+    invoke<void>('install_node_env'),
 
   startClaudeLogin: () =>
     invoke<void>('start_claude_login'),

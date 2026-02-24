@@ -6,6 +6,60 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.6.0] - 2026-02-24
+
+### New Features
+
+- **Node.js Local Deployment** — On first launch, if the system has no Node.js/npm, TOKENICODE automatically downloads Node.js LTS (v22) and deploys it to the app-local directory. No sudo/admin permissions required. Supports all 6 platforms (macOS arm64/x64, Windows x64, Linux x64/arm64).
+
+- **Three-Tier CLI Install Fallback** — Claude Code CLI installation now uses a robust 3-tier chain: (1) GCS direct binary download, (2) npm install via system or local Node.js, (3) auto-download Node.js + npm install. Each tier handles its own failure gracefully before falling back.
+
+- **China Domestic Mirror Support** — Both Node.js and npm package downloads automatically fall back to npmmirror (Chinese domestic mirror) when official sources are unreachable. This allows Chinese users behind the Great Firewall to complete installation without VPN.
+
+- **Firewall Error Detection** — Network errors during installation now display a user-friendly hint suggesting VPN or proxy when firewall-related patterns are detected (timeout, DNS failure, connection refused, etc.).
+
+### Bug Fixes
+
+- **File Attachment Working Directory** — File attachments are now saved in the session's working directory (via `cwd` parameter in `saveTempFile`), ensuring Claude CLI can access them correctly.
+
+- **Settings Panel Install Progress** — The reinstall flow in Settings now shows all installation phases including Node.js download, extraction, and npm install progress, matching the SetupWizard experience.
+
+### Changed
+
+- **Rust Dependencies** — Added `flate2`, `tar`, and `zip` crates for Node.js archive extraction (tar.gz on Unix, zip on Windows).
+
+- **Windows PATH Management** — After CLI installation, the app now adds cli/, node/bin, and npm-global/bin directories to user PATH via PowerShell, ensuring all components are accessible.
+
+- **Enriched PATH Priority** — npm-global/bin and local node/bin directories are now highest priority in the enriched PATH, ahead of system paths.
+
+---
+
+### 新功能
+
+- **Node.js 本地部署** — 首次启动时若系统无 Node.js/npm，TOKENICODE 自动下载 Node.js LTS (v22) 并部署到应用本地目录。无需 sudo/管理员权限。支持全部 6 个平台（macOS arm64/x64、Windows x64、Linux x64/arm64）。
+
+- **三层 CLI 安装降级链** — Claude Code CLI 安装采用三层降级：(1) GCS 直接下载二进制文件，(2) 通过系统或本地 Node.js 的 npm 安装，(3) 自动下载 Node.js 后再 npm 安装。每层失败后优雅降级到下一层。
+
+- **国内镜像支持** — Node.js 和 npm 包下载在官方源不可达时自动切换到 npmmirror（国内镜像），让防火墙内的用户无需 VPN 即可完成安装。
+
+- **防火墙错误检测** — 安装过程中检测到网络相关错误（超时、DNS 失败、连接拒绝等）时，显示友好提示建议使用 VPN 或代理。
+
+### 修复
+
+- **文件附件工作目录** — 文件附件现在保存到会话的工作目录（`saveTempFile` 新增 `cwd` 参数），确保 Claude CLI 能正确访问。
+
+- **设置面板安装进度** — 设置中的重新安装流程现在显示完整的安装阶段，包括 Node.js 下载、解压和 npm 安装进度，与安装向导体验一致。
+
+### 变更
+
+- **Rust 依赖新增** — 添加 `flate2`、`tar`、`zip` crate 用于 Node.js 压缩包解压（Unix 用 tar.gz，Windows 用 zip）。
+
+- **Windows PATH 管理** — CLI 安装完成后自动将 cli/、node/bin、npm-global/bin 目录加入用户 PATH，确保所有组件可访问。
+
+- **PATH 优先级调整** — npm-global/bin 和本地 node/bin 目录在 enriched PATH 中优先级最高，排在系统路径之前。
+
+---
+
 ## [0.5.6] - 2026-02-24
 
 ### New Features

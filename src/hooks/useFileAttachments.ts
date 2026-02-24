@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { bridge } from '../lib/tauri-bridge';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { isTreeDragActive } from '../lib/drag-state';
+import { useSettingsStore } from '../stores/settingsStore';
 
 // --- Types ---
 
@@ -107,11 +108,13 @@ export function useFileAttachments() {
           // Generate thumbnail for images
           const preview = await generateThumbnail(file);
 
-          // Read file bytes and save via Rust
+          // Read file bytes and save via Rust (into working directory for CLI access)
           const bytes = await readFileAsBytes(file);
+          const cwd = useSettingsStore.getState().workingDirectory;
           const tempPath = await bridge.saveTempFile(
             file.name,
             Array.from(bytes),
+            cwd || undefined,
           );
 
           newFiles.push({

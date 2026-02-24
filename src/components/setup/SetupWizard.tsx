@@ -94,6 +94,10 @@ export function SetupWizard() {
   const phaseLabel = downloadPhase === 'version' ? t('setup.fetchingVersion') || 'Fetching version...'
     : downloadPhase === 'downloading' ? t('setup.downloading') || 'Downloading...'
     : downloadPhase === 'installing' ? t('setup.finalizing') || 'Finalizing...'
+    : downloadPhase === 'node_downloading' ? t('setup.downloadingNode') || 'Downloading Node.js...'
+    : downloadPhase === 'node_extracting' ? t('setup.extractingNode') || 'Extracting Node.js...'
+    : downloadPhase === 'node_complete' ? t('setup.preparingEnv') || 'Preparing environment...'
+    : downloadPhase === 'npm_fallback' ? t('setup.installingCli') || 'Installing CLI via npm...'
     : '';
 
   return (

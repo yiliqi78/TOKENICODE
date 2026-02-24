@@ -606,6 +606,15 @@ type CliCheckStatus = 'idle' | 'checking' | 'found' | 'not_found' | 'installing'
 
 import { stripAnsi } from '../../lib/strip-ansi';
 
+/** Detect if an error message looks like a network/firewall issue */
+function isNetworkError(msg: string): boolean {
+  const hints = ['timeout', 'timed out', 'network', 'connect', 'ENOTFOUND',
+    'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'fetch', 'Failed to download',
+    'All install methods failed', 'dns', 'certificate'];
+  const lower = msg.toLowerCase();
+  return hints.some(h => lower.includes(h.toLowerCase()));
+}
+
 function CliSection() {
   const t = useT();
   const [status, setStatus] = useState<CliCheckStatus>('idle');
@@ -613,6 +622,20 @@ function CliSection() {
   const [cliPath, setCliPath] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [downloadPercent, setDownloadPercent] = useState(0);
+  const [phase, setPhase] = useState<'idle' | 'downloading' | 'configuring' | 'npm_fallback' | 'node_downloading' | 'node_extracting'>('idle');
+
+  // Auto-check on mount
+  useEffect(() => {
+    bridge.checkClaudeCli().then((result) => {
+      if (result.installed) {
+        setCliVersion(result.version ?? null);
+        setCliPath(result.path ?? null);
+        setStatus('found');
+      } else {
+        setStatus('not_found');
+      }
+    }).catch(() => setStatus('not_found'));
+  }, []);
 
   const handleCheck = useCallback(async () => {
     setStatus('checking');
@@ -623,7 +646,6 @@ function CliSection() {
         setCliVersion(result.version ?? null);
         setCliPath(result.path ?? null);
         setStatus('found');
-        setTimeout(() => setStatus('idle'), 3000);
       } else {
         setStatus('not_found');
       }
@@ -637,10 +659,20 @@ function CliSection() {
     setStatus('installing');
     setErrorMsg('');
     setDownloadPercent(0);
+    setPhase('downloading');
 
     const { onDownloadProgress } = await import('../../lib/tauri-bridge');
     const unlisten = await onDownloadProgress((event) => {
       setDownloadPercent(event.percent);
+      if (event.phase === 'npm_fallback') {
+        setPhase('npm_fallback');
+      } else if (event.phase === 'node_downloading') {
+        setPhase('node_downloading');
+      } else if (event.phase === 'node_extracting') {
+        setPhase('node_extracting');
+      } else if (event.phase === 'complete' || event.percent >= 100) {
+        setPhase('configuring');
+      }
     });
 
     try {
@@ -651,7 +683,6 @@ function CliSection() {
         setCliVersion(result.version ?? null);
         setCliPath(result.path ?? null);
         setStatus('installed');
-        setTimeout(() => setStatus('idle'), 3000);
       } else {
         setErrorMsg('CLI not found after installation');
         setStatus('install_failed');
@@ -663,6 +694,11 @@ function CliSection() {
     }
   }, []);
 
+  const handleRestart = useCallback(async () => {
+    const { relaunch } = await import('@tauri-apps/plugin-process');
+    await relaunch();
+  }, []);
+
   return (
     <div className="pt-2 border-t border-border-subtle space-y-2">
       <div className="flex items-center justify-between">
@@ -672,15 +708,44 @@ function CliSection() {
         )}
       </div>
 
-      {status === 'idle' && (
-        <button
-          onClick={handleCheck}
-          className="w-full py-1.5 text-[11px] font-medium rounded-lg
-            border border-border-subtle text-text-muted
-            hover:bg-bg-secondary hover:text-text-primary transition-smooth"
-        >
-          {t('cli.check')}
-        </button>
+      {/* Status + path display */}
+      {(status === 'found' || status === 'idle') && cliPath && (
+        <div className="py-0.5 space-y-1">
+          <span className="text-[11px] text-green-500 font-medium">
+            ✓ {t('cli.installed')}
+          </span>
+          <p className="text-[10px] text-text-tertiary truncate" title={cliPath}>
+            {cliPath}
+          </p>
+        </div>
+      )}
+
+      {status === 'not_found' && (
+        <p className="text-[11px] text-amber-500">{t('cli.notFound')}</p>
+      )}
+
+      {/* Action buttons — always visible (check + install/reinstall) */}
+      {(status === 'idle' || status === 'found' || status === 'not_found') && (
+        <div className="flex gap-2">
+          <button
+            onClick={handleCheck}
+            className="flex-1 py-1.5 text-[11px] font-medium rounded-lg
+              border border-border-subtle text-text-muted
+              hover:bg-bg-secondary hover:text-text-primary transition-smooth"
+          >
+            {t('cli.check')}
+          </button>
+          <button
+            onClick={handleInstall}
+            className={`flex-1 py-1.5 text-[11px] font-medium rounded-lg transition-smooth
+              ${status === 'not_found'
+                ? 'bg-accent text-text-inverse hover:bg-accent-hover'
+                : 'border border-border-subtle text-text-muted hover:bg-bg-secondary hover:text-text-primary'
+              }`}
+          >
+            {status === 'not_found' ? t('cli.install') : t('cli.reinstall')}
+          </button>
+        </div>
       )}
 
       {status === 'checking' && (
@@ -691,57 +756,39 @@ function CliSection() {
         </div>
       )}
 
-      {status === 'found' && (
-        <div className="py-1.5 text-center space-y-1.5">
-          <span className="text-[11px] text-green-500 font-medium">
-            ✓ {t('cli.installed')}
-          </span>
-          {cliPath && (
-            <p className="text-[10px] text-text-tertiary truncate" title={cliPath}>
-              {cliPath}
-            </p>
-          )}
-          <button
-            onClick={handleInstall}
-            className="w-full py-1 text-[10px] font-medium rounded-lg
-              border border-border-subtle text-text-tertiary
-              hover:bg-bg-secondary hover:text-text-muted transition-smooth"
-          >
-            {t('cli.reinstall')}
-          </button>
-        </div>
-      )}
-
-      {status === 'not_found' && (
-        <div className="space-y-1.5">
-          <p className="text-[11px] text-amber-500 text-center">{t('cli.notFound')}</p>
-          <button
-            onClick={handleInstall}
-            className="w-full py-1.5 text-[11px] font-medium rounded-lg
-              bg-accent text-text-inverse hover:bg-accent-hover transition-smooth"
-          >
-            {t('cli.install')}
-          </button>
-        </div>
-      )}
-
       {status === 'installing' && (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] text-text-muted">{t('cli.installing')}</span>
-            <span className="text-[11px] text-text-tertiary">{downloadPercent}%</span>
+            <span className="text-[11px] text-text-muted">
+              {phase === 'configuring'
+                ? t('cli.configuring')
+                : phase === 'npm_fallback'
+                  ? t('cli.npmFallback')
+                  : phase === 'node_downloading'
+                    ? t('setup.downloadingNode')
+                    : phase === 'node_extracting'
+                      ? t('setup.extractingNode')
+                      : t('cli.installing')}
+            </span>
+            {(phase === 'downloading' || phase === 'node_downloading') && downloadPercent > 0 && (
+              <span className="text-[11px] text-text-tertiary">{downloadPercent}%</span>
+            )}
           </div>
           <div className="w-full h-1.5 rounded-full bg-bg-tertiary overflow-hidden">
-            <div
-              className="h-full bg-accent rounded-full transition-all duration-300"
-              style={{ width: `${downloadPercent}%` }}
-            />
+            {(phase === 'downloading' || phase === 'node_downloading') && downloadPercent > 0 ? (
+              <div
+                className="h-full bg-accent rounded-full transition-all duration-300"
+                style={{ width: `${downloadPercent}%` }}
+              />
+            ) : (
+              <div className="h-full bg-accent/60 rounded-full animate-pulse w-full" />
+            )}
           </div>
         </div>
       )}
 
       {status === 'installed' && (
-        <div className="py-1.5 text-center space-y-1.5">
+        <div className="py-1.5 text-center space-y-2">
           <span className="text-[11px] text-green-500 font-medium">
             ✓ {t('cli.installDone')}
           </span>
@@ -750,9 +797,13 @@ function CliSection() {
               {cliPath}
             </p>
           )}
-          <p className="text-[10px] text-text-tertiary/70">
-            {t('cli.pathHint')}
-          </p>
+          <button
+            onClick={handleRestart}
+            className="w-full py-1.5 text-[11px] font-medium rounded-lg
+              bg-accent text-text-inverse hover:bg-accent-hover transition-smooth"
+          >
+            {t('cli.restart')}
+          </button>
         </div>
       )}
 
@@ -762,6 +813,11 @@ function CliSection() {
           {errorMsg && (
             <p className="text-[10px] text-text-tertiary text-center truncate" title={errorMsg}>
               {errorMsg}
+            </p>
+          )}
+          {isNetworkError(errorMsg) && (
+            <p className="text-[10px] text-amber-500 text-center">
+              {t('network.firewallHint')}
             </p>
           )}
           <button
@@ -972,6 +1028,11 @@ function UpdateSection() {
             <p className="text-[10px] text-text-tertiary text-center truncate"
               title={errorMsg}>
               {errorMsg}
+            </p>
+          )}
+          {isNetworkError(errorMsg) && (
+            <p className="text-[10px] text-amber-500 text-center">
+              {t('network.firewallHint')}
             </p>
           )}
           <button
