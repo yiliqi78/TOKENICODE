@@ -10,13 +10,17 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ### New Features
 
+- **Auto-Update** — Background update check every 10 minutes (plus startup check). When a new version is available, an update button appears in the top-right corner of the top bar. One click to download, install, and restart.
+
 - **API Settings Persistence** — Credentials (`credentials.enc`) and API provider settings (`api_settings.json`) are now backed up to `~/.tokenicode/`, a location that survives Windows NSIS updates. On startup, if localStorage was wiped, settings are automatically restored from the backup.
 
 ### Bug Fixes
 
 - **Windows CMD Window Elimination** — Added `CREATE_NO_WINDOW` flag to all subprocess spawns on Windows (`check_claude_cli`, `run_claude_command`, `check_claude_auth`, `check_node_env`, `open_with_default_app`). No more flashing CMD windows during normal usage.
 
-- **Permission Loop Fix** — GUI now always passes `--dangerously-skip-permissions` to Claude CLI regardless of session mode. The previous `--permission-mode acceptEdits` caused an infinite loop because the GUI cannot handle CLI stdin permission prompts.
+- **Permission Loop Fix** — Permission responses now use raw stdin (`sendRawStdin`) instead of NDJSON-wrapped messages, fixing the infinite loop where "Allow" clicks were never recognized. GUI also always passes `--dangerously-skip-permissions` to prevent prompts entirely.
+
+- **CLI Path Search Fix** — Windows binary search now skips extensionless JavaScript files (npm's `claude` shim) that cause error 193. The `where` command fallback also prioritizes `.cmd` files and validates results.
 
 - **NSIS Install Mode** — Configured NSIS installer to `currentUser` mode, reducing the chance of elevated permission issues on Windows.
 
@@ -24,13 +28,17 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ### 新功能
 
+- **自动更新** — 每 10 分钟后台检查新版本（启动时也会检查）。发现新版本时，顶栏右上角出现更新按钮，一键下载安装并重启。
+
 - **API 设置持久化** — 凭证文件 (`credentials.enc`) 和 API 配置 (`api_settings.json`) 现在备份到 `~/.tokenicode/`，该路径不受 Windows NSIS 更新影响。启动时如果 localStorage 被清空，自动从备份恢复设置。
 
 ### 修复
 
 - **Windows 命令行窗口消除** — 为所有 Windows 后台进程添加 `CREATE_NO_WINDOW` 标志（`check_claude_cli`、`run_claude_command`、`check_claude_auth`、`check_node_env`、`open_with_default_app`），彻底消灭发送消息时闪烁的 CMD 窗口。
 
-- **权限循环修复** — GUI 现在始终向 Claude CLI 传递 `--dangerously-skip-permissions`，不再使用 `--permission-mode acceptEdits`。之前的模式会导致 CLI 通过 stdin 请求权限，但 GUI 无法处理，造成死循环。
+- **权限循环修复** — 权限响应改用原始 stdin 通道（`sendRawStdin`），修复"允许"按钮点击后被 NDJSON 包装导致 CLI 无法识别的死循环。同时 GUI 始终传 `--dangerously-skip-permissions` 从根源防止权限提示。
+
+- **CLI 路径搜索修复** — Windows 二进制搜索现在跳过无扩展名的 JavaScript 文件（npm 的 `claude` shim），避免 error 193。`where` 命令回退搜索也优先查找 `.cmd` 文件并验证结果。
 
 - **NSIS 安装模式** — 配置 NSIS 安装器为 `currentUser` 模式，减少 Windows 上的权限提升问题。
 

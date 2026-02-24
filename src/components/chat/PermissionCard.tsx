@@ -22,7 +22,7 @@ export function PermissionCard({ message }: Props) {
   const handleRespond = useCallback((allow: boolean) => {
     const stdinId = useChatStore.getState().sessionMeta.stdinId;
     if (!stdinId || message.resolved) return;
-    bridge.sendStdin(stdinId, allow ? 'y' : 'n');
+    bridge.sendRawStdin(stdinId, allow ? 'y' : 'n');
     useChatStore.getState().updateMessage(message.id, { resolved: true });
     // Resume generation display after user responds
     useChatStore.getState().setSessionStatus('running');

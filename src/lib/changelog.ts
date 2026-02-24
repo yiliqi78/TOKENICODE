@@ -17,14 +17,18 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: '2026-02-24',
     highlights: {
       zh: [
+        '自动更新 — 每 10 分钟后台检查新版本，顶栏右上角出现更新按钮，一键下载安装重启',
         'API 设置持久化 — 凭证和 API 配置备份到 ~/.tokenicode/，Windows 更新后不再丢失',
         'Windows 命令行窗口消除 — 所有后台进程添加 CREATE_NO_WINDOW，彻底消灭闪烁的 CMD 窗口',
-        '权限循环修复 — GUI 始终跳过 CLI 权限提示，解决无法授权导致的死循环',
+        '权限循环修复 — 权限响应改用原始 stdin 通道，GUI 始终跳过 CLI 权限提示',
+        'CLI 路径搜索修复 — Windows 上跳过无扩展名的 JS 脚本，避免 error 193',
       ],
       en: [
+        'Auto-update — Background check every 10 min, update button appears in top bar for one-click download & restart',
         'API settings persistence — Credentials and API config backed up to ~/.tokenicode/, survives Windows updates',
         'Windows CMD window elimination — All background processes use CREATE_NO_WINDOW, no more flashing CMD windows',
-        'Permission loop fix — GUI always skips CLI permission prompts, resolving the infinite authorization loop',
+        'Permission loop fix — Permission responses now use raw stdin; GUI always skips CLI permission prompts',
+        'CLI path search fix — Skips extensionless JS scripts on Windows, preventing error 193',
       ],
     },
   },

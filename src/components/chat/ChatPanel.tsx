@@ -5,6 +5,7 @@ import { MessageBubble } from './MessageBubble';
 import { ToolGroup } from './ToolGroup';
 import { InputBar } from './InputBar';
 import { ExportMenu } from '../conversations/ExportMenu';
+import { UpdateButton } from '../shared/UpdateButton';
 import { useSettingsStore, MODEL_OPTIONS } from '../../stores/settingsStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useFileStore } from '../../stores/fileStore';
@@ -533,6 +534,7 @@ export function ChatPanel() {
 
         {/* Spacer + right-side actions */}
         <div className="ml-auto flex items-center" />
+        <UpdateButton />
         <ExportMenu sessionPath={currentSessionPath} />
         <button onClick={toggleSecondaryPanel}
           className="p-1.5 rounded-lg hover:bg-bg-tertiary text-text-tertiary

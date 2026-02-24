@@ -145,7 +145,9 @@ fn find_claude_binary() -> Option<String> {
     // GCS standalone binaries which may be incompatible with some Windows versions.
     #[cfg(target_os = "windows")]
     if let Some(npm_bin) = get_npm_global_bin() {
-        for name in &["claude.cmd", "claude.exe", "claude"] {
+        // Only search for Windows-executable formats; the extensionless `claude`
+        // is a JavaScript script and causes error 193 on Windows.
+        for name in &["claude.cmd", "claude.exe"] {
             let path = npm_bin.join(name);
             if path.exists() {
                 return Some(path.to_string_lossy().to_string());
@@ -181,19 +183,29 @@ fn find_claude_binary() -> Option<String> {
     // 1. Check if `claude` is already on the system PATH
     #[cfg(target_os = "windows")]
     {
-        // Windows: use `where claude` via cmd with CREATE_NO_WINDOW to avoid flashing console
-        for query in ["claude", "claude.cmd"] {
+        // Windows: use `where` via cmd with CREATE_NO_WINDOW to avoid flashing console.
+        // Prefer claude.cmd first — `where claude` may return the extensionless JS script
+        // which causes error 193 on Windows.
+        for query in ["claude.cmd", "claude"] {
             if let Ok(output) = std::process::Command::new("cmd")
                 .args(["/C", "where", query])
                 .creation_flags(0x08000000) // CREATE_NO_WINDOW
                 .output()
             {
                 if output.status.success() {
-                    // `where` may return multiple lines; take the first one
                     let stdout = String::from_utf8_lossy(&output.stdout);
-                    if let Some(path) = stdout.lines().next() {
-                        let path = path.trim().to_string();
-                        if !path.is_empty() && std::path::Path::new(&path).exists() {
+                    // `where` may return multiple lines; find the first valid executable
+                    for line in stdout.lines() {
+                        let path = line.trim().to_string();
+                        if path.is_empty() {
+                            continue;
+                        }
+                        let p = std::path::Path::new(&path);
+                        // Skip extensionless files (JS scripts) — they cause error 193
+                        if p.extension().is_none() {
+                            continue;
+                        }
+                        if p.exists() {
                             return Some(path);
                         }
                     }
