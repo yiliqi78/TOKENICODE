@@ -241,21 +241,7 @@ export function InputBar() {
     prevAttachmentsRef.current = pendingAttachments;
   }, [pendingAttachments, setFiles]); // intentionally exclude `files` to avoid loop
 
-  // Listen for internal file tree drag → add as file chip instead of plain text
-  const addFilePathsRef = useRef(addFilePaths);
-  addFilePathsRef.current = addFilePaths;
-  useEffect(() => {
-    const onTreeFileAttach = (e: Event) => {
-      const path = (e as CustomEvent).detail;
-      if (path && typeof path === 'string') {
-        addFilePathsRef.current([path]);
-      }
-    };
-    window.addEventListener('tokenicode:tree-file-attach', onTreeFileAttach);
-    return () => window.removeEventListener('tokenicode:tree-file-attach', onTreeFileAttach);
-  }, []);
-
-  // Inline file insertion: drop landed inside the editor → insert a file chip at cursor
+  // Inline file insertion: drop or drag → insert a file chip at cursor
   useEffect(() => {
     const onTreeFileInline = (e: Event) => {
       const fullPath = (e as CustomEvent<string>).detail;
@@ -1591,7 +1577,11 @@ export function InputBar() {
         if (msg.tool_use_result) {
           const tur = msg.tool_use_result;
           const resultText = typeof tur === 'string' ? tur
-            : tur.stdout || tur.content || '';
+            : typeof tur.stdout === 'string' ? tur.stdout
+            : typeof tur.content === 'string' ? tur.content
+            : Array.isArray(tur.content) ? tur.content.map((b: any) => typeof b.text === 'string' ? b.text : '').join('')
+            : typeof tur.content === 'object' && tur.content?.text ? String(tur.content.text)
+            : '';
           if (Array.isArray(userContent)) {
             for (const block of userContent) {
               if (block.tool_use_id && resultText) {

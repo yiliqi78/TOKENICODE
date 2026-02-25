@@ -75,7 +75,7 @@ export function PermissionCard({ message }: Props) {
             <pre className="text-[11px] text-text-muted font-mono leading-relaxed
               whitespace-pre-wrap break-words bg-bg-secondary/50 rounded-lg px-2.5 py-2
               border border-border-subtle/30 max-h-32 overflow-y-auto">
-              {message.content}
+              {typeof message.content === 'string' ? message.content : JSON.stringify(message.content)}
             </pre>
           </div>
         )}

@@ -6,6 +6,44 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.6.5] - 2026-02-25
+
+### Changed
+
+- **Unified File Drag-Drop** — File tree drag and OS file drop now both dispatch `tokenicode:tree-file-inline` events, inserting inline file chips at cursor. Removed the dual trigger zone behavior (dialog area vs. attachment area). Removed dead `tokenicode:tree-file-attach` event listener from InputBar.
+
+- **Default Mode: Bypass** — New installs now default to `bypass` session mode instead of `code`, reducing permission popup interruptions for experienced users.
+
+- **Default Thinking: Medium** — New installs now default to `medium` thinking depth instead of `off`, providing a better out-of-box experience.
+
+### Bug Fixes
+
+- **Sub-Agent React Error #31** — Fixed `Objects are not valid as a React child (found: object with keys {text, type})` crash when sub-agents start working. Root cause: Claude API content blocks leaking into JSX render paths. Patched 4 locations: PermissionCard, MessageBubble toolResultContent, InputBar tool_result content extraction, PlanReviewCard planContent.
+
+### Security
+
+- **macOS Code Signing Re-enabled** — Uncommented all 6 Apple signing environment variables in CI release workflow. Created `entitlements.plist` with JIT, unsigned executable memory, library validation, and network client permissions. Added macOS bundle config to `tauri.conf.json`. Users will no longer see "file is damaged" on macOS install.
+
+---
+
+### 变更
+
+- **文件拖拽统一** — 文件树拖拽和系统拖入文件现在都派发 `tokenicode:tree-file-inline` 事件，在光标位置插入行内 chip。移除了原来的双触发区域行为（对话区域 vs 附件区域），删除 InputBar 中的 `tokenicode:tree-file-attach` 死代码。
+
+- **默认模式改为 Bypass** — 新安装默认使用 `bypass` 会话模式，减少权限弹窗干扰。
+
+- **默认思考改为中等** — 新安装默认 `medium` 思考深度，提供更好的开箱体验。
+
+### 修复
+
+- **子代理 React Error #31** — 修复子代理开始工作时 `Objects are not valid as a React child (found: object with keys {text, type})` 崩溃。根因：Claude API 的 content block 对象泄漏到 JSX 渲染路径。修补 4 处：PermissionCard、MessageBubble toolResultContent、InputBar tool_result 内容提取、PlanReviewCard planContent。
+
+### 安全
+
+- **macOS 代码签名重新启用** — 取消注释 CI release workflow 中全部 6 个 Apple 签名环境变量。新建 `entitlements.plist`，包含 JIT、unsigned executable memory、library validation、network client 权限。`tauri.conf.json` 添加 macOS bundle 配置。用户安装时不再显示「文件已损坏」。
+
+---
+
 ## [0.6.4] - 2026-02-25
 
 ### Bug Fixes

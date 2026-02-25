@@ -13,6 +13,26 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.6.5',
+    date: '2026-02-25',
+    highlights: {
+      zh: [
+        '文件拖拽统一 — 文件树拖拽和系统拖入文件统一走对话框内联 chip，不再有两个触发区域',
+        '默认工作模式改为 Bypass — 新安装默认使用 bypass 模式，减少权限弹窗干扰',
+        '默认思考改为中等 — 新安装默认 Medium 思考深度，平衡速度与质量',
+        '子代理渲染崩溃修复 — 修复子代理启动时 React error #31（content block 对象泄漏到 JSX），涉及 4 处渲染路径',
+        'macOS 代码签名 — 重新启用 CI 签名 + 公证，新增 entitlements.plist，安装不再报「文件已损坏」',
+      ],
+      en: [
+        'Unified file drag-drop — Tree drag and OS file drop both use inline chips in dialog, no more dual trigger zones',
+        'Default mode: Bypass — New installs default to bypass mode, fewer permission popups',
+        'Default thinking: Medium — New installs use medium thinking depth, balancing speed and quality',
+        'Sub-agent render crash fix — Fixed React error #31 when sub-agent starts (content block objects leaking into JSX), 4 render paths patched',
+        'macOS code signing — Re-enabled CI signing + notarization with entitlements.plist, no more "file is damaged" on install',
+      ],
+    },
+  },
+  {
     version: '0.6.4',
     date: '2026-02-25',
     highlights: {
@@ -265,6 +285,150 @@ export const CHANGELOG: ChangelogEntry[] = [
         'Token Usage Display — Sidebar shows input/output token counts',
         'YAML Frontmatter Preview — Styled metadata block in file preview',
         'Scrollbar Styling — Thin theme-aware scrollbars',
+      ],
+    },
+  },
+  {
+    version: '0.4.3',
+    date: '2026-02-19',
+    highlights: {
+      zh: [
+        '历史附件显示修复 — 历史对话中的附加文件显示为卡片样式，不再是原始路径文本',
+      ],
+      en: [
+        'History attachment display fix — File attachments in historical sessions render as styled chips instead of raw paths',
+      ],
+    },
+  },
+  {
+    version: '0.4.2',
+    date: '2026-02-19',
+    highlights: {
+      zh: [
+        '会话切换缓存修复 — 修复运行中会话点击「新任务」后聊天记录丢失',
+        '长消息折叠 — 超过 12 行的用户消息默认折叠，可点击展开',
+        '输入框自动增高 — 随内容自动增高，最大到窗口高度的一半',
+      ],
+      en: [
+        'Session switch cache fix — Fixed chat history disappearing when clicking "New Task" during active session',
+        'Long message collapse — User messages longer than 12 lines collapse by default with expand toggle',
+        'Auto-expanding input — Chat input grows up to 50% of window height',
+      ],
+    },
+  },
+  {
+    version: '0.4.1',
+    date: '2026-02-19',
+    highlights: {
+      zh: [
+        '中文路径解码修复 — 修复包含中文字符的项目路径被错误解码，导致文件树为空和会话分组异常',
+      ],
+      en: [
+        'CJK path decoding fix — Fixed project paths with Chinese characters being corrupted, causing empty file tree',
+      ],
+    },
+  },
+  {
+    version: '0.4.0',
+    date: '2026-02-19',
+    highlights: {
+      zh: [
+        '文件右键菜单 — 复制路径、拷贝文件、粘贴、重命名、删除、插入到聊天',
+        '文件树拖拽到聊天 — 从文件树拖拽文件直接附加到对话输入框',
+        '模式选择器下拉 — Code/Ask/Plan/Bypass 模式紧凑下拉菜单',
+        '编辑器自动折行 — 长行自动换行，编辑和只读模式均生效',
+        '性能优化 — MessageBubble/MarkdownRenderer memo 化，流式更新从 3 次 set 合并为 1 次',
+      ],
+      en: [
+        'File context menu — Copy Path, Copy File, Paste, Rename, Delete, Insert to Chat',
+        'File tree drag to chat — Drag files from file tree directly into chat input',
+        'Mode selector dropdown — Compact dropdown for Code/Ask/Plan/Bypass modes',
+        'Editor word wrap — Long lines auto-wrap in both edit and read-only mode',
+        'Performance — MessageBubble/MarkdownRenderer memoized, streaming updates merged from 3 to 1 set() call',
+      ],
+    },
+  },
+  {
+    version: '0.3.0',
+    date: '2026-02-19',
+    highlights: {
+      zh: [
+        '应用内更新 — 设置面板检查更新、下载进度条、一键重启，Ed25519 签名安全分发',
+        '深度思考开关 — 输入工具栏新增 Think 按钮，启用后进入深度思考模式',
+        'Windows 平台适配 — 快捷键提示、文件管理器名称、路径格式全面适配 Windows',
+        '四套新主题 — 黑/蓝/橙/绿，移除毛玻璃效果，采用 Apple Squircle 圆角',
+      ],
+      en: [
+        'In-app update — Check, download with progress bar, one-click restart, Ed25519 signed distribution',
+        'Extended thinking toggle — Think button in input toolbar for deep reasoning mode',
+        'Windows adaptation — Keyboard hints, file manager names, path formats adapted for Windows',
+        'Four new themes — Black/Blue/Orange/Green, removed glass effects, Apple squircle corners',
+      ],
+    },
+  },
+  {
+    version: '0.2.1',
+    date: '2026-02-19',
+    highlights: {
+      zh: [
+        '模型 ID 更新 — claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5 + localStorage 自动迁移',
+        '新建任务流程优化 — 侧栏按钮导航至 WelcomeScreen，每次启动从欢迎页开始',
+        '会话分组修复 — 修复同一文件夹出现两个分组的问题',
+        '标题栏拖拽 — 原生 data-tauri-drag-region 替代 JS hack，支持双击最大化',
+      ],
+      en: [
+        'Model ID update — claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5 + auto localStorage migration',
+        'New task flow — Sidebar button navigates to WelcomeScreen, app starts fresh each launch',
+        'Session grouping fix — Fixed duplicate project groups in sidebar',
+        'Titlebar drag — Native data-tauri-drag-region replaces JS hacks, double-click maximize works',
+      ],
+    },
+  },
+  {
+    version: '0.2.0',
+    date: '2026-02-16',
+    highlights: {
+      zh: [
+        'CLI 自动检测与安装引导 — 首次启动自动检测 Claude CLI，未安装时分步向导引导，无需终端',
+        '术语变更「对话」→「任务」 — 全部用户界面文案统一为面向目标的任务概念',
+        '主题色彩全面改版 — 四套新配色，移除毛玻璃效果，Apple Squircle 圆角',
+        '斜杠命令过滤修复 — 输入字母后优先匹配名称开头，不再显示所有命令',
+      ],
+      en: [
+        'CLI auto-detect & setup wizard — First-launch detection with step-by-step guide, no terminal needed',
+        'Terminology: Chat → Task — All UI text updated to goal-oriented "Task" concept',
+        'Theme color overhaul — Four new palettes, removed glass effects, Apple squircle corners',
+        'Slash command filter fix — Typing a letter now prioritizes name-prefix matches',
+      ],
+    },
+  },
+  {
+    version: '0.1.1',
+    date: '2025-12-01',
+    highlights: {
+      zh: [
+        '修复 rewind 删除项目文件',
+        '新增错误边界',
+      ],
+      en: [
+        'Fixed rewind deleting project files',
+        'Added error boundary',
+      ],
+    },
+  },
+  {
+    version: '0.1.0',
+    date: '2025-12-01',
+    highlights: {
+      zh: [
+        'TOKENICODE 首发 — Claude Code 桌面 GUI 客户端',
+        'NDJSON 流式聊天 + 文件浏览器 + 会话管理 + 快照回退',
+        '中英双语界面 + macOS 透明标题栏原生集成',
+      ],
+      en: [
+        'TOKENICODE initial release — Desktop GUI for Claude Code',
+        'NDJSON streaming chat + file explorer + session management + snapshot/rewind',
+        'Chinese/English bilingual UI + macOS transparent titlebar integration',
       ],
     },
   },

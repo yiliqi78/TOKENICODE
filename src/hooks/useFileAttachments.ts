@@ -180,9 +180,6 @@ export function useFileAttachments() {
   }, []);
 
   // Listen for Tauri native drag-drop events (OS file drag into window)
-  const addFilePathsRef = useRef(addFilePaths);
-  addFilePathsRef.current = addFilePaths;
-
   // Debounce guard: Tauri may fire onDragDropEvent multiple times per drop
   const lastDropRef = useRef<{ time: number; key: string }>({ time: 0, key: '' });
 
@@ -199,7 +196,10 @@ export function useFileAttachments() {
         const key = paths.sort().join('|');
         if (now - lastDropRef.current.time < 500 && key === lastDropRef.current.key) return;
         lastDropRef.current = { time: now, key };
-        addFilePathsRef.current(paths);
+        // Insert as inline file chips (same as internal tree drag)
+        for (const p of paths) {
+          window.dispatchEvent(new CustomEvent('tokenicode:tree-file-inline', { detail: p }));
+        }
       }
     }).then((fn) => { unlisten = fn; });
     return () => { unlisten?.(); };

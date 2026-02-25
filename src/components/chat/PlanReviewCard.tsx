@@ -42,7 +42,8 @@ function extractStepPreview(content: string, maxSteps: number = 3): string[] {
  */
 export function PlanReviewCard({ message, floating }: Props) {
   const t = useT();
-  const planContent = message.planContent || message.content || '';
+  const rawPlanContent = message.planContent || message.content || '';
+  const planContent = typeof rawPlanContent === 'string' ? rawPlanContent : JSON.stringify(rawPlanContent);
   const isResolved = message.resolved;
   // Start expanded when unresolved, collapsed after approval
   const [expanded, setExpanded] = useState(!isResolved);

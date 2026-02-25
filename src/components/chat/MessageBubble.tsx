@@ -544,7 +544,9 @@ export const ToolUseMsg = memo(function ToolUseMsg({ message }: Props) {
     : !!input;
 
   // Whether there's a result to show
-  const resultContent = message.toolResultContent || '';
+  const resultContent = typeof message.toolResultContent === 'string'
+    ? message.toolResultContent
+    : message.toolResultContent ? JSON.stringify(message.toolResultContent) : '';
   const hasResult = resultContent.length > 0;
 
   // Render the expanded detail section

@@ -17,7 +17,7 @@ import { useT } from '../../lib/i18n';
 import { buildCustomEnvVars, envFingerprint, resolveModelForProvider } from '../../lib/api-provider';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
 import { SetupWizard } from '../setup/SetupWizard';
-import { endTreeDrag, getLastDragPosition } from '../../lib/drag-state';
+import { endTreeDrag } from '../../lib/drag-state';
 
 /** Shared plan panel toggle — used by ChatPanel (panel) and InputBar (button) */
 export const usePlanPanelStore = create<{
@@ -322,25 +322,13 @@ export function ChatPanel() {
 
   // Listen for internal file tree drag-drop (mouse-based, not HTML5 drag-and-drop)
   // HTML5 drag events don't work in Tauri because dragDropEnabled: true intercepts them.
-  // Instead of appending plain text to input, dispatch event so InputBar can add as file chip.
+  // Always insert as inline file chip in the editor.
   useEffect(() => {
     const onTreeDrop = () => {
       const treePath = endTreeDrag();
       if (!treePath) return;
 
-      // If the drop landed inside the chat editor area, insert inline at cursor.
-      // Otherwise fall back to attaching as a file chip.
-      const { x, y } = getLastDragPosition();
-      const editorEl = document.querySelector<HTMLElement>('[data-chat-input]');
-      if (editorEl) {
-        const rect = editorEl.getBoundingClientRect();
-        if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
-          window.dispatchEvent(new CustomEvent('tokenicode:tree-file-inline', { detail: treePath }));
-          return;
-        }
-      }
-
-      window.dispatchEvent(new CustomEvent('tokenicode:tree-file-attach', { detail: treePath }));
+      window.dispatchEvent(new CustomEvent('tokenicode:tree-file-inline', { detail: treePath }));
     };
     window.addEventListener('tree-drag-drop', onTreeDrop);
     return () => {
