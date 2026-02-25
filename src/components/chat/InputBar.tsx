@@ -221,7 +221,7 @@ export function InputBar() {
     return null;
   });
 
-  const { files, setFiles, isProcessing, addFiles, addFilePaths, removeFile, clearFiles } = useFileAttachments();
+  const { files, setFiles, isProcessing, addFiles, removeFile, clearFiles } = useFileAttachments();
 
   // Sync files → store.pendingAttachments so tab switch can persist them
   const setPendingAttachments = useChatStore((s) => s.setPendingAttachments);
