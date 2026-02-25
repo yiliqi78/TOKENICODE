@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useSettingsStore, MODEL_OPTIONS } from '../../stores/settingsStore';
+import { useChatStore, generateMessageId } from '../../stores/chatStore';
 
 export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
   const selectedModel = useSettingsStore((s) => s.selectedModel);
@@ -51,7 +52,20 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
             <button
               key={option.id}
               onClick={() => {
-                setSelectedModel(option.id);
+                if (option.id !== selectedModel) {
+                  const oldShort = current.short;
+                  const newShort = option.short;
+                  setSelectedModel(option.id);
+                  // Insert model-switch tag into chat immediately
+                  useChatStore.getState().addMessage({
+                    id: generateMessageId(),
+                    role: 'system',
+                    type: 'text',
+                    content: `${oldShort} → ${newShort}`,
+                    commandType: 'model-switch',
+                    timestamp: Date.now(),
+                  });
+                }
                 setOpen(false);
               }}
               className={`w-full text-left px-3 py-2 text-xs

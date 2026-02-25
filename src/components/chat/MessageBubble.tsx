@@ -170,6 +170,22 @@ function CommandFeedbackMsg({ message }: Props) {
     );
   }
 
+  // --- Model switch: centered pill ---
+  if (cType === 'model-switch') {
+    return (
+      <div className="flex justify-center my-2 animate-fade-in">
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full
+          border border-border-subtle text-text-tertiary text-[11px]">
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none"
+            stroke="currentColor" strokeWidth="1.5" className="flex-shrink-0 opacity-60">
+            <path d="M4 6l4-4 4 4M4 10l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          {safeContent(message.content)}
+        </div>
+      </div>
+    );
+  }
+
   // --- Info card: structured key-value table or preformatted text ---
   if (cType === 'info') {
     const rows: Array<{ label: string; value: string }> = data.rows || [];

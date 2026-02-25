@@ -755,16 +755,39 @@ export function InputBar() {
           setSessionMeta({ stdinId: undefined, envFingerprint: undefined, providerSwitched: true, providerSwitchPendingText: text });
           stdinId = undefined;
         } else {
+          // Check if model changed since this process was spawned.
+          // If so, kill the stale process and fall through to spawn a new one with --resume.
+          const currentModel = resolveModelForProvider(selectedModel);
+          const spawnedModel = useChatStore.getState().sessionMeta.spawnedModel;
+          if (spawnedModel && currentModel !== spawnedModel) {
+            const oldShort = MODEL_OPTIONS.find((m) => m.id === spawnedModel)?.short ?? spawnedModel;
+            const newShort = MODEL_OPTIONS.find((m) => m.id === currentModel)?.short ?? currentModel;
+            console.warn(`[TOKENICODE] Model changed (${oldShort} → ${newShort}), killing stale session`);
+            bridge.killSession(stdinId).catch(() => {});
+            if ((window as any).__claudeUnlisteners?.[stdinId]) {
+              (window as any).__claudeUnlisteners[stdinId]();
+              delete (window as any).__claudeUnlisteners[stdinId];
+            }
+            // System message already inserted by ModelSelector — no duplicate here.
+            // Keep sessionId so we attempt resume (preserving context).
+            setSessionMeta({ stdinId: undefined, spawnedModel: undefined, modelSwitched: true, modelSwitchPendingText: text });
+            stdinId = undefined;
+          } else {
           // ===== Send via stdin to existing persistent process (pre-warmed or follow-up) =====
           try {
             await bridge.sendStdin(stdinId, text);
             sentViaStdin = true;
+            // Defensive: ensure spawnedModel is always recorded after first successful stdin send
+            if (!useChatStore.getState().sessionMeta.spawnedModel) {
+              setSessionMeta({ spawnedModel: resolveModelForProvider(selectedModel) });
+            }
           } catch (stdinErr) {
             // stdin write failed (broken pipe — process already exited).
             // Clear the dead stdinId and fall through to spawn a new process.
             console.warn('[TOKENICODE] sendStdin failed, spawning new process:', stdinErr);
             setSessionMeta({ stdinId: undefined });
             stdinId = undefined;
+          }
           }
         }
       }
@@ -860,7 +883,7 @@ export function InputBar() {
         });
 
         // Store both: session_id for tracking, stdinId (preGeneratedId) for stdin communication
-        setSessionMeta({ sessionId: session.session_id, stdinId: preGeneratedId, envFingerprint: envFingerprint() });
+        setSessionMeta({ sessionId: session.session_id, stdinId: preGeneratedId, envFingerprint: envFingerprint(), spawnedModel: resolveModelForProvider(selectedModel) });
 
         // Register stdinId → tabId mapping for background stream routing
         const tabId = useSessionStore.getState().selectedSessionId;
@@ -1665,9 +1688,9 @@ export function InputBar() {
         // Clear any remaining partial text before marking turn complete
         clearPartial();
 
-        // --- TK-303: Auto-retry on thinking signature error after provider switch ---
-        // When user switches API provider mid-conversation, we attempt to resume the
-        // session. If the new provider rejects the old thinking block signatures,
+        // --- TK-303: Auto-retry on thinking signature error after provider/model switch ---
+        // When user switches API provider or model mid-conversation, we attempt to resume
+        // the session. If the new provider/model rejects the old thinking block signatures,
         // we automatically retry without resume to preserve UX continuity.
         if (msg.subtype !== 'success') {
           const meta = useChatStore.getState().sessionMeta;
@@ -1678,9 +1701,12 @@ export function InputBar() {
             .join(' ');
           const isThinkingSignatureError = /invalid.*signature.*thinking|thinking.*invalid.*signature/i.test(errorText);
 
-          if (meta.providerSwitched && isThinkingSignatureError && meta.providerSwitchPendingText) {
-            console.warn('[TOKENICODE] Thinking signature error after provider switch — auto-retrying without resume');
-            const retryText = meta.providerSwitchPendingText;
+          const switchedFlag = meta.providerSwitched || meta.modelSwitched;
+          const pendingText = meta.providerSwitchPendingText || meta.modelSwitchPendingText;
+          if (switchedFlag && isThinkingSignatureError && pendingText) {
+            const switchType = meta.modelSwitched ? '模型' : 'API 提供商';
+            console.warn(`[TOKENICODE] Thinking signature error after ${switchType} switch — auto-retrying without resume`);
+            const retryText = pendingText;
 
             // Kill the current (failed) process
             const failedStdinId = meta.stdinId;
@@ -1692,12 +1718,14 @@ export function InputBar() {
               }
             }
 
-            // Clear sessionId (abandon resume) and provider-switch flags
+            // Clear sessionId (abandon resume) and switch flags
             setSessionMeta({
               sessionId: undefined,
               stdinId: undefined,
               providerSwitched: false,
               providerSwitchPendingText: undefined,
+              modelSwitched: false,
+              modelSwitchPendingText: undefined,
             });
 
             // Show system notice
@@ -1705,7 +1733,7 @@ export function InputBar() {
               id: generateMessageId(),
               role: 'system',
               type: 'text',
-              content: '已切换 API 提供商，正在重新发送…',
+              content: `已切换${switchType}，正在重新发送…`,
               commandType: 'info',
               timestamp: Date.now(),
             });
@@ -1752,7 +1780,7 @@ export function InputBar() {
                   custom_env: buildCustomEnvVars(),
                 });
 
-                setSessionMeta({ sessionId: session.session_id, stdinId: retryId, envFingerprint: envFingerprint() });
+                setSessionMeta({ sessionId: session.session_id, stdinId: retryId, envFingerprint: envFingerprint(), spawnedModel: resolveModelForProvider(selectedModel) });
                 const tabId = useSessionStore.getState().selectedSessionId;
                 if (tabId) useSessionStore.getState().registerStdinTab(retryId, tabId);
                 bridge.trackSession(session.session_id).catch(() => {});

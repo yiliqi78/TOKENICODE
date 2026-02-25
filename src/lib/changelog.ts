@@ -13,6 +13,20 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.6.6',
+    date: '2026-02-25',
+    highlights: {
+      zh: [
+        '会话中模型热切换 — 切换模型后自动终止旧进程并用新模型 resume 重启，不再静默忽略',
+        '模型切换标签 — 切换时对话流立即显示居中标签（如 Sonnet 4.6 → Opus 4.6）',
+      ],
+      en: [
+        'Mid-session model hot-swap — Switching models now kills the old process and resumes with the new model automatically',
+        'Model switch indicator — A centered pill tag appears instantly in the chat flow when switching models',
+      ],
+    },
+  },
+  {
     version: '0.6.5',
     date: '2026-02-25',
     highlights: {

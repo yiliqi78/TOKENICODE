@@ -761,6 +761,7 @@ async function startDraftSession(folderPath: string) {
       sessionId: session.session_id,
       stdinId: preWarmId,
       envFingerprint: envFingerprint(),
+      spawnedModel: resolveModelForProvider(useSettingsStore.getState().selectedModel),
     });
 
     // Register stdinId → tabId mapping for background stream routing

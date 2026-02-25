@@ -6,6 +6,28 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.6.6] - 2026-02-25
+
+### Bug Fixes
+
+- **Mid-Session Model Switching** — Switching models (e.g., Sonnet → Opus) during an active conversation now correctly kills the old process and restarts with `--resume` using the new model. Previously, the model change was silently ignored and follow-up messages continued using the old model.
+
+- **Model Switch Indicator** — A centered pill tag immediately appears in the chat flow when the user switches models, showing the transition (e.g., "Sonnet 4.6 → Opus 4.6"). No longer shows the misleading "暂无会话数据" card.
+
+- **Pre-warm Model Tracking** — Pre-warmed CLI processes now record `spawnedModel` so that subsequent model changes are correctly detected on the first follow-up message.
+
+---
+
+### 修复
+
+- **会话中模型切换** — 在活跃会话中切换模型（如 Sonnet → Opus）现在会正确终止旧进程并用新模型 `--resume` 重启。此前模型切换被静默忽略，后续消息仍使用旧模型处理。
+
+- **模型切换标签** — 切换模型时，对话流中立即显示居中标签，展示切换方向（如"Sonnet 4.6 → Opus 4.6"）。不再显示误导性的「暂无会话数据」卡片。
+
+- **预热进程模型追踪** — 预热的 CLI 进程现在记录 `spawnedModel`，确保首条消息后的模型变更能被正确检测。
+
+---
+
 ## [0.6.5] - 2026-02-25
 
 ### Changed

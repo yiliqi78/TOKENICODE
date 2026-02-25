@@ -53,7 +53,7 @@ export interface ChatMessage {
   // File attachments (user-sent images/files)
   attachments?: MessageAttachment[];
   // Command feedback fields (for system messages from slash commands)
-  commandType?: 'mode' | 'info' | 'help' | 'action' | 'error' | 'processing';
+  commandType?: 'mode' | 'model-switch' | 'info' | 'help' | 'action' | 'error' | 'processing';
   commandData?: Record<string, any>;
   // Command processing card fields
   commandStartTime?: number;
@@ -85,11 +85,19 @@ export interface SessionMeta {
   /** JSON fingerprint of custom_env used when spawning the CLI process (TK-303).
    *  Compared before sending via stdin to detect stale pre-warm sessions. */
   envFingerprint?: string;
+  /** The resolved model name used when spawning the CLI process.
+   *  Compared before sending via stdin to detect mid-session model switches. */
+  spawnedModel?: string;
   /** Set when API provider config changed mid-session (TK-303).
    *  If resume fails due to thinking signature mismatch, auto-retry without resume. */
   providerSwitched?: boolean;
   /** The user message text to re-send if provider-switch auto-retry triggers. */
   providerSwitchPendingText?: string;
+  /** Set when model changed mid-session.
+   *  If resume fails due to thinking signature mismatch, auto-retry without resume. */
+  modelSwitched?: boolean;
+  /** The user message text to re-send if model-switch auto-retry triggers. */
+  modelSwitchPendingText?: string;
 }
 
 export type SessionStatus = 'idle' | 'running' | 'completed' | 'error';
