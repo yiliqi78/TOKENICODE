@@ -6,6 +6,32 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.6.9] - 2026-02-25
+
+### Improvements
+
+- **China Network Optimization** — Removed the GCS (Google Cloud Storage) download path, which is completely blocked behind the GFW and wasted 30s on each timeout. Added automatic network detection (ping Google with 3s timeout, cached for process lifetime). When behind the GFW, install sources are reordered: China mirrors first (npmmirror CDN, Huawei Cloud), official sources as fallback.
+
+- **Node.js Mirror URL Fix** — Fixed the Node.js mirror URL from `registry.npmmirror.com/mirrors/node` (404) to `cdn.npmmirror.com/binaries/node`. This was a root cause of CLI installation failures for domestic users without VPN.
+
+- **Gitee Updater Endpoint** — Added Gitee raw URL as the primary updater endpoint for version detection, with GitHub as fallback. Domestic users can now reliably check for updates without VPN.
+
+- **Stall Detection Timeout** — Increased the response stall detection from 3 minutes to 5 minutes. API-connected users may experience longer response times, and the previous threshold triggered false positives.
+
+---
+
+### 改进
+
+- **国内网络优化** — 移除 GCS（Google Cloud Storage）下载路径（被 GFW 完全屏蔽，每次超时浪费 30 秒）。新增自动网络检测（3 秒超时 ping Google，结果缓存至进程结束）。检测到国内网络时，安装源自动切换：国内镜像优先（npmmirror CDN、华为云），官方源兜底。
+
+- **Node.js 镜像地址修复** — 修复 Node.js 镜像地址：`registry.npmmirror.com/mirrors/node`（返回 404）→ `cdn.npmmirror.com/binaries/node`。这是国内无梯子用户 CLI 安装失败的主要原因。
+
+- **Gitee 更新检测** — 新增 Gitee raw URL 作为首选更新检测端点，GitHub 作为备用。国内用户无需梯子即可可靠检测版本更新。
+
+- **响应超时检测调整** — 响应停滞检测从 3 分钟延长至 5 分钟。接入 API 的用户响应时间可能较长，此前阈值会触发误报。
+
+---
+
 ## [0.6.8] - 2026-02-25
 
 ### Bug Fixes

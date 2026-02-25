@@ -13,6 +13,24 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.6.9',
+    date: '2026-02-25',
+    highlights: {
+      zh: [
+        '国内网络优化 — 移除 GCS 下载路径（GFW 屏蔽），自动检测网络环境，国内镜像优先（npmmirror CDN、华为云）',
+        'Node.js 镜像地址修复 — 修复导致国内用户 CLI 安装失败的 404 镜像地址',
+        'Gitee 更新检测 — 新增 Gitee 作为首选更新检测端点，国内用户无需梯子即可检测更新',
+        '响应超时检测 3 分钟 → 5 分钟 — 避免接入 API 时的误报',
+      ],
+      en: [
+        'China network optimization — Removed GCS download path (blocked by GFW), auto-detects network environment, China mirrors prioritized (npmmirror CDN, Huawei Cloud)',
+        'Node.js mirror URL fix — Fixed 404 mirror URL that caused CLI installation failures for domestic users',
+        'Gitee updater endpoint — Added Gitee as primary update detection source, domestic users can check updates without VPN',
+        'Stall detection timeout 3min → 5min — Prevents false positives for API-connected users',
+      ],
+    },
+  },
+  {
     version: '0.6.8',
     date: '2026-02-25',
     highlights: {

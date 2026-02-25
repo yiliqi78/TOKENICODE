@@ -6,7 +6,7 @@
 
 ### A Beautiful Desktop Client for Claude Code
 
-[![Version](https://img.shields.io/badge/version-0.2.0-blue?style=flat-square)](https://github.com/yiliqi78/TOKENICODE/releases)
+[![Version](https://img.shields.io/github/v/release/yiliqi78/TOKENICODE?style=flat-square&color=blue)](https://github.com/yiliqi78/TOKENICODE/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](#installation)
 [![Tauri](https://img.shields.io/badge/Tauri-2.0-FFC131?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
