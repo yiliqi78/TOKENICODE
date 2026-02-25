@@ -6,6 +6,32 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.6.7] - 2026-02-25
+
+### Bug Fixes
+
+- **macOS/Linux CLI Permission Denied (EACCES)** — On macOS/Linux, if the downloaded CLI binary at `~/Library/Application Support/com.tinyzhuang.tokenicode/cli/claude` lost its execute permission, the app would fail with "Permission denied (os error 13)" and never recover. Two fixes: (1) `is_valid_executable()` now checks the Unix execute permission bit instead of blindly returning `true`, so `find_claude_binary()` skips broken binaries and falls through to other paths; (2) the Unix spawn path now mirrors Windows' error-193 recovery — on EACCES, it auto-runs `chmod +x` and retries the spawn, so existing users are self-healed on the next session attempt after updating.
+
+- **API Key Switch Not Taking Effect** — Changing the API key in Settings now correctly invalidates the running/pre-warmed CLI session. Previously, `envFingerprint()` used a sentinel value (`USE_STORED_KEY`) that never changed, so the old process kept running with the stale key. Added an `apiKeyVersion` counter that bumps on each key save, ensuring fingerprint staleness detection kills the old process.
+
+- **CLI Settings Override (Critical)** — Claude CLI's own `~/.claude/settings.json` `env` section could silently override TOKENICODE's injected `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN`, causing all API requests to route to the wrong endpoint regardless of user configuration. TOKENICODE now automatically strips conflicting `ANTHROPIC_*` entries from settings.json when in custom/official mode, and clears inherited shell environment variables that aren't explicitly set.
+
+- **Corrupted Credentials Auto-Cleanup** — When `credentials.enc` cannot be decrypted (e.g., synced from another machine with a different hostname), the corrupted file is now automatically deleted instead of returning a hard error, allowing the user to re-enter their key cleanly.
+
+---
+
+### 修复
+
+- **macOS/Linux CLI 权限拒绝（EACCES）** — 在 macOS/Linux 上，如果下载的 CLI 二进制文件（`~/Library/Application Support/com.tinyzhuang.tokenicode/cli/claude`）丢失了执行权限，应用会报 "Permission denied (os error 13)" 且无法恢复。两处修复：(1) `is_valid_executable()` 现在检查 Unix 执行权限位，而非盲目返回 `true`，使 `find_claude_binary()` 跳过坏文件转而查找其他路径；(2) Unix spawn 分支现在与 Windows error-193 恢复逻辑对称——检测到 EACCES 时自动执行 `chmod +x` 并重试 spawn，用户更新客户端后无需手动操作即可自愈。
+
+- **API Key 切换不生效** — 在设置中更换 API Key 后，运行中/预热的 CLI 会话现在能正确失效并重建。此前 `envFingerprint()` 使用固定哨兵值，导致换 Key 后指纹不变，旧进程继续使用旧 Key。新增 `apiKeyVersion` 计数器，每次保存 Key 时递增，触发指纹变更检测。
+
+- **CLI 配置覆盖（关键修复）** — Claude CLI 自身的 `~/.claude/settings.json` 中的 `env` 字段会静默覆盖 TOKENICODE 注入的 `ANTHROPIC_BASE_URL` 和 `ANTHROPIC_AUTH_TOKEN`，导致无论用户如何配置，所有 API 请求都被路由到错误的端点。TOKENICODE 现在在 custom/official 模式下自动清理 settings.json 中冲突的 `ANTHROPIC_*` 条目，并清除子进程继承的 shell 环境变量。
+
+- **损坏凭证自动清理** — 当 `credentials.enc` 无法解密时（例如从不同主机名的机器同步），现在自动删除损坏文件而非返回硬错误，用户可以直接重新输入 Key。
+
+---
+
 ## [0.6.6] - 2026-02-25
 
 ### Bug Fixes

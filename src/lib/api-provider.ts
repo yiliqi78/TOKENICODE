@@ -34,6 +34,7 @@ export function envFingerprint(): string {
   return JSON.stringify({
     env: buildCustomEnvVars() ?? null,
     mappings: state.apiProviderMode === 'custom' ? state.customProviderModelMappings : null,
+    keyVer: state.apiKeyVersion ?? 0,
   });
 }
 
@@ -68,8 +69,11 @@ export function buildCustomEnvVars(): Record<string, string> | undefined {
         env.ANTHROPIC_BASE_URL = state.customProviderBaseUrl;
       }
 
-      // Sentinel value: Rust backend will substitute the real key from encrypted storage
+      // Sentinel value: Rust backend will substitute the real key from encrypted storage.
+      // Set both API_KEY and AUTH_TOKEN so Claude CLI's settings.json cannot shadow
+      // our value with an old ANTHROPIC_AUTH_TOKEN entry.
       env.ANTHROPIC_API_KEY = 'USE_STORED_KEY';
+      env.ANTHROPIC_AUTH_TOKEN = 'USE_STORED_KEY';
 
       return env;
     }

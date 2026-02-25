@@ -92,7 +92,12 @@ fn is_valid_executable(path: &std::path::Path) -> bool {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        true
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = std::fs::metadata(path) {
+            metadata.permissions().mode() & 0o111 != 0
+        } else {
+            false
+        }
     }
 }
 
@@ -534,7 +539,11 @@ fn load_and_decrypt() -> Result<Option<String>, String> {
     let data = std::fs::read(&read_path)
         .map_err(|e| format!("Cannot read credentials: {}", e))?;
     if data.len() < 13 {
-        return Err("Corrupted credentials file".to_string());
+        // Corrupted file — delete and treat as "no key"
+        let _ = std::fs::remove_file(&read_path);
+        if let Some(ref lp) = legacy_path { let _ = std::fs::remove_file(lp); }
+        eprintln!("[TOKENICODE] Deleted corrupted credentials.enc (too short)");
+        return Ok(None);
     }
 
     let key_bytes = derive_encryption_key();
@@ -542,12 +551,104 @@ fn load_and_decrypt() -> Result<Option<String>, String> {
         .map_err(|e| format!("Cipher init error: {}", e))?;
 
     let nonce = Nonce::from_slice(&data[..12]);
-    let plaintext = cipher.decrypt(nonce, &data[12..])
-        .map_err(|_| "Failed to decrypt credentials (key may have changed)".to_string())?;
+    match cipher.decrypt(nonce, &data[12..]) {
+        Ok(plaintext) => {
+            String::from_utf8(plaintext)
+                .map(Some)
+                .map_err(|e| format!("Invalid UTF-8 in credentials: {}", e))
+        }
+        Err(_) => {
+            // Decryption failed — likely credentials.enc synced from another machine
+            // (different hostname → different encryption key). Delete the unusable
+            // file so the user can re-enter their key cleanly.
+            let _ = std::fs::remove_file(&read_path);
+            if let Some(ref lp) = legacy_path { let _ = std::fs::remove_file(lp); }
+            eprintln!(
+                "[TOKENICODE] Deleted credentials.enc — decryption failed \
+                 (likely synced from another machine with a different hostname). \
+                 Please re-enter your API key in Settings."
+            );
+            Ok(None)
+        }
+    }
+}
 
-    String::from_utf8(plaintext)
-        .map(Some)
-        .map_err(|e| format!("Invalid UTF-8 in credentials: {}", e))
+/// Collect all ANTHROPIC_* env var keys that Claude CLI's settings.json sets.
+/// These must be cleared from the child process so TOKENICODE's injected values win.
+#[allow(dead_code)]
+fn anthropic_env_keys_from_cli_settings() -> Vec<String> {
+    let home = dirs::home_dir().unwrap_or_default();
+    let settings_path = home.join(".claude").join("settings.json");
+    let Ok(content) = std::fs::read_to_string(&settings_path) else {
+        return vec![];
+    };
+    let Ok(mut root) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return vec![];
+    };
+    let Some(env_obj) = root.get_mut("env").and_then(|v| v.as_object_mut()) else {
+        return vec![];
+    };
+    env_obj.keys()
+        .filter(|k| k.starts_with("ANTHROPIC_"))
+        .cloned()
+        .collect()
+}
+
+/// When TOKENICODE overrides API settings, strip all ANTHROPIC_* entries from
+/// Claude CLI's `~/.claude/settings.json` env section so they don't shadow
+/// the env vars we inject into the child process.  Returns the removed entries
+/// for optional later restoration.
+fn strip_anthropic_env_from_cli_settings() -> Vec<(String, serde_json::Value)> {
+    let home = dirs::home_dir().unwrap_or_default();
+    let settings_path = home.join(".claude").join("settings.json");
+    let Ok(content) = std::fs::read_to_string(&settings_path) else {
+        return vec![];
+    };
+    let Ok(mut root) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return vec![];
+    };
+    let Some(env_obj) = root.get_mut("env").and_then(|v| v.as_object_mut()) else {
+        return vec![];
+    };
+    let keys: Vec<String> = env_obj.keys()
+        .filter(|k| k.starts_with("ANTHROPIC_"))
+        .cloned()
+        .collect();
+    if keys.is_empty() {
+        return vec![];
+    }
+    let removed: Vec<(String, serde_json::Value)> = keys.iter()
+        .filter_map(|k| env_obj.remove(k).map(|v| (k.clone(), v)))
+        .collect();
+    // Write back (best-effort)
+    if let Ok(json) = serde_json::to_string_pretty(&root) {
+        let _ = std::fs::write(&settings_path, json);
+    }
+    removed
+}
+
+/// Restore previously stripped ANTHROPIC_* entries to settings.json env section.
+#[allow(dead_code)]
+fn restore_anthropic_env_to_cli_settings(entries: &[(String, serde_json::Value)]) {
+    if entries.is_empty() { return; }
+    let home = dirs::home_dir().unwrap_or_default();
+    let settings_path = home.join(".claude").join("settings.json");
+    let Ok(content) = std::fs::read_to_string(&settings_path) else { return };
+    let Ok(mut root) = serde_json::from_str::<serde_json::Value>(&content) else { return };
+    let env_obj = root.as_object_mut()
+        .and_then(|r| {
+            if !r.contains_key("env") {
+                r.insert("env".to_string(), serde_json::json!({}));
+            }
+            r.get_mut("env").and_then(|v| v.as_object_mut())
+        });
+    let Some(env_obj) = env_obj else { return };
+    for (k, v) in entries {
+        env_obj.insert(k.clone(), v.clone());
+    }
+    if let Ok(json) = serde_json::to_string_pretty(&root) {
+        let _ = std::fs::write(&settings_path, json);
+    }
 }
 
 /// Resolve custom_env map, substituting USE_STORED_KEY sentinel with real API key.
@@ -777,6 +878,28 @@ async fn start_claude_session(
     // Resolve custom environment variables for API provider override (TK-303)
     let mut resolved_env = resolve_custom_env(params.custom_env.as_ref())?;
 
+    // When TOKENICODE injects custom API env vars, we must prevent conflicts from
+    // two sources: (1) shell-inherited env vars and (2) Claude CLI's own
+    // ~/.claude/settings.json `env` section.  Both can shadow our values.
+    // Collect the keys to env_remove from the child process, and strip them from
+    // settings.json so Claude CLI doesn't re-apply them after startup.
+    let has_custom_api_env = resolved_env.contains_key("ANTHROPIC_BASE_URL")
+        || resolved_env.contains_key("ANTHROPIC_API_KEY");
+    let _stripped_settings = if has_custom_api_env {
+        strip_anthropic_env_from_cli_settings()
+    } else {
+        vec![]
+    };
+    let inherited_keys_to_remove: Vec<String> = if has_custom_api_env {
+        // Remove all ANTHROPIC_* from parent env that we don't explicitly set
+        std::env::vars()
+            .filter(|(k, _)| k.starts_with("ANTHROPIC_") && !resolved_env.contains_key(k))
+            .map(|(k, _)| k)
+            .collect()
+    } else {
+        vec![]
+    };
+
     // Inject effort level env var for non-off thinking levels
     if thinking_level != "off" {
         resolved_env.insert(
@@ -830,6 +953,9 @@ async fn start_claude_session(
                 .current_dir(&params.cwd)
                 .env("PATH", &enriched_path)
                 .env_remove("CLAUDECODE");
+            for key in &inherited_keys_to_remove {
+                cmd.env_remove(key);
+            }
             for (key, value) in &resolved_env {
                 cmd.env(key, value);
             }
@@ -867,22 +993,57 @@ async fn start_claude_session(
     };
     #[cfg(not(target_os = "windows"))]
     let mut child = {
-        let mut cmd = Command::new(&claude_bin);
-        cmd.args(&args)
-            .current_dir(&params.cwd)
-            .env("PATH", &enriched_path)
-            // Clear CLAUDECODE env var so the CLI doesn't refuse to start
-            // when TOKENICODE itself is launched from within a Claude Code session.
-            .env_remove("CLAUDECODE");
-        // Inject custom API provider env vars
-        for (key, value) in &resolved_env {
-            cmd.env(key, value);
+        let spawn_unix = |bin: &str| -> std::io::Result<tokio::process::Child> {
+            let mut cmd = Command::new(bin);
+            cmd.args(&args)
+                .current_dir(&params.cwd)
+                .env("PATH", &enriched_path)
+                // Clear CLAUDECODE env var so the CLI doesn't refuse to start
+                // when TOKENICODE itself is launched from within a Claude Code session.
+                .env_remove("CLAUDECODE");
+            // Clear inherited ANTHROPIC_* env vars that conflict with our overrides
+            for key in &inherited_keys_to_remove {
+                cmd.env_remove(key);
+            }
+            // Inject custom API provider env vars
+            for (key, value) in &resolved_env {
+                cmd.env(key, value);
+            }
+            cmd.stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+        };
+
+        match spawn_unix(&claude_bin) {
+            Ok(c) => c,
+            Err(e) if e.raw_os_error() == Some(13) => { // EACCES
+                // Permission denied — attempt to fix execute permission and retry.
+                eprintln!("EACCES on '{}', attempting chmod +x and retrying...", claude_bin);
+                let path = std::path::Path::new(&claude_bin);
+                let fixed = (|| -> Result<(), std::io::Error> {
+                    use std::os::unix::fs::PermissionsExt;
+                    let metadata = std::fs::metadata(path)?;
+                    let mut perms = metadata.permissions();
+                    perms.set_mode(perms.mode() | 0o755);
+                    std::fs::set_permissions(path, perms)?;
+                    Ok(())
+                })();
+                if let Err(chmod_err) = fixed {
+                    eprintln!("chmod +x failed: {}", chmod_err);
+                    return Err(format!(
+                        "Failed to spawn claude (tried '{}', permission denied, chmod fix also failed: {}): {}",
+                        claude_bin, chmod_err, e
+                    ));
+                }
+                eprintln!("chmod +x succeeded, retrying spawn...");
+                spawn_unix(&claude_bin)
+                    .map_err(|e2| format!("Failed to spawn claude (tried '{}', retried after chmod +x): {}", claude_bin, e2))?
+            }
+            Err(e) => {
+                return Err(format!("Failed to spawn claude (tried '{}'): {}", claude_bin, e));
+            }
         }
-        cmd.stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("Failed to spawn claude (tried '{}'): {}", claude_bin, e))?
     };
 
     let pid = child.id().unwrap_or(0);

@@ -66,6 +66,9 @@ interface SettingsState {
   customProviderModelMappings: ModelMapping[];
   /** API format used by the custom provider */
   customProviderApiFormat: ApiFormat;
+  /** Monotonic counter bumped on each API key save — used by envFingerprint to
+   *  detect key changes and kill stale pre-warmed sessions. */
+  apiKeyVersion: number;
 
   toggleTheme: () => void;
   setTheme: (theme: Theme) => void;
@@ -99,6 +102,7 @@ interface SettingsState {
   setCustomProviderBaseUrl: (url: string) => void;
   setCustomProviderModelMappings: (mappings: ModelMapping[]) => void;
   setCustomProviderApiFormat: (format: ApiFormat) => void;
+  bumpApiKeyVersion: () => void;
 }
 
 // --- Theme cycle order ---
@@ -145,6 +149,7 @@ export const useSettingsStore = create<SettingsState>()(
         { tier: 'haiku', providerModel: 'claude-haiku-4-5-20251001' },
       ],
       customProviderApiFormat: 'anthropic',
+      apiKeyVersion: 0,
 
       toggleTheme: () =>
         set((state) => ({ theme: nextTheme(state.theme) })),
@@ -238,6 +243,9 @@ export const useSettingsStore = create<SettingsState>()(
 
       setCustomProviderApiFormat: (format) =>
         set(() => ({ customProviderApiFormat: format })),
+
+      bumpApiKeyVersion: () =>
+        set((s) => ({ apiKeyVersion: (s.apiKeyVersion ?? 0) + 1 })),
     }),
     {
       name: 'tokenicode-settings',

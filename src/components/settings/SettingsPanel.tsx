@@ -313,6 +313,10 @@ function ApiProviderSection() {
       try {
         await bridge.saveApiKey(trimmed);
         setKeyStatus('saved');
+        // Bump key version so envFingerprint changes → pre-warm staleness
+        // check will kill the old process and spawn fresh with the new key.
+        const { useSettingsStore: getSettings } = await import('../../stores/settingsStore');
+        getSettings.getState().bumpApiKeyVersion();
       } catch (e) {
         console.error('Failed to save API key:', e);
       }
