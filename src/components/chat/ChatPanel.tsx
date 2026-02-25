@@ -248,9 +248,10 @@ function ActivityIndicator({ activityStatus, sessionMeta }: {
   const inputTokens = sessionMeta.inputTokens || 0;
   const contextWarning = inputTokens > 120_000;
 
-  // Stall detection: if turn has been running > 3 minutes with zero output tokens,
+  // Stall detection: if turn has been running > 5 minutes with zero output tokens,
   // likely the CLI is hanging (network disconnect, API timeout, etc.)
-  const stallWarning = elapsedMs > 180_000 && !sessionMeta.outputTokens;
+  // Note: API-connected users may have longer response times, so 5 min is more appropriate.
+  const stallWarning = elapsedMs > 300_000 && !sessionMeta.outputTokens;
 
   const isThinking = activityStatus.phase === 'thinking';
 

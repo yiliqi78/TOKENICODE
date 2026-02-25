@@ -2856,168 +2856,41 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
     }
 }
 
-/// GCS bucket base URL for Claude Code releases.
-const CLI_DIST_BASE: &str = "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases";
+/// Detect whether the user is behind the GFW (China network).
+/// Tries to connect to Google — if unreachable within 3 seconds, assume China network.
+/// Result is cached for the lifetime of the process via OnceLock.
+static CHINA_NETWORK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
-/// Determine the platform identifier for CLI downloads.
-fn get_cli_platform() -> Result<(&'static str, &'static str), String> {
-    match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("macos", "aarch64") => Ok(("darwin-arm64", "claude")),
-        ("macos", "x86_64")  => Ok(("darwin-x64", "claude")),
-        ("windows", "x86_64") => Ok(("win32-x64", "claude.exe")),
-        ("windows", "aarch64") => Ok(("win32-arm64", "claude.exe")),
-        ("linux", "x86_64")  => Ok(("linux-x64", "claude")),
-        ("linux", "aarch64") => Ok(("linux-arm64", "claude")),
-        (os, arch) => Err(format!("Unsupported platform: {}-{}", os, arch)),
-    }
-}
-
-/// Try GCS direct download. Returns Ok(()) on success, Err on failure.
-async fn install_cli_via_gcs(app: &AppHandle) -> Result<(), String> {
-    let (platform, bin_name) = get_cli_platform()?;
-
+async fn detect_china_network() -> bool {
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
+        .connect_timeout(std::time::Duration::from_secs(3))
+        .timeout(std::time::Duration::from_secs(3))
         .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+        .unwrap_or_default();
 
-    // 1. Fetch latest version
-    let version = client.get(format!("{}/latest", CLI_DIST_BASE))
-        .send().await.map_err(|e| format!("Failed to fetch latest version: {}", e))?
-        .text().await.map_err(|e| format!("Failed to read version: {}", e))?
-        .trim().to_string();
+    let is_china = client
+        .head("https://www.google.com/generate_204")
+        .send()
+        .await
+        .is_err();
 
-    let _ = app.emit("setup:download:progress", serde_json::json!({
-        "downloaded": 0, "total": 0, "percent": 0, "phase": "version"
-    }));
-
-    // 2. Download manifest for checksum
-    let manifest_url = format!("{}/{}/manifest.json", CLI_DIST_BASE, version);
-    let manifest: Value = client.get(&manifest_url)
-        .send().await.map_err(|e| format!("Failed to fetch manifest: {}", e))?
-        .json::<Value>().await.map_err(|e| format!("Failed to parse manifest: {}", e))?;
-
-    let expected_sha: Option<String> = manifest.get(platform)
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    // 3. Download binary with streaming progress
-    let binary_url = format!("{}/{}/{}/{}", CLI_DIST_BASE, version, platform, bin_name);
-    let resp = client.get(&binary_url)
-        .send().await.map_err(|e| format!("Failed to download CLI: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("Download failed with HTTP {}", resp.status()));
-    }
-
-    let total = resp.content_length().unwrap_or(0);
-    let mut downloaded: u64 = 0;
-
-    let install_dir = cli_download_dir()
-        .ok_or_else(|| "Cannot determine app data directory".to_string())?;
-    std::fs::create_dir_all(&install_dir)
-        .map_err(|e| format!("Failed to create install dir: {}", e))?;
-
-    let target_path = install_dir.join(bin_name);
-    let mut file = std::fs::File::create(&target_path)
-        .map_err(|e| format!("Failed to create binary file: {}", e))?;
-
-    let mut hasher = Sha256::new();
-    let mut stream = resp.bytes_stream();
-
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("Download stream error: {}", e))?;
-        file.write_all(&chunk).map_err(|e| format!("Failed to write chunk: {}", e))?;
-        hasher.update(&chunk);
-        downloaded += chunk.len() as u64;
-
-        let percent = if total > 0 { (downloaded * 100 / total) as u8 } else { 0 };
-        let _ = app.emit("setup:download:progress", serde_json::json!({
-            "downloaded": downloaded, "total": total, "percent": percent, "phase": "downloading"
-        }));
-    }
-    drop(file);
-
-    // 4. Verify SHA256 checksum
-    if let Some(expected) = expected_sha {
-        let actual = format!("{:x}", hasher.finalize());
-        if actual != expected {
-            let _ = std::fs::remove_file(&target_path);
-            return Err(format!("Checksum mismatch: expected {}, got {}", expected, actual));
-        }
-    }
-
-    // 5. Set executable permission (Unix)
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&target_path, std::fs::Permissions::from_mode(0o755))
-            .map_err(|e| format!("Failed to set permissions: {}", e))?;
-    }
-
-    // 5b. (Windows) Sanity-check: verify the binary is a valid PE that can actually run.
-    //     GCS standalone binaries may not work on all Windows configurations.
-    #[cfg(target_os = "windows")]
-    {
-        match std::process::Command::new(&target_path)
-            .arg("--version")
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .output()
-        {
-            Ok(output) if output.status.success() => {
-                eprintln!("GCS binary validated OK");
-            }
-            Ok(output) => {
-                eprintln!("GCS binary exited with {:?}, removing", output.status);
-                let _ = std::fs::remove_file(&target_path);
-                return Err("Downloaded CLI binary exited with error on validation".to_string());
-            }
-            Err(e) => {
-                eprintln!("GCS binary failed to execute: {}, removing", e);
-                let _ = std::fs::remove_file(&target_path);
-                return Err(format!("Downloaded CLI binary is not a valid Windows executable: {}", e));
-            }
-        }
-    }
-
-    // 5c. (Unix) Sanity-check: verify the binary is a valid executable.
-    //     Catches corrupt downloads, wrong-architecture binaries, etc.
-    #[cfg(unix)]
-    {
-        match std::process::Command::new(&target_path)
-            .arg("--version")
-            .output()
-        {
-            Ok(output) if output.status.success() => {
-                eprintln!("GCS binary validated OK");
-            }
-            Ok(output) => {
-                eprintln!("GCS binary exited with {:?}, removing", output.status);
-                let _ = std::fs::remove_file(&target_path);
-                return Err("Downloaded CLI binary exited with error on validation".to_string());
-            }
-            Err(e) => {
-                eprintln!("GCS binary failed to execute: {}, removing", e);
-                let _ = std::fs::remove_file(&target_path);
-                return Err(format!("Downloaded CLI binary is not a valid executable: {}", e));
-            }
-        }
-    }
-
-    let _ = app.emit("setup:download:progress", serde_json::json!({
-        "downloaded": downloaded, "total": total, "percent": 100, "phase": "installing"
-    }));
-
-    // 6. Run `claude install` to complete setup
-    run_claude_install(&target_path).await;
-
-    Ok(())
+    eprintln!("Network detection: {}", if is_china { "China (Google unreachable)" } else { "Global (Google reachable)" });
+    is_china
 }
 
-/// Try npm install as fallback (uses npmmirror registry for China users).
+async fn is_china_network() -> bool {
+    if let Some(&cached) = CHINA_NETWORK.get() {
+        return cached;
+    }
+    let result = detect_china_network().await;
+    let _ = CHINA_NETWORK.set(result);
+    result
+}
+
+/// Install Claude CLI via npm. Supports system npm or local Node.js npm.
 /// Install Claude CLI via npm. Supports system npm or local Node.js npm.
 /// Uses --prefix to install into app-local directory when using local Node.js.
-async fn install_cli_via_npm(app: &AppHandle) -> Result<(), String> {
+async fn install_cli_via_npm(app: &AppHandle, china: bool) -> Result<(), String> {
     let _ = app.emit("setup:download:progress", serde_json::json!({
         "downloaded": 0, "total": 0, "percent": 0, "phase": "npm_fallback"
     }));
@@ -3047,10 +2920,19 @@ async fn install_cli_via_npm(app: &AppHandle) -> Result<(), String> {
             .map_err(|e| format!("Failed to create npm-global dir: {}", e))?;
     }
 
-    let registries = [
-        "https://registry.npmmirror.com",
-        "https://registry.npmjs.org",
-    ];
+    let registries: Vec<&str> = if china {
+        vec![
+            "https://registry.npmmirror.com",
+            "https://mirrors.huaweicloud.com/repository/npm",
+            "https://mirrors.cloud.tencent.com/npm",
+            "https://registry.npmjs.org",
+        ]
+    } else {
+        vec![
+            "https://registry.npmjs.org",
+            "https://registry.npmmirror.com",
+        ]
+    };
 
     let mut last_err = String::new();
     for registry in &registries {
@@ -3120,55 +3002,22 @@ async fn install_cli_via_npm(app: &AppHandle) -> Result<(), String> {
     Err(last_err)
 }
 
-/// Run `claude install` to set up symlinks, PATH entries, etc. Non-fatal on failure.
-/// Uses stdin(null) to prevent interactive prompts and a 30s timeout to avoid hangs.
-async fn run_claude_install(target_path: &std::path::Path) -> bool {
-    let enriched_path = build_enriched_path();
-    let mut cmd = Command::new(target_path.to_string_lossy().to_string());
-    cmd.arg("install")
-        .env("PATH", &enriched_path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(target_os = "windows")]
-    cmd.creation_flags(0x08000000);
-
-    let install_result = tokio::time::timeout(
-        std::time::Duration::from_secs(30),
-        cmd.output(),
-    ).await;
-
-    match install_result {
-        Ok(Ok(output)) if output.status.success() => true,
-        Ok(Ok(output)) => {
-            let stderr = strip_ansi(&String::from_utf8_lossy(&output.stderr));
-            eprintln!("claude install warning: {}", stderr);
-            false
-        },
-        Ok(Err(e)) => {
-            eprintln!("claude install failed to run: {} (non-fatal)", e);
-            false
-        },
-        Err(_) => {
-            eprintln!("claude install timed out after 30s (non-fatal)");
-            false
-        }
-    }
-}
-
-/// Install the Claude CLI with multi-tier fallback:
-/// 0. (Windows) Ensure git-bash is available — auto-install PortableGit if missing
-/// 1. Try GCS direct binary download (fastest, no Node.js needed)
-/// 2. If GCS fails → check npm availability → use npm to install
-/// 3. If npm unavailable → download Node.js locally → then npm install
+/// Install the Claude CLI via npm with network-aware mirror selection:
+/// 0. Detect network environment (China vs Global)
+/// 1. (Windows) Ensure git-bash is available — auto-install PortableGit if missing
+/// 2. Ensure npm is available — download Node.js locally if needed
+/// 3. Install CLI via npm with region-appropriate registry mirrors
 #[tauri::command]
 async fn install_claude_cli(app: AppHandle) -> Result<(), String> {
-    // Phase 0 (Windows only): Ensure git-bash is available
+    // Phase 0: Detect network environment (used by all subsequent phases)
+    let china = is_china_network().await;
+
+    // Phase 1 (Windows only): Ensure git-bash is available
     #[cfg(target_os = "windows")]
     {
         if find_git_bash().is_none() {
             eprintln!("git-bash not found, auto-installing PortableGit...");
-            install_git_bash_inner(&app).await.map_err(|e| {
+            install_git_bash_inner(&app, china).await.map_err(|e| {
                 format!(
                     "Failed to install Git for Windows: {}. \
                      Please install Git for Windows manually: https://git-scm.com/downloads/win",
@@ -3185,31 +3034,18 @@ async fn install_claude_cli(app: AppHandle) -> Result<(), String> {
         }
     }
 
-    // Phase 1: Try GCS direct download (fast path — works when not behind firewall)
-    match install_cli_via_gcs(&app).await {
-        Ok(()) => {
-            eprintln!("CLI installed via GCS direct download");
-            finalize_cli_install_paths(&app);
-            return Ok(());
-        }
-        Err(gcs_err) => {
-            eprintln!("GCS download failed: {}", gcs_err);
-        }
-    }
-
     // Phase 2: Ensure npm is available
     let has_npm = is_system_npm_available().await || get_local_node_bin().is_some();
 
     if !has_npm {
-        // Phase 2a: Download and deploy Node.js locally
         eprintln!("npm not available, deploying Node.js locally...");
-        install_node_env_inner(&app).await.map_err(|e| {
+        install_node_env_inner(&app, china).await.map_err(|e| {
             format!("Failed to install Node.js runtime: {}. Please install Node.js manually.", e)
         })?;
     }
 
-    // Phase 3: Install CLI via npm (local or system)
-    install_cli_via_npm(&app).await.map_err(|npm_err| {
+    // Phase 3: Install CLI via npm
+    install_cli_via_npm(&app, china).await.map_err(|npm_err| {
         format!("CLI installation failed via npm: {}", npm_err)
     })?;
 
@@ -3310,11 +3146,14 @@ fn finalize_cli_install_paths(app: &AppHandle) {
 /// Hardcoded Node.js LTS version for local deployment.
 const NODE_LTS_VERSION: &str = "v22.22.0";
 
-/// Primary Node.js download base URL.
-const NODE_DIST_BASE: &str = "https://nodejs.org/dist";
+/// Primary Node.js download base URL (official).
+const NODE_DIST_OFFICIAL: &str = "https://nodejs.org/dist";
 
-/// China mirror for Node.js downloads.
-const NODE_DIST_MIRROR: &str = "https://registry.npmmirror.com/mirrors/node";
+/// China mirror: npmmirror CDN for Node.js binaries.
+const NODE_DIST_NPMMIRROR: &str = "https://cdn.npmmirror.com/binaries/node";
+
+/// China mirror: Huawei Cloud for Node.js binaries.
+const NODE_DIST_HUAWEI: &str = "https://mirrors.huaweicloud.com/nodejs";
 
 /// Directory for app-local Node.js installation.
 fn node_download_dir() -> Result<std::path::PathBuf, String> {
@@ -3472,10 +3311,11 @@ async fn check_node_env() -> Result<NodeEnvStatus, String> {
 /// Download and extract Node.js LTS to the local app directory.
 #[tauri::command]
 async fn install_node_env(app: AppHandle) -> Result<(), String> {
-    install_node_env_inner(&app).await
+    let china = is_china_network().await;
+    install_node_env_inner(&app, china).await
 }
 
-async fn install_node_env_inner(app: &AppHandle) -> Result<(), String> {
+async fn install_node_env_inner(app: &AppHandle, china: bool) -> Result<(), String> {
     let (archive_name, ext) = get_node_archive_info()?;
     let filename = format!("{}.{}", archive_name, ext);
 
@@ -3484,15 +3324,24 @@ async fn install_node_env_inner(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| format!("Failed to create node dir: {}", e))?;
 
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(120))
         .build()
         .map_err(|e| format!("HTTP client error: {}", e))?;
 
-    // Try official first, then China mirror
-    let sources = [
-        format!("{}/{}/{}", NODE_DIST_BASE, NODE_LTS_VERSION, filename),
-        format!("{}/{}/{}", NODE_DIST_MIRROR, NODE_LTS_VERSION, filename),
-    ];
+    // Network-aware source ordering
+    let sources: Vec<String> = if china {
+        vec![
+            format!("{}/{}/{}", NODE_DIST_NPMMIRROR, NODE_LTS_VERSION, filename),
+            format!("{}/{}/{}", NODE_DIST_HUAWEI, NODE_LTS_VERSION, filename),
+            format!("{}/{}/{}", NODE_DIST_OFFICIAL, NODE_LTS_VERSION, filename),
+        ]
+    } else {
+        vec![
+            format!("{}/{}/{}", NODE_DIST_OFFICIAL, NODE_LTS_VERSION, filename),
+            format!("{}/{}/{}", NODE_DIST_NPMMIRROR, NODE_LTS_VERSION, filename),
+        ]
+    };
 
     let mut last_err = String::new();
     let mut archive_bytes: Option<Vec<u8>> = None;
@@ -3575,7 +3424,7 @@ const GIT_DIST_HUAWEI: &str = "https://mirrors.huaweicloud.com/git-for-windows";
 /// Download and install PortableGit to provide bash.exe on Windows.
 /// The .7z.exe self-extracting archive is downloaded and executed silently.
 #[cfg(target_os = "windows")]
-async fn install_git_bash_inner(app: &AppHandle) -> Result<(), String> {
+async fn install_git_bash_inner(app: &AppHandle, china: bool) -> Result<(), String> {
     let install_dir = git_download_dir()?;
 
     // If an incomplete installation exists (no bash.exe), clean it up
@@ -3603,13 +3452,20 @@ async fn install_git_bash_inner(app: &AppHandle) -> Result<(), String> {
     };
     let filename = format!("PortableGit-{}-{}-bit.7z.exe", GIT_PORTABLE_VERSION, arch_suffix);
 
-    let sources = [
-        // China mirrors first (target audience is primarily Chinese users)
-        format!("{}/{}/{}", GIT_DIST_NPMMIRROR, GIT_RELEASE_TAG, filename),
-        format!("{}/{}/{}", GIT_DIST_HUAWEI, GIT_RELEASE_TAG, filename),
-        // GitHub as last resort (may be slow/blocked behind firewall)
-        format!("{}/{}/{}", GIT_DIST_GITHUB, GIT_RELEASE_TAG, filename),
-    ];
+    let sources: Vec<String> = if china {
+        vec![
+            // China: Huawei fastest, then npmmirror, GitHub last
+            format!("{}/{}/{}", GIT_DIST_HUAWEI, GIT_RELEASE_TAG, filename),
+            format!("{}/{}/{}", GIT_DIST_NPMMIRROR, GIT_RELEASE_TAG, filename),
+            format!("{}/{}/{}", GIT_DIST_GITHUB, GIT_RELEASE_TAG, filename),
+        ]
+    } else {
+        vec![
+            format!("{}/{}/{}", GIT_DIST_GITHUB, GIT_RELEASE_TAG, filename),
+            format!("{}/{}/{}", GIT_DIST_HUAWEI, GIT_RELEASE_TAG, filename),
+            format!("{}/{}/{}", GIT_DIST_NPMMIRROR, GIT_RELEASE_TAG, filename),
+        ]
+    };
 
     let client = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(15)) // Fast failover between mirrors
