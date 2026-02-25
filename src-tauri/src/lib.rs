@@ -93,11 +93,30 @@ fn is_valid_executable(path: &std::path::Path) -> bool {
     #[cfg(not(target_os = "windows"))]
     {
         use std::os::unix::fs::PermissionsExt;
-        if let Ok(metadata) = std::fs::metadata(path) {
-            metadata.permissions().mode() & 0o111 != 0
-        } else {
-            false
+        let Ok(metadata) = std::fs::metadata(path) else { return false };
+        // Must have execute permission
+        if metadata.permissions().mode() & 0o111 == 0 {
+            return false;
         }
+        // Check file header: must be a valid Mach-O, universal binary, or shebang script.
+        // This catches corrupted downloads that still have +x permission.
+        if let Ok(mut f) = std::fs::File::open(path) {
+            use std::io::Read;
+            let mut magic = [0u8; 4];
+            if f.read_exact(&mut magic).is_ok() {
+                return matches!(
+                    magic,
+                    [0xCF, 0xFA, 0xED, 0xFE] // Mach-O 64-bit (little-endian, Apple Silicon / Intel)
+                    | [0xCE, 0xFA, 0xED, 0xFE] // Mach-O 32-bit (little-endian)
+                    | [0xFE, 0xED, 0xFA, 0xCF] // Mach-O 64-bit (big-endian)
+                    | [0xFE, 0xED, 0xFA, 0xCE] // Mach-O 32-bit (big-endian)
+                    | [0xCA, 0xFE, 0xBA, 0xBE] // Universal/fat binary
+                    | [0x23, 0x21, _, _]        // Shebang script (#!/...)
+                    | [0x7F, 0x45, 0x4C, 0x46]  // ELF (Linux — valid on Linux hosts)
+                );
+            }
+        }
+        false
     }
 }
 
@@ -1039,6 +1058,32 @@ async fn start_claude_session(
                 eprintln!("chmod +x succeeded, retrying spawn...");
                 spawn_unix(&claude_bin)
                     .map_err(|e2| format!("Failed to spawn claude (tried '{}', retried after chmod +x): {}", claude_bin, e2))?
+            }
+            Err(e) if e.raw_os_error() == Some(88) || e.raw_os_error() == Some(8) => {
+                // ENOEXEC (88 on macOS, 8 on Linux) — Malformed binary.
+                // Delete the corrupt binary and try to find an alternative.
+                eprintln!("ENOEXEC on '{}' (malformed binary), cleaning up and retrying...", claude_bin);
+                if let Some(cli_dir) = cli_download_dir() {
+                    let suspect = cli_dir.join("claude");
+                    if suspect.exists() {
+                        let _ = std::fs::remove_file(&suspect);
+                        eprintln!("Removed corrupt binary: {:?}", suspect);
+                    }
+                }
+                let alt_bin = find_claude_binary().unwrap_or_else(|| "claude".to_string());
+                if alt_bin == claude_bin {
+                    return Err(format!(
+                        "Failed to spawn claude (tried '{}', binary is malformed/corrupt — \
+                         please reinstall CLI from Settings): {}",
+                        claude_bin, e
+                    ));
+                }
+                eprintln!("Retrying with alternative: {}", alt_bin);
+                spawn_unix(&alt_bin)
+                    .map_err(|e2| format!(
+                        "Failed to spawn claude (tried '{}' then '{}'): {}",
+                        claude_bin, alt_bin, e2
+                    ))?
             }
             Err(e) => {
                 return Err(format!("Failed to spawn claude (tried '{}'): {}", claude_bin, e));
@@ -2931,6 +2976,30 @@ async fn install_cli_via_gcs(app: &AppHandle) -> Result<(), String> {
                 eprintln!("GCS binary failed to execute: {}, removing", e);
                 let _ = std::fs::remove_file(&target_path);
                 return Err(format!("Downloaded CLI binary is not a valid Windows executable: {}", e));
+            }
+        }
+    }
+
+    // 5c. (Unix) Sanity-check: verify the binary is a valid executable.
+    //     Catches corrupt downloads, wrong-architecture binaries, etc.
+    #[cfg(unix)]
+    {
+        match std::process::Command::new(&target_path)
+            .arg("--version")
+            .output()
+        {
+            Ok(output) if output.status.success() => {
+                eprintln!("GCS binary validated OK");
+            }
+            Ok(output) => {
+                eprintln!("GCS binary exited with {:?}, removing", output.status);
+                let _ = std::fs::remove_file(&target_path);
+                return Err("Downloaded CLI binary exited with error on validation".to_string());
+            }
+            Err(e) => {
+                eprintln!("GCS binary failed to execute: {}, removing", e);
+                let _ = std::fs::remove_file(&target_path);
+                return Err(format!("Downloaded CLI binary is not a valid executable: {}", e));
             }
         }
     }

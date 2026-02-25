@@ -756,7 +756,14 @@ function CliSection() {
             {t('cli.check')}
           </button>
           <button
-            onClick={handleInstall}
+            onClick={async () => {
+              if (status !== 'not_found') {
+                const { ask } = await import('@tauri-apps/plugin-dialog');
+                const confirmed = await ask(t('cli.confirmReinstall'), { title: 'TOKENICODE', kind: 'warning' });
+                if (!confirmed) return;
+              }
+              handleInstall();
+            }}
             className={`flex-1 py-1.5 text-[11px] font-medium rounded-lg transition-smooth
               ${status === 'not_found'
                 ? 'bg-accent text-text-inverse hover:bg-accent-hover'

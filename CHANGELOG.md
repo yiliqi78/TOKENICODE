@@ -6,6 +6,28 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.6.8] - 2026-02-25
+
+### Bug Fixes
+
+- **macOS/Linux Malformed Binary (ENOEXEC)** — If the downloaded CLI binary is corrupt or for the wrong architecture, macOS reports "Malformed Mach-o file (os error 88)". Three fixes: (1) `is_valid_executable()` now validates Mach-O magic bytes / shebang headers on Unix, so `find_claude_binary()` rejects corrupt files upfront; (2) the Unix spawn path detects ENOEXEC (88) errors, auto-deletes the bad binary, and retries with an alternative; (3) GCS download now runs `claude --version` post-download validation on Unix (previously Windows-only), catching bad binaries before they're ever used.
+
+### Improvements
+
+- **Confirmation Dialogs** — "Reinstall CLI" button and window close (red X / Cmd+Q / `/exit`) now require user confirmation to prevent accidental operations. First-time installs (CLI not found) skip confirmation and proceed directly.
+
+---
+
+### 修复
+
+- **macOS/Linux CLI 二进制损坏（ENOEXEC）** — 如果下载的 CLI 二进制文件损坏或架构不匹配，macOS 报 "Malformed Mach-o file (os error 88)"。三处修复：(1) `is_valid_executable()` 现在验证 Unix 下的 Mach-O magic bytes / shebang 头，从源头拒绝损坏文件；(2) Unix spawn 路径检测 ENOEXEC (88) 错误时自动删除坏文件并尝试替代二进制；(3) GCS 下载现在在 Unix 上也执行 `claude --version` 后验证（此前仅 Windows），在使用前捕获坏文件。
+
+### 改进
+
+- **操作确认弹窗** — 「重新安装 CLI」和关闭窗口（红色关闭按钮 / Cmd+Q / `/exit`）现在需要用户确认，防止误操作。首次安装（CLI 未找到时）跳过确认，直接开始安装。
+
+---
+
 ## [0.6.7] - 2026-02-25
 
 ### Bug Fixes

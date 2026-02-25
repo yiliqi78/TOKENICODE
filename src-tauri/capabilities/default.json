@@ -12,6 +12,7 @@
     "dialog:default",
     "shell:default",
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    "process:allow-exit"
   ]
 }

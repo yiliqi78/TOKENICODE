@@ -1,6 +1,6 @@
 [package]
 name = "tokenicode"
-version = "0.6.7"
+version = "0.6.8"
 description = "TOKENICODE - A beautiful GUI for Claude Code"
 authors = ["TinyZ"]
 license = "Apache-2.0"

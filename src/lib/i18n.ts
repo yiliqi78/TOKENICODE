@@ -333,6 +333,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'slash.desc.cost': '显示会话费用和 Token 用量',
     'slash.desc.doctor': '检查 Claude Code 运行状态',
     'slash.desc.exit': '关闭应用程序',
+    'confirm.exit': '确定要关闭应用程序吗？',
     'slash.desc.export': '导出任务为 Markdown',
     'slash.desc.help': '显示可用命令',
     'slash.desc.init': '初始化项目配置',
@@ -505,6 +506,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'cli.configuring': '正在配置...',
     'cli.npmFallback': '通过 npm 镜像安装...',
     'cli.reinstallHint': '点击重新安装以修复',
+    'cli.confirmReinstall': '确定要重新安装 CLI 吗？这将重新下载并替换当前的 CLI 二进制文件。',
     'cli.restart': '重启应用以生效',
 
     // Update
@@ -899,6 +901,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'slash.desc.cost': 'Show session cost and token usage',
     'slash.desc.doctor': 'Check Claude Code health status',
     'slash.desc.exit': 'Close the application',
+    'confirm.exit': 'Are you sure you want to close the application?',
     'slash.desc.export': 'Export task to markdown',
     'slash.desc.help': 'Show available commands',
     'slash.desc.init': 'Initialize project configuration',
@@ -1071,6 +1074,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'cli.configuring': 'Configuring...',
     'cli.npmFallback': 'Installing via npm mirror...',
     'cli.reinstallHint': 'Click reinstall to fix',
+    'cli.confirmReinstall': 'Are you sure you want to reinstall the CLI? This will re-download and replace the current CLI binary.',
     'cli.restart': 'Restart app to apply',
 
     // Update

@@ -87,6 +87,34 @@ function App() {
   // Auto-check for updates on startup
   useAutoUpdateCheck();
 
+  // Confirm before closing the window (red X / Cmd+Q)
+  const closePendingRef = useRef(false);
+  const tRef = useRef(t);
+  tRef.current = t;
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+      const win = getCurrentWindow();
+      win.onCloseRequested(async (event) => {
+        if (closePendingRef.current) { event.preventDefault(); return; }
+        event.preventDefault();
+        closePendingRef.current = true;
+        try {
+          const { ask } = await import('@tauri-apps/plugin-dialog');
+          const confirmed = await ask(tRef.current('confirm.exit'), { title: 'TOKENICODE', kind: 'warning' });
+          if (confirmed) {
+            const { exit } = await import('@tauri-apps/plugin-process');
+            await exit(0);
+          }
+        } finally {
+          closePendingRef.current = false;
+        }
+      }).then((fn) => { unlisten = fn; });
+    });
+    return () => { unlisten?.(); };
+  }, []);
+
   // macOS Full Disk Access check — detect TCC restrictions on startup
   const [showPermDialog, setShowPermDialog] = useState(false);
   useEffect(() => {

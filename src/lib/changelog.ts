@@ -13,6 +13,38 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.6.8',
+    date: '2026-02-25',
+    highlights: {
+      zh: [
+        'macOS/Linux CLI 二进制损坏修复 — 检测到 Mach-O 魔术字节无效时自动删除坏文件并重试，GCS 下载后增加 --version 验证',
+        '操作确认弹窗 — 重新安装 CLI 和关闭窗口现在需要用户确认，防止误操作',
+      ],
+      en: [
+        'macOS/Linux malformed binary fix — Auto-deletes corrupt CLI binaries (invalid Mach-O magic bytes) and retries, GCS downloads now validated with --version',
+        'Confirmation dialogs — Reinstall CLI and window close now require user confirmation to prevent accidental operations',
+      ],
+    },
+  },
+  {
+    version: '0.6.7',
+    date: '2026-02-25',
+    highlights: {
+      zh: [
+        'macOS/Linux CLI 权限修复 — 执行权限丢失时自动 chmod +x 并重试',
+        'API Key 切换生效 — 换 Key 后正确终止旧进程并用新 Key 重建会话',
+        'CLI 配置覆盖修复 — 阻止 ~/.claude/settings.json 静默覆盖应用注入的 API 端点',
+        '损坏凭证自动清理 — 无法解密的 credentials.enc 自动删除，用户可重新输入',
+      ],
+      en: [
+        'macOS/Linux CLI permission fix — Auto chmod +x and retry on execute permission loss',
+        'API Key switch fix — Changing keys now correctly kills old process and rebuilds session',
+        'CLI config override fix — Prevents ~/.claude/settings.json from silently overriding injected API endpoints',
+        'Corrupted credentials auto-cleanup — Unreadable credentials.enc auto-deleted for clean re-entry',
+      ],
+    },
+  },
+  {
     version: '0.6.6',
     date: '2026-02-25',
     highlights: {
