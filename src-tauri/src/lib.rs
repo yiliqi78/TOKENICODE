@@ -373,6 +373,37 @@ fn find_newest_version_bin(base_dir: &std::path::Path, bin_name: &str) -> Option
     None
 }
 
+/// On macOS/Linux, GUI apps inherit a minimal launchd PATH and miss version
+/// managers (nvm, volta, fnm) that are set up in login-shell config files.
+/// This function spawns a login shell once, captures its PATH, and caches it
+/// for the lifetime of the process via OnceLock.
+#[cfg(not(target_os = "windows"))]
+fn login_shell_extra_path() -> &'static str {
+    static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        let output = std::process::Command::new(&shell)
+            .args(["-l", "-c", "echo $PATH"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output();
+        match output {
+            Ok(o) if o.status.success() => {
+                let p = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if !p.is_empty() {
+                    eprintln!("login shell PATH captured ({} entries)", p.split(':').count());
+                }
+                p
+            }
+            _ => {
+                eprintln!("login shell PATH capture failed");
+                String::new()
+            }
+        }
+    })
+}
+
 /// Build an enriched PATH that includes common binary locations
 fn build_enriched_path() -> String {
     let current = std::env::var("PATH").unwrap_or_default();
@@ -426,18 +457,113 @@ fn build_enriched_path() -> String {
             paths.push(home.join("scoop").join("shims").to_string_lossy().to_string());
             paths.push(home.join(".cargo").join("bin").to_string_lossy().to_string());
             paths.push(home.join(".volta").join("bin").to_string_lossy().to_string());
+
+            // nvm-windows: version dirs inside %NVM_HOME% (or %APPDATA%\nvm)
+            let nvm_home = std::env::var("NVM_HOME")
+                .map(std::path::PathBuf::from)
+                .or_else(|_| dirs::config_dir().map(|d| d.join("nvm")).ok_or(()))
+                .ok();
+            if let Some(ref nvm_dir) = nvm_home {
+                if nvm_dir.is_dir() {
+                    if let Ok(entries) = std::fs::read_dir(nvm_dir) {
+                        let mut version_dirs: Vec<std::path::PathBuf> = entries
+                            .flatten()
+                            .filter(|e| {
+                                e.path().is_dir()
+                                    && e.file_name().to_string_lossy().starts_with('v')
+                            })
+                            .map(|e| e.path())
+                            .collect();
+                        version_dirs.sort();
+                        if let Some(latest) = version_dirs.last() {
+                            paths.push(latest.to_string_lossy().to_string());
+                        }
+                    }
+                }
+            }
+            // nvm-windows symlink (typically C:\Program Files\nodejs)
+            if let Ok(symlink) = std::env::var("NVM_SYMLINK") {
+                paths.push(symlink);
+            }
+
+            // fnm on Windows
+            paths.push(home.join(".fnm").join("aliases").join("default").to_string_lossy().to_string());
+
+            // Standard Node.js install path
+            if let Ok(pf) = std::env::var("ProgramFiles") {
+                let node_path = format!("{}\\nodejs", pf);
+                paths.push(node_path);
+            }
         }
         #[cfg(not(target_os = "windows"))]
         {
             paths.push(home.join(".cargo/bin").to_string_lossy().to_string());
             paths.push(home.join(".local/bin").to_string_lossy().to_string());
             paths.push(home.join(".npm-global/bin").to_string_lossy().to_string());
+
+            // volta (version manager) — shims live here
+            paths.push(home.join(".volta/bin").to_string_lossy().to_string());
+
+            // fnm (version manager) — default alias symlink
+            paths.push(
+                home.join(".fnm/aliases/default/bin")
+                    .to_string_lossy()
+                    .to_string(),
+            );
+
+            // nvm: find the latest installed Node.js version
+            let nvm_dir = std::env::var("NVM_DIR")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|_| home.join(".nvm"));
+            let nvm_versions = nvm_dir.join("versions/node");
+            if nvm_versions.is_dir() {
+                if let Ok(entries) = std::fs::read_dir(&nvm_versions) {
+                    let mut version_dirs: Vec<std::path::PathBuf> = entries
+                        .flatten()
+                        .filter(|e| e.path().is_dir())
+                        .map(|e| e.path())
+                        .collect();
+                    version_dirs.sort_by(|a, b| {
+                        let parse_ver = |p: &std::path::Path| -> (u32, u32, u32) {
+                            let name = p.file_name().unwrap_or_default().to_string_lossy();
+                            let s = name.strip_prefix('v').unwrap_or(&name);
+                            let parts: Vec<u32> =
+                                s.split('.').filter_map(|x| x.parse().ok()).collect();
+                            (
+                                parts.first().copied().unwrap_or(0),
+                                parts.get(1).copied().unwrap_or(0),
+                                parts.get(2).copied().unwrap_or(0),
+                            )
+                        };
+                        parse_ver(a).cmp(&parse_ver(b))
+                    });
+                    if let Some(latest) = version_dirs.last() {
+                        paths.push(latest.join("bin").to_string_lossy().to_string());
+                    }
+                }
+            }
         }
     }
     #[cfg(not(target_os = "windows"))]
     {
         paths.push("/opt/homebrew/bin".to_string());
         paths.push("/usr/local/bin".to_string());
+    }
+
+    // Merge login shell PATH (macOS/Linux) to catch version managers we missed
+    #[cfg(not(target_os = "windows"))]
+    {
+        let shell_path = login_shell_extra_path();
+        if !shell_path.is_empty() {
+            let existing: std::collections::HashSet<String> =
+                paths.iter().cloned().collect();
+            let extra: Vec<String> = shell_path
+                .split(':')
+                .filter(|p| !p.is_empty() && !existing.contains(*p))
+                .map(|p| p.to_string())
+                .collect();
+            paths.extend(extra);
+        }
     }
 
     let mut result = paths.join(separator);
@@ -3213,6 +3339,8 @@ fn get_node_archive_info() -> Result<(String, &'static str), String> {
 /// Check if npm is available on the system (not counting local Node.js).
 async fn is_system_npm_available() -> bool {
     let enriched_path = build_enriched_path();
+
+    // 1. Direct PATH check
     #[cfg(target_os = "windows")]
     let result = {
         let mut cmd = Command::new("cmd");
@@ -3231,7 +3359,32 @@ async fn is_system_npm_available() -> bool {
         tokio::time::timeout(std::time::Duration::from_secs(10), cmd.output()).await
     };
 
-    matches!(result, Ok(Ok(output)) if output.status.success())
+    if matches!(&result, Ok(Ok(output)) if output.status.success()) {
+        return true;
+    }
+
+    // 2. Fallback: login shell (macOS/Linux GUI apps don't inherit shell PATH)
+    #[cfg(not(target_os = "windows"))]
+    {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        let shell_result = {
+            let mut cmd = Command::new(&shell);
+            cmd.args(["-l", "-c", "npm --version"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null());
+            tokio::time::timeout(std::time::Duration::from_secs(10), cmd.output()).await
+        };
+        if matches!(shell_result, Ok(Ok(output)) if output.status.success()) {
+            eprintln!(
+                "npm found via login shell ({}) but not via enriched PATH",
+                shell
+            );
+            return true;
+        }
+    }
+
+    false
 }
 
 #[derive(Serialize)]

@@ -52,6 +52,8 @@ interface SettingsState {
   updateAvailable: boolean;
   /** Version string of the available update */
   updateVersion: string;
+  /** Whether the update has been downloaded and is ready for restart (transient, not persisted) */
+  updateDownloaded: boolean;
   /** Last app version the user has seen the changelog for */
   lastSeenVersion: string;
 
@@ -94,6 +96,7 @@ interface SettingsState {
   setSetupCompleted: (completed: boolean) => void;
   setThinkingLevel: (level: ThinkingLevel) => void;
   setUpdateAvailable: (available: boolean, version?: string) => void;
+  setUpdateDownloaded: (downloaded: boolean) => void;
   setLastSeenVersion: (version: string) => void;
 
   // --- API Provider actions ---
@@ -137,6 +140,7 @@ export const useSettingsStore = create<SettingsState>()(
       thinkingLevel: 'medium' as ThinkingLevel,
       updateAvailable: false,
       updateVersion: '',
+      updateDownloaded: false,
       lastSeenVersion: '',
 
       // API Provider defaults
@@ -222,8 +226,11 @@ export const useSettingsStore = create<SettingsState>()(
         set(() => ({
           updateAvailable: available,
           ...(version !== undefined ? { updateVersion: version } : {}),
-          ...(!available ? { updateVersion: '' } : {}),
+          ...(!available ? { updateVersion: '', updateDownloaded: false } : {}),
         })),
+
+      setUpdateDownloaded: (downloaded) =>
+        set(() => ({ updateDownloaded: downloaded })),
 
       setLastSeenVersion: (version) =>
         set(() => ({ lastSeenVersion: version })),

@@ -308,6 +308,12 @@ const messages: Record<Locale, Record<string, string>> = {
     'api.testNoModel': '请先填写至少一个模型名',
     'api.testModelWarn': '连接正常，模型名有误',
     'api.testAuthError': '认证失败，请检查 API Key',
+    'api.importConfig': '导入配置',
+    'api.exportConfig': '导出配置',
+    'api.importTitle': '选择 API 配置文件',
+    'api.exportTitle': '导出 API 配置',
+    'api.importSuccess': '导入成功',
+    'api.exportSuccess': '已导出',
 
     // Slash commands
     'slash.commands': '命令',
@@ -876,6 +882,12 @@ const messages: Record<Locale, Record<string, string>> = {
     'api.testNoModel': 'Enter at least one model name first',
     'api.testModelWarn': 'Connected, wrong model name',
     'api.testAuthError': 'Auth failed, check API Key',
+    'api.importConfig': 'Import Config',
+    'api.exportConfig': 'Export Config',
+    'api.importTitle': 'Select API config file',
+    'api.exportTitle': 'Export API config',
+    'api.importSuccess': 'Imported',
+    'api.exportSuccess': 'Exported',
 
     // Slash commands
     'slash.commands': 'Commands',

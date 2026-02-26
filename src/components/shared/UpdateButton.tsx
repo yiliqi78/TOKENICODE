@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { getUpdateHandle } from '../../hooks/useAutoUpdateCheck';
 import { useT } from '../../lib/i18n';
@@ -7,20 +7,27 @@ type Phase = 'idle' | 'downloading' | 'ready';
 
 /**
  * Compact update button for the top bar.
- * Visible only when an update is available.
- * Click → download & install → restart prompt.
+ * - Background download is handled by useAutoUpdateCheck.
+ * - When download completes (`updateDownloaded`), shows "restart" directly.
+ * - If background download failed, user can click to retry manually.
  */
 export function UpdateButton() {
   const updateAvailable = useSettingsStore((s) => s.updateAvailable);
   const updateVersion = useSettingsStore((s) => s.updateVersion);
+  const updateDownloaded = useSettingsStore((s) => s.updateDownloaded);
   const t = useT();
 
-  const [phase, setPhase] = useState<Phase>('idle');
+  const [phase, setPhase] = useState<Phase>(updateDownloaded ? 'ready' : 'idle');
   const [progress, setProgress] = useState(0);
+
+  // Sync phase when background download completes
+  useEffect(() => {
+    if (updateDownloaded) setPhase('ready');
+  }, [updateDownloaded]);
 
   const handleClick = useCallback(async () => {
     if (phase === 'ready') {
-      // Restart
+      // Restart to apply update
       const { relaunch } = await import('@tauri-apps/plugin-process');
       await relaunch();
       return;
@@ -28,7 +35,7 @@ export function UpdateButton() {
 
     if (phase === 'downloading') return; // Already in progress
 
-    // Get cached handle or re-check
+    // Manual download fallback — background download may have failed
     let handle = getUpdateHandle();
     if (!handle) {
       try {
@@ -55,6 +62,7 @@ export function UpdateButton() {
         }
       });
       setPhase('ready');
+      useSettingsStore.getState().setUpdateDownloaded(true);
     } catch {
       setPhase('idle');
     }
