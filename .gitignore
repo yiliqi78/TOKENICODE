@@ -38,5 +38,8 @@ src-tauri/target/
 .env.*
 !.env.example
 
+# npm lock (project uses pnpm)
+package-lock.json
+
 # Obsidian
 .obsidian/
