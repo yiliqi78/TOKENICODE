@@ -6,6 +6,32 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.6.11] - 2026-02-26
+
+### Fixed
+
+- **Windows npm EPERM** — npm install now uses an app-local cache directory (`--cache`), avoiding EPERM errors when the system npm cache is locked by antivirus or another process.
+
+- **Windows PowerShell `claude` not found** — npm install now always uses `--prefix` to install into our controlled directory, ensuring `claude.cmd` lands where PATH is configured. Previously, system npm installs could place the binary outside the managed PATH.
+
+- **macOS Xcode CLT popup** — Added `resolve_git_binary()` that checks `xcode-select -p` before spawning git. When CLT is not installed, the app scans Homebrew/MacPorts/Nix paths instead of triggering the system install dialog. If no git is found, snapshot/rewind silently degrades.
+
+- **Misleading "need VPN" error** — Added `isPermissionError()` classifier. When npm fails with EPERM (wrapped in FetchError), the UI now correctly shows "permission denied" instead of "network error — need VPN". Both SettingsPanel and SetupWizard updated.
+
+---
+
+### 修复
+
+- **Windows npm EPERM** — npm install 现使用应用内缓存目录（`--cache`），避免系统 npm 缓存被杀毒软件或其他进程锁定导致 EPERM 错误。
+
+- **Windows PowerShell 找不到 `claude`** — npm install 现始终使用 `--prefix` 安装到应用控制的目录，确保 `claude.cmd` 落在已配置的 PATH 中。
+
+- **macOS Xcode CLT 弹窗** — 新增 `resolve_git_binary()`，先检查 `xcode-select -p` 再执行 git。CLT 未装时扫描 Homebrew/MacPorts/Nix 路径，不触发系统安装对话框。无 git 时快照/回退静默降级。
+
+- **误导性「需要 VPN」错误提示** — 新增 `isPermissionError()` 分类器。npm 因 EPERM 失败（被 FetchError 包裹）时，UI 现正确显示「权限不足」而非「网络错误——需要 VPN」。
+
+---
+
 ## [0.6.10] - 2026-02-26
 
 ### Added

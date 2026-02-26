@@ -13,6 +13,24 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.6.11',
+    date: '2026-02-26',
+    highlights: {
+      zh: [
+        '修复 Windows npm EPERM — 使用应用内缓存目录，避免杀毒软件锁定导致安装失败',
+        '修复 Windows PowerShell 找不到 claude — 始终安装到受控目录，确保 PATH 生效',
+        '修复 macOS Xcode CLT 弹窗 — 无 CLT 时不再触发安装对话框，自动扫描 Homebrew/MacPorts',
+        '修复误导性错误提示 — EPERM 错误不再显示「需要 VPN」，改为正确的权限提示',
+      ],
+      en: [
+        'Fix Windows npm EPERM — Uses app-local cache dir, avoids antivirus-locked cache failures',
+        'Fix Windows PowerShell can\'t find claude — Always installs to controlled dir, ensures PATH works',
+        'Fix macOS Xcode CLT popup — No longer triggers install dialog without CLT, scans Homebrew/MacPorts',
+        'Fix misleading error hint — EPERM errors now show "permission denied" instead of "need VPN"',
+      ],
+    },
+  },
+  {
     version: '0.6.10',
     date: '2026-02-26',
     highlights: {
