@@ -6,6 +6,32 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.6.13] - 2026-02-26
+
+### Fixed
+
+- **App icon white border** — Regenerated all app icons (PNG/ICO/ICNS) from the in-app SVG logo. The original icons had white corner pixels causing visible white borders in macOS Dock, Launchpad, and Windows taskbar. Now uses rounded rectangle with transparent corners.
+
+### Changed
+
+- **DevTools in release builds** — Enabled `devtools` feature for Tauri, allowing `Cmd+Option+I` (macOS) / `Ctrl+Shift+I` (Windows) to open Chrome DevTools in production builds for diagnosing rendering issues.
+
+- **Repo cleanup** — Removed obsolete files (`CHANGES_0.5.5.md`, `PLAN.md`, `WINDOWS_TEST_CHECKLIST.md`, `icon/`, `package-lock.json`) to reduce repository size.
+
+---
+
+### 修复
+
+- **应用图标白边** — 基于软件内 SVG logo 重新生成全部应用图标（PNG/ICO/ICNS）。原图标四角为白色像素，导致 macOS Dock、启动台和 Windows 任务栏出现白边。现使用圆角矩形 + 透明底。
+
+### 变更
+
+- **Release 构建开启 DevTools** — 启用 Tauri `devtools` feature，正式版可通过 `Cmd+Option+I`（macOS）/ `Ctrl+Shift+I`（Windows）打开开发者工具，便于诊断白屏等问题。
+
+- **仓库清理** — 移除过时文件（`CHANGES_0.5.5.md`、`PLAN.md`、`WINDOWS_TEST_CHECKLIST.md`、`icon/`、`package-lock.json`），精简仓库体积。
+
+---
+
 ## [0.6.12] - 2026-02-26
 
 ### Fixed
@@ -16,15 +42,11 @@ All notable changes to TOKENICODE will be documented in this file.
 
 - **Build script security** — Removed hardcoded Apple credentials and signing key password from `build-macos-local.sh`. Now loads from `.env` file or environment variables. Added `.env.example` template and `.env*` to `.gitignore`.
 
-- **App icon white border** — Regenerated all app icons (PNG/ICO/ICNS) from the in-app SVG logo. The original icons had white corner pixels that caused visible white borders in macOS Dock, Launchpad, and Windows taskbar. Now uses a rounded rectangle with transparent corners, matching the in-app appearance.
-
 ### Changed
 
 - **File change indicators** — All file tree change markers (M badge, filename color, directory dot, count badge) now use consistent success green instead of accent color.
 
 - **File tree toolbar** — Merged the "clear markers" and "refresh" buttons into a single refresh button that does both actions.
-
-- **DevTools in release builds** — Enabled the `devtools` feature for Tauri, allowing users to open Chrome DevTools via `Cmd+Option+I` (macOS) / `Ctrl+Shift+I` (Windows) in production builds. Helps diagnose rendering issues like white screens without requiring dev mode.
 
 ### Removed
 
@@ -40,15 +62,11 @@ All notable changes to TOKENICODE will be documented in this file.
 
 - **构建脚本安全** — 移除 `build-macos-local.sh` 中硬编码的 Apple 凭证和签名密钥。现从 `.env` 文件或环境变量读取，新增 `.env.example` 模板。
 
-- **应用图标白边** — 基于软件内 SVG logo 重新生成全部应用图标（PNG/ICO/ICNS）。原图标四角为白色像素，导致 macOS Dock、启动台和 Windows 任务栏出现白边。现使用圆角矩形 + 透明底，与软件内显示一致。
-
 ### 变更
 
 - **文件变更标记** — 文件树中所有变更指示器（M 徽章、文件名颜色、目录圆点、计数徽章）统一使用绿色。
 
 - **文件树工具栏** — 「清理标记」和「刷新」按钮合并为一个刷新按钮，点击同时执行两个操作。
-
-- **Release 构建开启 DevTools** — 为 Tauri 启用 `devtools` feature，用户在正式版中可通过 `Cmd+Option+I`（macOS）/ `Ctrl+Shift+I`（Windows）打开 Chrome DevTools，便于诊断白屏等渲染问题。
 
 ### 移除
 
