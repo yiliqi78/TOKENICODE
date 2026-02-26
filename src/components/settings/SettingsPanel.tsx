@@ -312,7 +312,20 @@ function ApiProviderSection() {
     setKeyStatus('editing');
     clearTimeout(saveKeyTimerRef.current);
     const trimmed = cleanValue.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      // Key cleared — delete from disk and reset state
+      saveKeyTimerRef.current = setTimeout(async () => {
+        try {
+          await bridge.deleteApiKey();
+          setKeyStatus('empty');
+          const { useSettingsStore: getSettings } = await import('../../stores/settingsStore');
+          getSettings.getState().bumpApiKeyVersion();
+        } catch (e) {
+          console.error('Failed to delete API key:', e);
+        }
+      }, 800);
+      return;
+    }
     saveKeyTimerRef.current = setTimeout(async () => {
       try {
         await bridge.saveApiKey(trimmed);

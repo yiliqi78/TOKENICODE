@@ -68,7 +68,7 @@ export const useFileStore = create<FileState>()((set, get) => ({
       ...(isNewDir ? { tree: [] } : {}),
     });
     try {
-      const tree = await bridge.readFileTree(path, 3);
+      const tree = await bridge.readFileTree(path, 8);
       // Guard: only apply if rootPath hasn't changed during async load
       if (get().rootPath === path) {
         set({ tree, isLoading: false, changedFiles: new Map() });
@@ -84,7 +84,7 @@ export const useFileStore = create<FileState>()((set, get) => ({
     const dir = overridePath || get().rootPath;
     if (!dir) return;
     try {
-      const tree = await bridge.readFileTree(dir, 3);
+      const tree = await bridge.readFileTree(dir, 8);
       // Sync rootPath if override was used and differs
       if (overridePath && overridePath !== get().rootPath) {
         set({ tree, rootPath: overridePath });

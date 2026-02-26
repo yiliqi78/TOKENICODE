@@ -1843,6 +1843,10 @@ fn read_dir_recursive(dir: &std::path::Path, current_depth: u32, max_depth: u32)
         // Skip specific ignored dirs (but show dotfiles like .claude, .github, .vscode)
         if name == "node_modules" || name == "target" || name == "__pycache__"
             || name == ".git" || name == ".DS_Store" || name == "Thumbs.db"
+            || name == ".venv" || name == "venv" || name == ".env"
+            || name == "dist" || name == "build" || name == ".next"
+            || name == ".nuxt" || name == ".parcel-cache" || name == "coverage"
+            || name == ".turbo" || name == ".svelte-kit"
         {
             continue;
         }

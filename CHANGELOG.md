@@ -6,6 +6,56 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.6.14] - 2026-02-26
+
+### Fixed
+
+- **Session reload skill content leak** — Skill content (injected via `isMeta` messages) no longer appears as green user bubbles when reloading a session from disk. Also properly routes `toolUseResult` messages to their parent tool_use cards instead of silently dropping them.
+
+- **Windows icon blurry** — Regenerated `icon.ico` from 1 layer (16×16, 685 bytes) to 7 layers (16–256px, 20 KB). Windows taskbar and desktop shortcuts now display crisp icons instead of upscaled 16px blobs.
+
+- **API Key not deleted on clear** — Clearing the API key input now actually deletes the key file from disk (via `deleteApiKey`) and bumps the key version to invalidate stale processes. Previously, clearing the input just returned without deleting.
+
+### Improved
+
+- **File tree depth & coverage** — Increased scan depth from 3 to 8 levels. Expanded ignore list from 6 to 15 entries (added `.venv`, `venv`, `.env`, `dist`, `build`, `.next`, `.nuxt`, `.parcel-cache`, `coverage`, `.turbo`, `.svelte-kit`).
+
+- **Session list hierarchy** — Session items now indent from project headers (`pl-7` vs `px-3`), creating clear visual separation between project groups and individual sessions.
+
+- **File reference style in chat flow** — File path references in assistant messages now render as chip/pill badges (matching the input bar's FileChip style) instead of inline code blocks. Shows filename only with 📄 icon, full path on hover.
+
+- **User bubble inline code rendering** — Backtick-wrapped text in user messages now renders as styled inline code elements instead of showing raw backticks. File paths inside backticks become clickable chips (same as assistant messages).
+
+- **File path detection expanded** — Bare filenames with known extensions (`CLAUDE.md`, `package.json`, `tsconfig.json`, etc.) are now detected as file paths and rendered as clickable chips. Previously only path-prefixed files (`./foo.ts`, `src/bar.rs`) were recognized.
+
+- **URL false positive in file detection** — URLs containing known directory names (e.g. `https://example.com/lib/config.ts`) no longer have their path segments misidentified as local file references.
+
+---
+
+### 修复
+
+- **会话重载技能内容泄露** — 重新加载历史会话时，技能内容（`isMeta` 消息）不再被误显示为绿色用户气泡。同时正确将 `toolUseResult` 消息路由到对应工具调用卡片。
+
+- **Windows 图标模糊** — 重新生成 `icon.ico`，从 1 层（16×16，685 字节）扩展为 7 层（16–256px，20 KB）。Windows 任务栏和桌面快捷方式现在显示清晰图标。
+
+- **API Key 清空未删除** — 清空 API Key 输入框现在会真正从磁盘删除密钥文件并使旧进程失效。之前清空后直接 return，密钥文件残留在磁盘上。
+
+### 改进
+
+- **文件树深度与覆盖** — 扫描深度从 3 层提升到 8 层。忽略列表从 6 项扩展到 15 项（新增 `.venv`、`venv`、`.env`、`dist`、`build`、`.next`、`.nuxt`、`.parcel-cache`、`coverage`、`.turbo`、`.svelte-kit`）。
+
+- **任务列表层级** — 会话项与项目标题拉开缩进层级（`pl-7` vs `px-3`），项目分组与会话之间视觉区分更清晰。
+
+- **对话流文件引用样式** — 助手消息中的文件路径引用改为 chip/pill 胶囊样式（与输入框 FileChip 一致），只显示文件名 + 📄 图标，悬停查看完整路径。
+
+- **用户气泡内联代码渲染** — 用户消息中反引号包裹的文本现在渲染为样式化的内联代码元素，不再显示原始反引号。文件路径会变成可点击的胶囊标签。
+
+- **文件路径检测扩展** — 裸文件名（如 `CLAUDE.md`、`package.json`、`tsconfig.json`）现在也能被识别为文件路径并渲染为可点击胶囊。此前只有带路径前缀的文件（`./foo.ts`、`src/bar.rs`）才会被识别。
+
+- **URL 误识别为文件路径** — 修复包含已知目录名的 URL（如 `https://example.com/lib/config.ts`）路径段被误识别为本地文件的问题。
+
+---
+
 ## [0.6.13] - 2026-02-26
 
 ### Fixed

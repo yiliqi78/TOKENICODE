@@ -1,6 +1,7 @@
-import { memo, useState, useCallback } from 'react';
+import { memo, useState, useCallback, type ReactNode } from 'react';
 import { type ChatMessage } from '../../stores/chatStore';
 import { useFileStore } from '../../stores/fileStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { useLightboxStore } from '../shared/ImageLightbox';
 import { useT } from '../../lib/i18n';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
@@ -53,6 +54,66 @@ function getFileExt(name: string): string {
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
 }
 
+/** Detect file paths in inline code — same regexes as MarkdownRenderer */
+const FILE_PATH_RE = /^(?:\/|\.\/|\.\.\/|[a-zA-Z]:[/\\]|src\/|lib\/|components\/|stores\/|hooks\/|utils\/|tests\/|__tests__\/)[\w.@/-]+\.\w{1,10}$/;
+const KNOWN_EXT_RE = /^[\w][\w.-]*\.(?:md|mdx|ts|tsx|js|jsx|mjs|cjs|json|jsonl|toml|yaml|yml|py|pyi|rs|go|html|htm|css|scss|sass|less|vue|svelte|sh|bash|zsh|fish|env|conf|cfg|ini|xml|sql|graphql|gql|proto|lock|log|txt|csv|rb|php|java|kt|swift|c|cpp|h|hpp|cs|r|lua|zig|ex|exs|erl|ml|mli|tf|hcl|dockerfile|makefile)$/i;
+
+/** Render a single backtick-inner segment: file path → clickable chip, else → inline code */
+function renderCodeSegment(inner: string, key: number): ReactNode {
+  if (FILE_PATH_RE.test(inner) || KNOWN_EXT_RE.test(inner)) {
+    const wd = useSettingsStore.getState().workingDirectory || '';
+    const resolved = inner.startsWith('/') || /^[a-zA-Z]:[/\\]/.test(inner)
+      ? inner
+      : wd ? `${wd.replace(/\/$/, '')}/${inner}` : inner;
+    const fileName = inner.split(/[\\/]/).pop() || inner;
+    return (
+      <button
+        key={key}
+        onClick={(e) => { e.stopPropagation(); useFileStore.getState().selectFile(resolved); }}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5
+          bg-white/15 border border-white/25 rounded-md
+          text-xs font-medium cursor-pointer
+          hover:bg-white/25 hover:border-white/40
+          transition-all duration-150 select-none
+          align-baseline leading-normal whitespace-nowrap"
+        title={resolved}
+      >
+        <span className="text-[10px]">📄</span>
+        <span className="max-w-[180px] truncate">{fileName}</span>
+      </button>
+    );
+  }
+  return (
+    <code key={key} className="px-1.5 py-0.5 mx-0.5 rounded-md text-[13px]
+      bg-white/15 border border-white/20 font-mono">
+      {inner}
+    </code>
+  );
+}
+
+/** Parse backtick-wrapped segments in user text into styled inline code elements.
+ *  Handles both single ` and triple ``` (renders as single-line code).
+ *  File paths inside backticks become clickable chips. */
+function renderUserContent(text: string): ReactNode {
+  // Split on backtick patterns: ```...``` or `...`
+  const parts = text.split(/(```[^`]*```|`[^`\n]+`)/g);
+  if (parts.length === 1) return text; // no backticks found, return plain string
+
+  return parts.map((part, i) => {
+    if (part.startsWith('```') && part.endsWith('```')) {
+      const inner = part.slice(3, -3).trim();
+      if (!inner) return part;
+      return renderCodeSegment(inner, i);
+    }
+    if (part.startsWith('`') && part.endsWith('`')) {
+      const inner = part.slice(1, -1);
+      if (!inner) return part;
+      return renderCodeSegment(inner, i);
+    }
+    return part;
+  });
+}
+
 function UserMsg({ message }: Props) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
@@ -88,7 +149,7 @@ function UserMsg({ message }: Props) {
       <div className="max-w-[80%] px-3.5 py-2.5 rounded-2xl rounded-br-md
         bg-bg-user-msg text-text-inverse
         text-sm leading-relaxed shadow-md whitespace-pre-wrap">
-        {displayContent}
+        {renderUserContent(displayContent)}
         {!expanded && isLong && (
           <span className="text-white/60">…</span>
         )}

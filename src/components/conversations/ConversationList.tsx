@@ -245,6 +245,28 @@ export function ConversationList() {
       };
 
       for (const msg of rawMessages) {
+        // Skip system-injected meta messages (skill content, image descriptions, etc.)
+        if (msg.isMeta) continue;
+
+        // Handle tool_result messages: attach result to parent tool_use card
+        if (msg.toolUseResult || msg.type === 'tool_result') {
+          const blocks = Array.isArray(msg.message?.content) ? msg.message.content : [];
+          for (const b of blocks) {
+            if (b?.type === 'tool_result' && b.tool_use_id) {
+              const resultText = typeof b.content === 'string'
+                ? b.content
+                : Array.isArray(b.content)
+                  ? b.content.map((c: any) => c.text || c.content || '').join('')
+                  : '';
+              if (resultText) {
+                const { updateMessage } = useChatStore.getState();
+                updateMessage(b.tool_use_id, { toolResultContent: resultText });
+              }
+            }
+          }
+          continue;
+        }
+
         if (msg.type === 'human' || msg.type === 'user' || msg.role === 'user') {
           // Extract text blocks, filtering out system-injected content
           const blocks = Array.isArray(msg.message?.content) ? msg.message.content : [];
@@ -364,16 +386,6 @@ export function ConversationList() {
                 });
               }
             }
-          }
-        } else if (msg.type === 'tool_result') {
-          const resultText = Array.isArray(msg.content)
-            ? msg.content.map((b: any) => b.text || b.content || '').join('')
-            : typeof msg.content === 'string'
-              ? msg.content
-              : msg.output || '';
-          if (msg.tool_use_id && resultText) {
-            const { updateMessage } = useChatStore.getState();
-            updateMessage(msg.tool_use_id, { toolResultContent: resultText });
           }
         }
       }
@@ -566,7 +578,7 @@ export function ConversationList() {
                   handleRenameStart(session);
                 }}
                 onContextMenu={(e) => handleContextMenu(e, session)}
-                className={`w-full text-left px-3 py-1.5 rounded-xl
+                className={`w-full text-left pl-7 pr-3 py-1.5 rounded-xl
                   transition-smooth group
                   ${selectedId === session.id
                     ? 'bg-accent/10 ring-1 ring-accent/20'

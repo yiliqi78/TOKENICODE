@@ -122,7 +122,10 @@ function extractText(node: ReactNode): string {
   return '';
 }
 
-/** Detect file paths in inline code — conservative regex to avoid false positives */
+/** Detect file paths in inline code — conservative regex to avoid false positives.
+ *  Matches: path-prefixed files (/foo.ts, ./bar.md, src/baz.rs) AND
+ *  bare filenames with known code/config extensions (CLAUDE.md, package.json). */
+const KNOWN_EXT_RE = /^[\w][\w.-]*\.(?:md|mdx|ts|tsx|js|jsx|mjs|cjs|json|jsonl|toml|yaml|yml|py|pyi|rs|go|html|htm|css|scss|sass|less|vue|svelte|sh|bash|zsh|fish|env|conf|cfg|ini|xml|sql|graphql|gql|proto|lock|log|txt|csv|rb|php|java|kt|swift|c|cpp|h|hpp|cs|r|lua|zig|ex|exs|erl|ml|mli|tf|hcl|dockerfile|makefile)$/i;
 const FILE_PATH_RE = /^(?:\/|\.\/|\.\.\/|[a-zA-Z]:[/\\]|src\/|lib\/|components\/|stores\/|hooks\/|utils\/|tests\/|__tests__\/)[\w.@/-]+\.\w{1,10}$/;
 
 /**
@@ -133,7 +136,7 @@ const FILE_PATH_RE = /^(?:\/|\.\/|\.\.\/|[a-zA-Z]:[/\\]|src\/|lib\/|components\/
  * Matches absolute paths (/..., C:\...), relative (./..., ../...), and
  * common project-relative paths (src/..., lib/..., etc.).
  */
-const BARE_PATH_RE = /(?<![`\w:@#])(?:(?:\/|\.\.?\/)[\w.@/+-]+\.\w{1,10}|(?:src|lib|components|stores|hooks|utils|tests|__tests__|app|pages|public|assets|styles|config)\/[\w.@/+-]+\.\w{1,10})(?![`\w])/g;
+const BARE_PATH_RE = /(?<![`\w:@#/])(?:(?:\/|\.\.?\/)[\w.@/+-]+\.\w{1,10}|(?:src|lib|components|stores|hooks|utils|tests|__tests__|app|pages|public|assets|styles|config)\/[\w.@/+-]+\.\w{1,10})(?![`\w])/g;
 
 function wrapBareFilePaths(content: string): string {
   // Split by fenced code blocks (``` ... ```) — don't touch code blocks
@@ -297,24 +300,24 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
       if (className) return <code className={className}>{children}</code>;
 
       const text = extractText(children).trim();
-      if (FILE_PATH_RE.test(text)) {
+      if (FILE_PATH_RE.test(text) || KNOWN_EXT_RE.test(text)) {
         const resolved = text.startsWith('/') || /^[a-zA-Z]:[/\\]/.test(text)
           ? text
           : resolveBase ? `${resolveBase.replace(/\/$/, '')}/${text}` : text;
+        const fileName = text.split(/[\\/]/).pop() || text;
         return (
           <button
             onClick={() => useFileStore.getState().selectFile(resolved)}
-            className="inline-flex items-center gap-0.5 bg-bg-secondary px-1.5 py-0.5
-              rounded-md text-sm text-accent hover:bg-accent/15
-              cursor-pointer transition-smooth font-mono"
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5
+              bg-accent/10 border border-accent/25 rounded-md
+              text-xs text-accent font-medium cursor-pointer
+              hover:bg-accent/20 hover:border-accent/40
+              transition-all duration-150 select-none
+              align-baseline leading-normal whitespace-nowrap"
             title={resolved}
           >
-            <svg width="10" height="10" viewBox="0 0 12 12" fill="none"
-              stroke="currentColor" strokeWidth="1.2" className="flex-shrink-0 opacity-60">
-              <path d="M7 1H3a1 1 0 00-1 1v8a1 1 0 001 1h6a1 1 0 001-1V4L7 1z" />
-              <path d="M7 1v3h3" />
-            </svg>
-            {text}
+            <span className="text-[10px]">📄</span>
+            <span className="max-w-[180px] truncate">{fileName}</span>
           </button>
         );
       }

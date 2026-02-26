@@ -13,6 +13,30 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.6.14',
+    date: '2026-02-26',
+    highlights: {
+      zh: [
+        '修复会话重载技能内容泄露 — 重新加载历史会话时，技能内容不再被误显示为用户消息',
+        '修复 Windows 图标模糊 — 重新生成多层 ICO（16-256px），任务栏图标清晰显示',
+        '修复 API Key 清空未删除 — 清空 Key 后真正从磁盘删除密钥文件',
+        '文件树深度 3→8 + 忽略列表 6→15 项 — 深层文件可见，常见构建目录自动忽略',
+        '文件引用统一胶囊样式 — 助手消息和用户气泡中的文件路径均为可点击胶囊标签',
+        '裸文件名识别 — CLAUDE.md、package.json 等常见文件名也能被识别为可点击文件',
+        '修复 URL 被误识别为文件路径的问题',
+      ],
+      en: [
+        'Fix session reload skill content leak — Skill content no longer appears as user bubbles on reload',
+        'Fix Windows icon blurry — Regenerated multi-layer ICO (16-256px) for crisp taskbar display',
+        'Fix API Key not deleted on clear — Clearing key now actually removes it from disk',
+        'File tree depth 3→8 + ignore list 6→15 — Deep files visible, common build dirs auto-ignored',
+        'Unified file reference chip style — File paths in both assistant and user messages are clickable chips',
+        'Bare filename detection — CLAUDE.md, package.json etc. now recognized as clickable files',
+        'Fix URLs being misidentified as file paths',
+      ],
+    },
+  },
+  {
     version: '0.6.13',
     date: '2026-02-26',
     highlights: {
