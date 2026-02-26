@@ -6,6 +6,48 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.6.12] - 2026-02-26
+
+### Fixed
+
+- **File tree depth** — Third and fourth-level files/folders now display correctly. The recursive scan depth was increased from 3 to 5.
+
+- **Drag-close bug** — Settings panel and changelog modal no longer close when dragging the mouse from inside the panel to outside. Changed from `onClick` to `onMouseDown` on the backdrop.
+
+- **Build script security** — Removed hardcoded Apple credentials and signing key password from `build-macos-local.sh`. Now loads from `.env` file or environment variables. Added `.env.example` template and `.env*` to `.gitignore`.
+
+### Changed
+
+- **File change indicators** — All file tree change markers (M badge, filename color, directory dot, count badge) now use consistent success green instead of accent color.
+
+- **File tree toolbar** — Merged the "clear markers" and "refresh" buttons into a single refresh button that does both actions.
+
+### Removed
+
+- **Add Skill button** — Temporarily removed the incomplete "Add Skill" button and creation dialog from the Skills panel. Will be redesigned and re-added in a future release.
+
+---
+
+### 修复
+
+- **文件树深度** — 三级、四级文件/文件夹现在能正确显示。递归扫描深度从 3 提升至 5。
+
+- **拖拽误关闭** — 设置面板和更新日志弹窗不再因拖拽鼠标从面板内到外而关闭。背景层事件从 `onClick` 改为 `onMouseDown`。
+
+- **构建脚本安全** — 移除 `build-macos-local.sh` 中硬编码的 Apple 凭证和签名密钥。现从 `.env` 文件或环境变量读取，新增 `.env.example` 模板。
+
+### 变更
+
+- **文件变更标记** — 文件树中所有变更指示器（M 徽章、文件名颜色、目录圆点、计数徽章）统一使用绿色。
+
+- **文件树工具栏** — 「清理标记」和「刷新」按钮合并为一个刷新按钮，点击同时执行两个操作。
+
+### 移除
+
+- **新增技能按钮** — 临时移除技能面板中不完善的「新增技能」按钮和创建对话框，后续重新设计后加回。
+
+---
+
 ## [0.6.11] - 2026-02-26
 
 ### Fixed

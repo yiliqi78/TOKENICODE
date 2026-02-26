@@ -13,6 +13,26 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.6.12',
+    date: '2026-02-26',
+    highlights: {
+      zh: [
+        '修复文件树深度 — 三级、四级文件/文件夹现在能正确显示（递归深度 3→5）',
+        '修复拖拽误关闭 — 设置面板和更新日志弹窗不再因拖拽鼠标到外部而关闭',
+        '构建脚本安全加固 — 移除硬编码凭证，改用 .env 环境变量',
+        '文件变更标记统一绿色 — 所有变更指示器使用一致的绿色样式',
+        '文件树工具栏简化 — 清理标记和刷新合并为一个按钮',
+      ],
+      en: [
+        'Fix file tree depth — 3rd/4th level files now display correctly (depth 3→5)',
+        'Fix drag-close bug — Settings panel and changelog modal no longer close on drag outside',
+        'Build script security — Removed hardcoded credentials, now uses .env variables',
+        'File change indicators unified green — All change markers use consistent success green',
+        'File tree toolbar simplified — Clear markers and refresh merged into one button',
+      ],
+    },
+  },
+  {
     version: '0.6.11',
     date: '2026-02-26',
     highlights: {
