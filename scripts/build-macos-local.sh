@@ -19,13 +19,28 @@ echo " Version: $VERSION  Tag: $TAG"
 echo "============================================"
 
 # --- Environment Variables ---
-export APPLE_SIGNING_IDENTITY="Developer ID Application: Liqi Yi (HT2Y2TN46Q)"
-export APPLE_ID="yiliqi78@gmail.com"
-export APPLE_PASSWORD="cuyq-fjhv-tnnn-nbcc"
-export APPLE_TEAM_ID="HT2Y2TN46Q"
+# Required env vars — set in shell profile, .env file, or export before running.
+# See .env.example for the full list.
+#
+#   APPLE_SIGNING_IDENTITY       e.g. "Developer ID Application: Name (TEAMID)"
+#   APPLE_ID                     Your Apple ID email
+#   APPLE_PASSWORD               App-specific password (appleid.apple.com → Security)
+#   APPLE_TEAM_ID                10-char Apple Developer Team ID
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  Tauri updater signing key passphrase
+
+# Load .env if present (ignored by git)
+[ -f "$PROJECT_DIR/.env" ] && set -a && source "$PROJECT_DIR/.env" && set +a
+
+: "${APPLE_SIGNING_IDENTITY:?Set APPLE_SIGNING_IDENTITY in .env or environment}"
+: "${APPLE_ID:?Set APPLE_ID in .env or environment}"
+: "${APPLE_PASSWORD:?Set APPLE_PASSWORD in .env or environment}"
+: "${APPLE_TEAM_ID:?Set APPLE_TEAM_ID in .env or environment}"
+: "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:?Set TAURI_SIGNING_PRIVATE_KEY_PASSWORD in .env or environment}"
+
+export APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
 export TAURI_SIGNING_PRIVATE_KEY
 TAURI_SIGNING_PRIVATE_KEY="$(cat "$HOME/.tauri/tokenicode.key")"
-export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="tiny"
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 
 # --- Preflight Checks ---
 echo ""

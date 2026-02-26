@@ -14,15 +14,11 @@ export function SkillsPanel() {
   const isLoading = useSkillStore((s) => s.isLoading);
   const fetchSkills = useSkillStore((s) => s.fetchSkills);
   const deleteSkill = useSkillStore((s) => s.deleteSkill);
-  const createSkill = useSkillStore((s) => s.createSkill);
   const toggleEnabled = useSkillStore((s) => s.toggleEnabled);
   const workingDirectory = useSettingsStore((s) => s.workingDirectory);
   const selectFile = useFileStore((s) => s.selectFile);
   const selectedFile = useFileStore((s) => s.selectedFile);
 
-  const [isCreating, setIsCreating] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newScope, setNewScope] = useState<'global' | 'project'>('project');
   const [searchQuery, setSearchQuery] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -70,14 +66,6 @@ export function SkillsPanel() {
   // Group skills by scope
   const globalSkills = filteredSkills.filter((s) => s.scope === 'global');
   const projectSkills = filteredSkills.filter((s) => s.scope === 'project');
-
-  const handleCreate = useCallback(async () => {
-    if (!newName.trim()) return;
-    const template = `---\ndescription: Describe this skill here\n---\n# ${newName}\n\n## Instructions\n\nProvide instructions for Claude when this skill is activated.\n`;
-    await createSkill(newName.trim(), newScope, workingDirectory, template);
-    setIsCreating(false);
-    setNewName('');
-  }, [newName, newScope, workingDirectory, createSkill]);
 
   const handleSelect = useCallback((skill: SkillInfo) => {
     selectFile(skill.path);
@@ -168,86 +156,19 @@ export function SkillsPanel() {
             {totalCount}
           </span>
         </div>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => fetchSkills(workingDirectory || undefined)}
-            className="p-1 rounded hover:bg-bg-secondary
-              text-text-tertiary transition-smooth"
-            title={t('skills.refresh')}
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
-              stroke="currentColor" strokeWidth="1.5">
-              <path d="M1 6a5 5 0 019-2M11 6a5 5 0 01-9 2" />
-              <path d="M10 1v3h-3M2 11V8h3" />
-            </svg>
-          </button>
-          <button
-            onClick={() => setIsCreating(true)}
-            className="p-1 rounded hover:bg-bg-secondary
-              text-text-tertiary transition-smooth"
-            title={t('skills.create')}
-          >
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
-              stroke="currentColor" strokeWidth="1.5">
-              <path d="M8 3v10M3 8h10" />
-            </svg>
-          </button>
-        </div>
+        <button
+          onClick={() => fetchSkills(workingDirectory || undefined)}
+          className="p-1 rounded hover:bg-bg-secondary
+            text-text-tertiary transition-smooth"
+          title={t('skills.refresh')}
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+            stroke="currentColor" strokeWidth="1.5">
+            <path d="M1 6a5 5 0 019-2M11 6a5 5 0 01-9 2" />
+            <path d="M10 1v3h-3M2 11V8h3" />
+          </svg>
+        </button>
       </div>
-
-      {/* Create dialog */}
-      {isCreating && (
-        <div className="px-3 py-2 border-b border-border-subtle bg-bg-secondary/50 space-y-2">
-          <input
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder={t('skills.namePlaceholder')}
-            className="w-full px-2 py-1 text-xs bg-bg-chat border border-border-subtle
-              rounded-lg outline-none focus:border-accent text-text-primary"
-            autoFocus
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleCreate();
-              if (e.key === 'Escape') setIsCreating(false);
-            }}
-          />
-          <div className="flex gap-2">
-            <button
-              onClick={() => setNewScope('project')}
-              className={`flex-1 px-2 py-1 text-[10px] rounded-lg border transition-smooth
-                ${newScope === 'project'
-                  ? 'border-accent bg-accent/10 text-accent'
-                  : 'border-border-subtle text-text-muted hover:bg-bg-secondary'}`}
-            >
-              {t('skills.project')}
-            </button>
-            <button
-              onClick={() => setNewScope('global')}
-              className={`flex-1 px-2 py-1 text-[10px] rounded-lg border transition-smooth
-                ${newScope === 'global'
-                  ? 'border-accent bg-accent/10 text-accent'
-                  : 'border-border-subtle text-text-muted hover:bg-bg-secondary'}`}
-            >
-              {t('skills.global')}
-            </button>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={handleCreate}
-              disabled={!newName.trim()}
-              className="flex-1 px-2 py-1 text-xs bg-accent text-text-inverse rounded-lg
-                hover:bg-accent-hover disabled:opacity-40 transition-smooth"
-            >
-              {t('skills.create')}
-            </button>
-            <button
-              onClick={() => { setIsCreating(false); setNewName(''); }}
-              className="px-2 py-1 text-xs text-text-muted hover:text-text-primary transition-smooth"
-            >
-              {t('skills.cancel')}
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Search bar */}
       <div className="px-2 py-1.5 border-b border-border-subtle">

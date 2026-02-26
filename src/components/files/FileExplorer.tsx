@@ -29,7 +29,7 @@ function getChangeBadge(kind: FileChangeKind | undefined) {
   if (!kind) return null;
   const colors = {
     created: 'bg-success',
-    modified: 'bg-accent',
+    modified: 'bg-success',
     removed: 'bg-error',
   };
   const labels = { created: 'A', modified: 'M', removed: 'D' };
@@ -293,7 +293,7 @@ function TreeNode({
           ${isSelected
             ? 'bg-accent/10 text-accent'
             : changeKind
-              ? 'text-accent'
+              ? 'text-success'
               : 'text-text-muted hover:bg-bg-secondary hover:text-text-primary'
           }`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
@@ -329,7 +329,7 @@ function TreeNode({
         )}
         {getChangeBadge(changeKind)}
         {!changeKind && hasChildChanges && (
-          <span className="ml-auto w-1.5 h-1.5 rounded-full bg-accent
+          <span className="ml-auto w-1.5 h-1.5 rounded-full bg-success
             flex-shrink-0" />
         )}
       </button>
@@ -513,36 +513,26 @@ export function FileExplorer() {
           </div>
           {changedCount > 0 && (
             <span className="text-[10px] px-1.5 py-0.5 rounded-full
-              bg-accent/15 text-accent
+              bg-success/15 text-success
               font-medium flex-shrink-0">
               {changedCount} {t('files.changed')}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1">
-          {changedCount > 0 && (
-            <button onClick={clearChangedFiles}
-              className="p-1 rounded hover:bg-bg-secondary
-                text-text-tertiary transition-smooth" title={t('files.clearMarkers')}>
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
-                stroke="currentColor" strokeWidth="1.5">
-                <path d="M2 5h6" />
-              </svg>
-            </button>
-          )}
-          <button onClick={() => {
-              const dir = workingDirectory || rootPath;
-              if (dir) refreshTree(dir);
-            }}
-            className="p-1 rounded hover:bg-bg-secondary
-              text-text-tertiary transition-smooth" title={t('files.refresh')}>
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
-              stroke="currentColor" strokeWidth="1.5">
-              <path d="M1 6a5 5 0 019-2M11 6a5 5 0 01-9 2" />
-              <path d="M10 1v3h-3M2 11V8h3" />
-            </svg>
-          </button>
-        </div>
+        <button onClick={() => {
+            clearChangedFiles();
+            const dir = workingDirectory || rootPath;
+            if (dir) refreshTree(dir);
+          }}
+          className="p-1.5 rounded-lg hover:bg-bg-secondary active:bg-bg-tertiary
+            text-text-tertiary hover:text-text-secondary transition-smooth"
+          title={t('files.refresh')}>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
+            stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <path d="M1.5 7a5.5 5.5 0 0110-3M12.5 7a5.5 5.5 0 01-10 3" />
+            <path d="M11.5 1v3h-3M2.5 13v-3h3" />
+          </svg>
+        </button>
       </div>
 
       {/* Search bar */}

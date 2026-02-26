@@ -33,5 +33,10 @@ src-tauri/target/
 *.deb
 *.rpm
 
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
 # Obsidian
 .obsidian/

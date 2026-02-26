@@ -19,7 +19,7 @@ export function ChangelogModal({ version, onClose }: Props) {
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />

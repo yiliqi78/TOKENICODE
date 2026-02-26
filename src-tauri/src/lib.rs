@@ -1813,7 +1813,7 @@ struct FileNode {
 
 #[tauri::command]
 async fn read_file_tree(path: String, depth: Option<u32>) -> Result<Vec<FileNode>, String> {
-    let max_depth = depth.unwrap_or(3);
+    let max_depth = depth.unwrap_or(5);
     let root = std::path::Path::new(&path);
     if !root.exists() {
         return Err("Directory does not exist".to_string());
