@@ -734,8 +734,19 @@ type CliCheckStatus = 'idle' | 'checking' | 'found' | 'not_found' | 'installing'
 
 import { stripAnsi } from '../../lib/strip-ansi';
 
+/** Detect if an error message looks like a permission/access issue */
+function isPermissionError(msg: string): boolean {
+  const hints = ['EPERM', 'EACCES', 'permission denied', 'access denied',
+    'Access is denied', 'operation not permitted'];
+  const lower = msg.toLowerCase();
+  return hints.some(h => lower.includes(h.toLowerCase()));
+}
+
 /** Detect if an error message looks like a network/firewall issue */
 function isNetworkError(msg: string): boolean {
+  // If it's a permission error, don't misclassify as network
+  // (e.g. FetchError wrapping EPERM on npm cache)
+  if (isPermissionError(msg)) return false;
   const hints = ['timeout', 'timed out', 'network', 'connect', 'ENOTFOUND',
     'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'fetch', 'Failed to download',
     'All install methods failed', 'dns', 'certificate'];
@@ -970,6 +981,11 @@ function CliSection() {
               {errorMsg}
             </p>
           )}
+          {isPermissionError(errorMsg) && (
+            <p className="text-[10px] text-amber-500 text-center">
+              {t('error.permissionHint')}
+            </p>
+          )}
           {isNetworkError(errorMsg) && (
             <p className="text-[10px] text-amber-500 text-center">
               {t('network.firewallHint')}
@@ -1183,6 +1199,11 @@ function UpdateSection() {
             <p className="text-[10px] text-text-tertiary text-center truncate"
               title={errorMsg}>
               {errorMsg}
+            </p>
+          )}
+          {isPermissionError(errorMsg) && (
+            <p className="text-[10px] text-amber-500 text-center">
+              {t('error.permissionHint')}
             </p>
           )}
           {isNetworkError(errorMsg) && (

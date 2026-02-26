@@ -529,6 +529,7 @@ const messages: Record<Locale, Record<string, string>> = {
 
     // Network / firewall hints
     'network.firewallHint': '网络连接失败，可能需要 VPN 或代理才能访问',
+    'error.permissionHint': '权限不足，请以管理员身份运行，或检查防病毒软件是否锁定了相关目录',
 
     // Changelog modal
     'changelog.title': '更新内容',
@@ -1103,6 +1104,7 @@ const messages: Record<Locale, Record<string, string>> = {
 
     // Network / firewall hints
     'network.firewallHint': 'Network error — you may need a VPN or proxy to connect',
+    'error.permissionHint': 'Permission denied — try running as administrator, or check if antivirus is blocking the directory',
     'changelog.title': "What's New",
     'changelog.dismiss': 'Got it',
     'changelog.view': "What's New",

@@ -2779,6 +2779,58 @@ async fn toggle_skill_enabled(path: String, enabled: bool) -> Result<(), String>
 
 // --- Git / Shell helpers for Rewind code restore ---
 
+/// Resolve a usable git binary path on macOS without triggering the Xcode CLT install popup.
+///
+/// **Why this exists**: macOS ships `/usr/bin/git` as a shim. When Xcode Command Line Tools
+/// (CLT) are not installed, running `/usr/bin/git` spawns a **GUI dialog** asking the user to
+/// install CLT. TOKENICODE calls git for snapshot/rewind on every message, so this popup
+/// would appear repeatedly.
+///
+/// Strategy:
+///   1. `xcode-select -p` — checks if CLT is installed (silent, never triggers popup).
+///   2. CLT installed → safe to use bare "git" (resolves to /usr/bin/git which works).
+///   3. CLT not installed → scan known third-party git locations (Homebrew, MacPorts, Nix, etc.)
+///      skipping `/usr/bin/git` (the shim) to avoid the popup.
+///   4. Nothing found → return None; caller returns Err without spawning any process.
+///
+/// Result is cached for the process lifetime via OnceLock.
+#[cfg(target_os = "macos")]
+fn resolve_git_binary() -> Option<&'static str> {
+    static GIT_BIN: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    GIT_BIN.get_or_init(|| {
+        // Check if Xcode CLT is installed (xcode-select -p does NOT trigger popup)
+        let clt_check = std::process::Command::new("xcode-select")
+            .arg("-p")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        if let Ok(status) = clt_check {
+            if status.success() {
+                // CLT installed → /usr/bin/git works, use bare "git" to respect PATH order
+                return Some("git".to_string());
+            }
+        }
+
+        // CLT not installed → scan known third-party git install locations.
+        // IMPORTANT: Do NOT include /usr/bin/git here — that's the shim that triggers the popup.
+        let candidates = [
+            "/opt/homebrew/bin/git",  // Homebrew (Apple Silicon)
+            "/usr/local/bin/git",     // Homebrew (Intel) or manual install
+            "/opt/local/bin/git",     // MacPorts
+            "/nix/var/nix/profiles/default/bin/git", // Nix
+        ];
+        for path in &candidates {
+            if std::path::Path::new(path).exists() {
+                eprintln!("resolve_git_binary: CLT not installed, using {}", path);
+                return Some(path.to_string());
+            }
+        }
+
+        eprintln!("resolve_git_binary: no git found (CLT not installed, no third-party git)");
+        None
+    }).as_deref()
+}
+
 /// Run a git command in a specific working directory and return stdout.
 /// Only allows safe, read-or-restore git operations.
 #[tauri::command]
@@ -2793,7 +2845,14 @@ async fn run_git_command(cwd: String, args: Vec<String>) -> Result<String, Strin
         return Err(format!("Git subcommand '{}' not allowed", subcmd));
     }
 
-    let mut cmd = Command::new("git");
+    // On macOS, resolve git binary without triggering Xcode CLT popup
+    #[cfg(target_os = "macos")]
+    let git_bin = resolve_git_binary()
+        .ok_or_else(|| "git not available (no Xcode CLT or Homebrew git found)".to_string())?;
+    #[cfg(not(target_os = "macos"))]
+    let git_bin = "git";
+
+    let mut cmd = Command::new(git_bin);
     cmd.args(&args).current_dir(&cwd);
     #[cfg(target_os = "windows")]
     cmd.creation_flags(0x08000000);
@@ -3022,29 +3081,35 @@ async fn install_cli_via_npm(app: &AppHandle, china: bool) -> Result<(), String>
     }));
 
     // Determine npm path: local Node.js takes priority, then system npm
-    let (npm_path, use_prefix) = if let Some(local_bin) = get_local_node_bin() {
+    let npm_path = if let Some(local_bin) = get_local_node_bin() {
         #[cfg(target_os = "windows")]
         let npm = local_bin.join("npm.cmd");
         #[cfg(not(target_os = "windows"))]
         let npm = local_bin.join("npm");
-        (npm.to_string_lossy().to_string(), true)
+        npm.to_string_lossy().to_string()
     } else {
         #[cfg(target_os = "windows")]
         let npm = "npm.cmd".to_string();
         #[cfg(not(target_os = "windows"))]
         let npm = "npm".to_string();
-        (npm, false)
+        npm
     };
 
     // Build PATH that includes local Node.js bin
     let enriched_path = build_enriched_path();
 
-    // Prepare --prefix arg for local installs
+    // Always use --prefix to install into our controlled directory.
+    // This avoids polluting system npm globals and ensures finalize_cli_install_paths
+    // can reliably add the bin directory to PATH (fixes PowerShell not finding `claude`).
     let prefix_dir = npm_global_dir()?;
-    if use_prefix {
-        std::fs::create_dir_all(&prefix_dir)
-            .map_err(|e| format!("Failed to create npm-global dir: {}", e))?;
-    }
+    std::fs::create_dir_all(&prefix_dir)
+        .map_err(|e| format!("Failed to create npm-global dir: {}", e))?;
+
+    // Use app-local npm cache to avoid EPERM when system cache dir is locked
+    // (common on Windows with antivirus or concurrent npm processes).
+    let cache_dir = npm_cache_dir()?;
+    std::fs::create_dir_all(&cache_dir)
+        .map_err(|e| format!("Failed to create npm-cache dir: {}", e))?;
 
     let registries: Vec<&str> = if china {
         vec![
@@ -3062,22 +3127,22 @@ async fn install_cli_via_npm(app: &AppHandle, china: bool) -> Result<(), String>
 
     let mut last_err = String::new();
     for registry in &registries {
-        eprintln!("Trying npm install with registry: {} (prefix: {})", registry, use_prefix);
+        eprintln!("Trying npm install with registry: {} (prefix: {}, cache: {})",
+            registry, prefix_dir.display(), cache_dir.display());
 
         let _ = app.emit("setup:download:progress", serde_json::json!({
             "downloaded": 0, "total": 0, "percent": 50, "phase": "npm_fallback"
         }));
 
-        // Build args
-        let mut args: Vec<String> = vec![
+        // Build args — always use --prefix and --cache for isolation
+        let args: Vec<String> = vec![
             "install".to_string(),
             "-g".to_string(),
             "@anthropic-ai/claude-code".to_string(),
             format!("--registry={}", registry),
+            format!("--prefix={}", prefix_dir.display()),
+            format!("--cache={}", cache_dir.display()),
         ];
-        if use_prefix {
-            args.push(format!("--prefix={}", prefix_dir.display()));
-        }
 
         let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
 
@@ -3289,6 +3354,11 @@ fn node_download_dir() -> Result<std::path::PathBuf, String> {
 /// Directory for npm global installs (--prefix target).
 fn npm_global_dir() -> Result<std::path::PathBuf, String> {
     app_data_dir().map(|d| d.join("npm-global"))
+}
+
+/// Directory for npm cache (avoids system cache EPERM on Windows).
+fn npm_cache_dir() -> Result<std::path::PathBuf, String> {
+    app_data_dir().map(|d| d.join("npm-cache"))
 }
 
 /// Get the bin directory of the local Node.js installation, if it exists.

@@ -8,6 +8,24 @@ import {
   onDownloadProgress,
 } from '../../lib/tauri-bridge';
 
+/** Detect if an error message looks like a permission/access issue */
+function isPermissionError(msg: string): boolean {
+  const hints = ['EPERM', 'EACCES', 'permission denied', 'access denied',
+    'Access is denied', 'operation not permitted'];
+  const lower = msg.toLowerCase();
+  return hints.some(h => lower.includes(h.toLowerCase()));
+}
+
+/** Detect if an error message looks like a network/firewall issue */
+function isNetworkError(msg: string): boolean {
+  if (isPermissionError(msg)) return false;
+  const hints = ['timeout', 'timed out', 'network', 'connect', 'ENOTFOUND',
+    'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'fetch', 'Failed to download',
+    'All install methods failed', 'dns', 'certificate'];
+  const lower = msg.toLowerCase();
+  return hints.some(h => lower.includes(h.toLowerCase()));
+}
+
 /**
  * SetupWizard — lightweight CLI detection & direct download install.
  *
@@ -201,6 +219,16 @@ export function SetupWizard() {
             {error && (
               <p className="text-xs text-red-400 font-mono bg-red-500/10 p-2 rounded-lg">
                 {error}
+              </p>
+            )}
+            {error && isPermissionError(error) && (
+              <p className="text-xs text-amber-500">
+                {t('error.permissionHint')}
+              </p>
+            )}
+            {error && !isPermissionError(error) && isNetworkError(error) && (
+              <p className="text-xs text-amber-500">
+                {t('network.firewallHint')}
               </p>
             )}
             <div className="flex gap-3 justify-center">
