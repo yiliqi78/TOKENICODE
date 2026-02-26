@@ -5,6 +5,7 @@ import { useMcpStore } from '../../stores/mcpStore';
 import type { McpServer, McpServerConfig } from '../../stores/mcpStore';
 import { useT } from '../../lib/i18n';
 import { ChangelogModal } from '../shared/ChangelogModal';
+import { buildExportConfig, parseAndValidate, applyConfig } from '../../lib/api-config';
 
 const COLOR_THEMES: { id: ColorTheme; labelKey: string; preview: string; previewDark: string }[] = [
   {
@@ -276,6 +277,9 @@ function ApiProviderSection() {
   const saveKeyTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /** Tracks whether the key input is showing the mask vs real/editing content */
   const isMaskedRef = useRef(false);
+  const [importError, setImportError] = useState('');
+  const [importStatus, setImportStatus] = useState<'idle' | 'success'>('idle');
+  const [exportStatus, setExportStatus] = useState<'idle' | 'success'>('idle');
 
   // Clean up timers on unmount
   useEffect(() => {
@@ -395,6 +399,95 @@ function ApiProviderSection() {
 
   const inputClass = 'w-full px-2 py-1.5 text-[11px] bg-bg-chat border border-border-subtle rounded-lg text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent/40';
 
+  const handleImport = useCallback(async () => {
+    const { open: openDialog } = await import('@tauri-apps/plugin-dialog');
+    const result = await openDialog({
+      title: t('api.importTitle'),
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      multiple: false,
+    });
+    const filePath = Array.isArray(result) ? result[0] : result;
+    if (!filePath) return;
+
+    setImportError('');
+    setImportStatus('idle');
+
+    try {
+      const content = await bridge.readFileContent(filePath);
+      const parsed = parseAndValidate(content);
+      if (!parsed.ok) {
+        setImportError(parsed.error);
+        setTimeout(() => setImportError(''), 5000);
+        return;
+      }
+
+      await applyConfig(parsed.config);
+
+      // Update local key display
+      if (parsed.config.provider.apiKey) {
+        setApiKeyInput('••••••••••••');
+        isMaskedRef.current = true;
+        setKeyStatus('saved');
+      }
+
+      setImportStatus('success');
+      setCollapsed(false);
+      setTimeout(() => setImportStatus('idle'), 3000);
+
+      // Auto-test connection using the imported values directly
+      const testModel = parsed.config.provider.modelMappings.find((m) => m.model)?.model;
+      if (testModel && parsed.config.provider.baseUrl && parsed.config.provider.apiKey) {
+        setTestStatus('testing');
+        setTestError('');
+        try {
+          const testResult = await bridge.testApiConnection(
+            parsed.config.provider.baseUrl,
+            parsed.config.provider.apiFormat,
+            testModel,
+          );
+          if (testResult.startsWith('OK')) {
+            setTestStatus('success');
+          } else {
+            setTestStatus('failed');
+            setTestError(testResult);
+          }
+        } catch (e) {
+          const err = String(e);
+          if (err.includes('AUTH_ERROR')) {
+            setTestStatus('auth_error');
+            setTestError(err.replace('AUTH_ERROR: ', ''));
+          } else {
+            setTestStatus('failed');
+            setTestError(err);
+          }
+        }
+        setTimeout(() => { setTestStatus('idle'); setTestError(''); }, 5000);
+      }
+    } catch (e) {
+      setImportError(String(e));
+      setTimeout(() => setImportError(''), 5000);
+    }
+  }, [t]);
+
+  const handleExport = useCallback(async () => {
+    try {
+      const { json } = await buildExportConfig();
+      const { save: saveDialog } = await import('@tauri-apps/plugin-dialog');
+      const filePath = await saveDialog({
+        title: t('api.exportTitle'),
+        defaultPath: 'api-config.json',
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      });
+      if (!filePath) return;
+
+      await bridge.writeFileContent(filePath, json);
+      setExportStatus('success');
+      setTimeout(() => setExportStatus('idle'), 3000);
+    } catch (e) {
+      console.error('Export failed:', e);
+    }
+  }, [t]);
+
   return (
     <div className="pt-2 border-t border-border-subtle">
       {/* Header */}
@@ -441,6 +534,37 @@ function ApiProviderSection() {
           <p className="text-[10px] text-text-tertiary">
             {t(API_MODES.find((m) => m.id === mode)?.descKey || '')}
           </p>
+
+          {/* Import / Export config */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleImport}
+              className="px-3 py-1.5 rounded-lg text-[11px] font-medium transition-smooth
+                border border-border-subtle text-text-muted hover:bg-bg-secondary"
+            >
+              {t('api.importConfig')}
+            </button>
+            {mode === 'custom' && baseUrl && (
+              <button
+                onClick={handleExport}
+                className="px-3 py-1.5 rounded-lg text-[11px] font-medium transition-smooth
+                  border border-border-subtle text-text-muted hover:bg-bg-secondary"
+              >
+                {t('api.exportConfig')}
+              </button>
+            )}
+            {importStatus === 'success' && (
+              <span className="text-[10px] text-green-500">{t('api.importSuccess')}</span>
+            )}
+            {importError && (
+              <span className="text-[10px] text-red-400 truncate flex-1" title={importError}>
+                {importError}
+              </span>
+            )}
+            {exportStatus === 'success' && (
+              <span className="text-[10px] text-green-500">{t('api.exportSuccess')}</span>
+            )}
+          </div>
 
           {/* Custom provider form */}
           {mode === 'custom' && (

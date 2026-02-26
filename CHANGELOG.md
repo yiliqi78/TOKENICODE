@@ -6,6 +6,36 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.6.10] - 2026-02-26
+
+### Added
+
+- **API Config Import/Export** — One-click JSON import/export for third-party API provider settings (endpoint, format, model mappings, encrypted key). Designed for onboarding: instructors export once, trainees import with a single file.
+
+- **Silent Background Updates** — When a new version is detected, the update is automatically downloaded in the background. Users see a "restart" button only after the download completes — no manual download step needed.
+
+- **Gitee Download Source** — The updater now downloads from Gitee releases when checking via the Gitee endpoint. Domestic users can fully update without VPN (previously, only version detection used Gitee; downloads still hit GitHub).
+
+### Improvements
+
+- **Node.js System Detection** — The app now detects Node.js installed via nvm, volta, and fnm on all three platforms (macOS/Linux/Windows). On macOS/Linux, a login shell PATH is captured at startup as a safety net. This prevents unnecessary Node.js downloads when the user already has Node.js installed through a version manager.
+
+---
+
+### 新增
+
+- **API 配置导入导出** — 第三方 API 配置一键 JSON 导入导出（端点、格式、模型映射、加密密钥）。面向培训场景：讲师导出一次，学员用一个文件一键导入。
+
+- **静默后台更新** — 检测到新版本后自动在后台下载，下载完成后才显示「重启」按钮，用户无需手动点击下载。
+
+- **Gitee 下载源** — 更新器现在通过 Gitee 端点检测时，下载链接也指向 Gitee releases。国内用户可以完整无梯子更新（此前仅版本检测走 Gitee，下载仍走 GitHub）。
+
+### 改进
+
+- **Node.js 系统检测增强** — 现在能检测通过 nvm、volta、fnm 安装的 Node.js（macOS/Linux/Windows 全平台）。macOS/Linux 上启动时捕获 login shell 的完整 PATH 作为兜底。避免用户已有 Node.js 版本管理器时重复下载。
+
+---
+
 ## [0.6.9] - 2026-02-25
 
 ### Improvements

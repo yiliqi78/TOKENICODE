@@ -13,6 +13,24 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.6.10',
+    date: '2026-02-26',
+    highlights: {
+      zh: [
+        'API 配置导入导出 — 第三方 API 配置一键 JSON 导入导出，面向培训场景：讲师导出，学员一键导入',
+        '静默后台更新 — 检测到新版本自动后台下载，完成后显示「重启」按钮',
+        'Gitee 下载源 — 更新下载现在走 Gitee，国内用户无梯子也能完整更新',
+        'Node.js 检测增强 — 检测 nvm/volta/fnm 安装的 Node.js，避免重复下载',
+      ],
+      en: [
+        'API config import/export — One-click JSON import/export for third-party API settings, designed for onboarding',
+        'Silent background updates — Automatically downloads updates in the background, shows restart button when ready',
+        'Gitee download source — Updates now download from Gitee, domestic users can update without VPN',
+        'Node.js detection — Detects nvm/volta/fnm-installed Node.js on all platforms, prevents unnecessary downloads',
+      ],
+    },
+  },
+  {
     version: '0.6.9',
     date: '2026-02-25',
     highlights: {
