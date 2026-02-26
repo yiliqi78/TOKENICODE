@@ -13,6 +13,22 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.6.13',
+    date: '2026-02-26',
+    highlights: {
+      zh: [
+        '修复应用图标白边 — 重新生成全平台图标，消除 Dock/任务栏中的白色边框',
+        'Release 构建开启 DevTools — 正式版可通过 Cmd+Option+I / Ctrl+Shift+I 打开开发者工具',
+        '仓库清理 — 移除过时的开发文件，精简仓库体积',
+      ],
+      en: [
+        'Fix app icon white border — Regenerated all platform icons, eliminating white borders in Dock/taskbar',
+        'DevTools in release builds — Open Chrome DevTools via Cmd+Option+I / Ctrl+Shift+I in production',
+        'Repo cleanup — Removed obsolete development files, reduced repository size',
+      ],
+    },
+  },
+  {
     version: '0.6.12',
     date: '2026-02-26',
     highlights: {
