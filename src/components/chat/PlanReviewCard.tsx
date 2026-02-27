@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo } from 'react';
 import { type ChatMessage, useChatStore } from '../../stores/chatStore';
+import { useSettingsStore, setSessionModeLocal } from '../../stores/settingsStore';
 import { useT } from '../../lib/i18n';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
 
@@ -56,17 +57,45 @@ export function PlanReviewCard({ message, floating }: Props) {
   const handleApprove = useCallback(async () => {
     if (isResolved || approving) return;
     setApproving(true);
-    // Mark as resolved and dispatch event for InputBar to handle
-    // the kill → restart → execute flow (mode-aware TK-306).
-    useChatStore.getState().updateMessage(message.id, { resolved: true });
+
+    // Respond to ExitPlanMode control_request if pending (SDK control protocol)
+    const permData = message.permissionData;
+    if (permData?.requestId) {
+      const stdinId = useChatStore.getState().sessionMeta.stdinId;
+      if (stdinId) {
+        try {
+          const { bridge } = await import('../../lib/tauri-bridge');
+          await bridge.respondPermission(
+            stdinId,
+            permData.requestId,
+            true, // allow
+            undefined,
+            permData.toolUseId,
+            permData.input,
+          );
+        } catch (err) {
+          console.error('[TOKENICODE] Failed to respond to ExitPlanMode permission:', err);
+        }
+      }
+    }
+
+    // Switch frontend to Code mode (CLI already exited plan mode after ExitPlanMode allow)
+    if (useSettingsStore.getState().sessionMode === 'plan') {
+      setSessionModeLocal('code');
+    }
+
+    useChatStore.getState().updateMessage(message.id, { resolved: true, interactionState: 'resolved' });
     window.dispatchEvent(new CustomEvent('tokenicode:plan-execute'));
-  }, [isResolved, approving, message.id]);
+  }, [isResolved, approving, message.id, message.permissionData]);
 
   const handleModify = useCallback(() => {
-    const textarea = document.querySelector('textarea');
-    if (textarea) {
-      textarea.focus();
-      textarea.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    // TiptapEditor uses [data-chat-input] attribute, with an inner [contenteditable] div
+    const editorEl = document.querySelector('[data-chat-input] [contenteditable="true"]') as HTMLElement
+      ?? document.querySelector('[data-chat-input]') as HTMLElement
+      ?? document.querySelector('textarea') as HTMLElement;
+    if (editorEl) {
+      editorEl.focus();
+      editorEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
   }, []);
 

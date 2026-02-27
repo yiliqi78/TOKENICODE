@@ -37,6 +37,8 @@ export const MessageBubble = memo(function MessageBubble({ message, isFirstInGro
   if (message.type === 'tool_use') return <ToolUseMsg message={message} />;
   if (message.type === 'thinking') return <ThinkingMsg message={message} />;
   if (message.type === 'tool_result') return <ToolResultMsg message={message} />;
+  // Unresolved permission cards are rendered as floating overlays above InputBar
+  if (message.type === 'permission' && !message.resolved && message.interactionState !== 'resolved') return null;
   if (message.type === 'permission') return <PermissionCard message={message} />;
   if (message.type === 'plan') return <PlanMsg message={message} />;
   return <AssistantMsg message={message} isFirstInGroup={isFirstInGroup} />;
@@ -421,14 +423,30 @@ function AssistantMsg({ message, isFirstInGroup = true }: Props) {
    Enhanced display for Edit/Write/Read with diff stats, file icons
    ================================================================ */
 
-/** Compute line diff stats from Edit tool input */
+/** Compute line diff stats from Edit tool input (common prefix/suffix algorithm) */
 function computeEditDiff(input: any): { added: number; removed: number } | null {
   if (!input?.old_string || !input?.new_string) return null;
-  const oldLines = input.old_string.split('\n').length;
-  const newLines = input.new_string.split('\n').length;
+  const oldLines: string[] = input.old_string.split('\n');
+  const newLines: string[] = input.new_string.split('\n');
+
+  // Find common prefix
+  let prefixLen = 0;
+  while (prefixLen < oldLines.length && prefixLen < newLines.length
+         && oldLines[prefixLen] === newLines[prefixLen]) {
+    prefixLen++;
+  }
+
+  // Find common suffix (from remaining after prefix)
+  let suffixLen = 0;
+  while (suffixLen < oldLines.length - prefixLen
+         && suffixLen < newLines.length - prefixLen
+         && oldLines[oldLines.length - 1 - suffixLen] === newLines[newLines.length - 1 - suffixLen]) {
+    suffixLen++;
+  }
+
   return {
-    added: Math.max(0, newLines),
-    removed: Math.max(0, oldLines),
+    added: Math.max(0, newLines.length - prefixLen - suffixLen),
+    removed: Math.max(0, oldLines.length - prefixLen - suffixLen),
   };
 }
 

@@ -184,6 +184,7 @@ const messages: Record<Locale, Record<string, string>> = {
     // File upload
     'input.processingFiles': '处理中...',
     'input.stop': '终止',
+    'input.awaitingInteraction': '等待交互响应',
 
     // Rewind
     'rewind.title': '回退',
@@ -364,6 +365,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'cmd.switchedToAsk': '已切换到 Ask 模式（仅回答问题，不修改代码）',
     'cmd.switchedToPlan': '已切换到 Plan 模式（规划任务，不直接执行）',
     'cmd.switchedToCode': '已切换到 Code 模式（默认模式）',
+    'cmd.switchedToBypass': '已切换到 Bypass 模式（跳过所有权限检查，需重启会话生效）',
     'cmd.compacting': '正在压缩上下文...',
     'cmd.noActiveSession': '没有活跃的会话。请先发送一条消息。',
     'cmd.costTitle': '会话费用',
@@ -759,6 +761,7 @@ const messages: Record<Locale, Record<string, string>> = {
     // File upload
     'input.processingFiles': 'Processing...',
     'input.stop': 'Stop',
+    'input.awaitingInteraction': 'Awaiting interaction response',
 
     // Rewind
     'rewind.title': 'Rewind',
@@ -939,6 +942,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'cmd.switchedToAsk': 'Switched to Ask mode (answers only, no code changes)',
     'cmd.switchedToPlan': 'Switched to Plan mode (planning only, no execution)',
     'cmd.switchedToCode': 'Switched to Code mode (default)',
+    'cmd.switchedToBypass': 'Switched to Bypass mode (skip all permission checks, requires session restart)',
     'cmd.compacting': 'Compacting context...',
     'cmd.noActiveSession': 'No active session. Send a message first.',
     'cmd.costTitle': 'Session Cost',

@@ -4,6 +4,10 @@
 //! `control_request` messages on stdout instead of interactive permission prompts
 //! on stderr. TOKENICODE responds via stdin with `control_response` messages.
 //!
+//! Note: Permission responses (TOKENICODE → CLI) are built as raw `serde_json::json!`
+//! in lib.rs for precise field control. The typed structs below are kept only for
+//! unit tests that validate protocol wire format.
+//!
 //! Reference: Claude Agent SDK v0.2.62 NDJSON protocol
 
 use serde::{Deserialize, Serialize};
@@ -11,12 +15,11 @@ use serde_json::Value;
 
 // ─── CLI → TOKENICODE (stdout) ──────────────────────────────────────────────
 
-/// Top-level discriminator for stdout NDJSON lines.
-/// We only need to identify `control_request` messages here — all other
-/// message types (`system`, `assistant`, `stream_event`, `result`, etc.)
-/// are forwarded to the frontend as-is.
+/// Top-level discriminator for stdout NDJSON lines (used in unit tests for protocol validation).
+/// Production code uses Value-based parsing for robustness against field name variations.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
+#[allow(dead_code)]
 pub enum StdoutMessage {
     #[serde(rename = "control_request")]
     ControlRequest {
@@ -28,11 +31,10 @@ pub enum StdoutMessage {
     Other,
 }
 
-/// Payload of a `control_request` from CLI.
-/// We only handle `can_use_tool` for permission prompts;
-/// other subtypes (hook_callback, mcp_message) are logged and auto-allowed.
+/// Payload of a `control_request` from CLI (used in unit tests for protocol validation).
 #[derive(Debug, Deserialize)]
 #[serde(tag = "subtype")]
+#[allow(dead_code)]
 pub enum ControlRequestPayload {
     #[serde(rename = "can_use_tool")]
     CanUseTool {
@@ -62,69 +64,6 @@ pub enum ControlRequestPayload {
     },
     #[serde(other)]
     Unknown,
-}
-
-// ─── TOKENICODE → CLI (stdin) ───────────────────────────────────────────────
-
-/// Control response envelope written to CLI stdin.
-#[derive(Debug, Serialize)]
-pub struct ControlResponse {
-    pub r#type: &'static str, // always "control_response"
-    pub response: ControlResponsePayload,
-}
-
-/// Payload of a control response.
-#[derive(Debug, Serialize)]
-pub struct ControlResponsePayload {
-    pub subtype: &'static str, // "success"
-    pub request_id: String,
-    pub response: PermissionResult,
-}
-
-/// Permission decision sent back to CLI.
-#[derive(Debug, Serialize)]
-#[serde(tag = "behavior")]
-pub enum PermissionResult {
-    #[serde(rename = "allow")]
-    Allow {
-        #[serde(rename = "updatedInput", skip_serializing_if = "Option::is_none")]
-        updated_input: Option<Value>,
-    },
-    #[serde(rename = "deny")]
-    Deny {
-        message: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        interrupt: Option<bool>,
-    },
-}
-
-impl ControlResponse {
-    /// Create an "allow" response for a given request.
-    pub fn allow(request_id: String) -> Self {
-        Self {
-            r#type: "control_response",
-            response: ControlResponsePayload {
-                subtype: "success",
-                request_id,
-                response: PermissionResult::Allow { updated_input: None },
-            },
-        }
-    }
-
-    /// Create a "deny" response for a given request.
-    pub fn deny(request_id: String, message: String, interrupt: bool) -> Self {
-        Self {
-            r#type: "control_response",
-            response: ControlResponsePayload {
-                subtype: "success",
-                request_id,
-                response: PermissionResult::Deny {
-                    message,
-                    interrupt: if interrupt { Some(true) } else { None },
-                },
-            },
-        }
-    }
 }
 
 // ─── TOKENICODE → CLI: SDK control requests (stdin) ─────────────────────────
@@ -186,18 +125,6 @@ impl ControlRequest {
     }
 }
 
-// ─── Frontend event payload ─────────────────────────────────────────────────
-
-/// Serialized and emitted to frontend as `claude:permission_request:{sessionId}`.
-#[derive(Debug, Serialize, Clone)]
-pub struct PermissionRequestEvent {
-    pub request_id: String,
-    pub tool_name: String,
-    pub input: Value,
-    pub description: Option<String>,
-    pub tool_use_id: Option<String>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,24 +163,6 @@ mod tests {
         let json = r#"{"type": "assistant", "message": {}, "uuid": "x", "session_id": "y"}"#;
         let msg: StdoutMessage = serde_json::from_str(json).unwrap();
         assert!(matches!(msg, StdoutMessage::Other));
-    }
-
-    #[test]
-    fn test_serialize_allow() {
-        let resp = ControlResponse::allow("req_001".to_string());
-        let json = serde_json::to_string(&resp).unwrap();
-        assert!(json.contains(r#""behavior":"allow""#));
-        assert!(json.contains(r#""request_id":"req_001""#));
-        assert!(!json.contains("updatedInput")); // None should be skipped
-    }
-
-    #[test]
-    fn test_serialize_deny() {
-        let resp = ControlResponse::deny("req_002".to_string(), "User denied".to_string(), true);
-        let json = serde_json::to_string(&resp).unwrap();
-        assert!(json.contains(r#""behavior":"deny""#));
-        assert!(json.contains(r#""message":"User denied""#));
-        assert!(json.contains(r#""interrupt":true"#));
     }
 
     #[test]

@@ -368,6 +368,45 @@ useSettingsStore.subscribe((state, prevState) => {
   }, 500);
 });
 
+// --- Runtime mode switching via SDK control protocol ---
+// When sessionMode changes and there's an active CLI session, send set_permission_mode.
+
+let _skipNextModeSync = false;
+
+/** Update frontend sessionMode WITHOUT sending set_permission_mode to CLI.
+ *  Use when CLI already switched modes internally (e.g. after ExitPlanMode allow). */
+export function setSessionModeLocal(mode: SessionMode): void {
+  _skipNextModeSync = true;
+  useSettingsStore.getState().setSessionMode(mode);
+}
+
+useSettingsStore.subscribe((state, prevState) => {
+  if (state.sessionMode === prevState.sessionMode) return;
+
+  if (_skipNextModeSync) {
+    _skipNextModeSync = false;
+    return;
+  }
+
+  const cliMode = mapSessionModeToPermissionMode(state.sessionMode);
+
+  // bypass uses --dangerously-skip-permissions at startup; can't switch TO bypass at runtime
+  if (cliMode === 'bypassPermissions') return;
+
+  // Dynamically import to avoid circular deps
+  Promise.all([
+    import('../lib/tauri-bridge'),
+    import('./chatStore'),
+  ]).then(([{ bridge }, { useChatStore }]) => {
+    const stdinId = useChatStore.getState().sessionMeta.stdinId;
+    if (!stdinId) return; // No active session
+
+    bridge.setPermissionMode(stdinId, cliMode).catch((err: unknown) => {
+      console.error('[TOKENICODE] Failed to set permission mode:', err);
+    });
+  });
+});
+
 /**
  * Restore API provider settings from disk backup if localStorage was wiped.
  * Call once on app startup (e.g. in App.tsx useEffect).

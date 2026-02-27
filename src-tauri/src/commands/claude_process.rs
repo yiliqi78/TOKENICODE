@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, Command};
+use tokio::io::AsyncWriteExt;
+use tokio::process::{Child, ChildStdin};
 use tokio::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -12,6 +12,7 @@ pub struct SessionInfo {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct ManagedProcess {
     pub child: Child,
     pub session_id: String,

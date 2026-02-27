@@ -46,6 +46,8 @@ export function PermissionCard({ message }: Props) {
           permData.requestId,
           allow,
           allow ? undefined : 'User denied this operation',
+          permData.toolUseId,
+          allow ? permData.input : undefined,
         );
         setInteractionState(message.id, 'resolved');
         setSessionStatus('running');

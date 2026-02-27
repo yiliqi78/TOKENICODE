@@ -325,8 +325,8 @@ export const bridge = {
   // --- SDK Control Protocol ---
 
   /** Respond to a structured permission request from CLI */
-  respondPermission: (sessionId: string, requestId: string, allow: boolean, message?: string) =>
-    invoke<void>('respond_permission', { sessionId, requestId, allow, message: message ?? null }),
+  respondPermission: (sessionId: string, requestId: string, allow: boolean, message?: string, toolUseId?: string, updatedInput?: Record<string, unknown>) =>
+    invoke<void>('respond_permission', { sessionId, requestId, allow, message: message ?? null, toolUseId: toolUseId ?? null, updatedInput: updatedInput ?? null }),
 
   /** Send a runtime control command to change permission mode without restart */
   setPermissionMode: (sessionId: string, mode: string) =>
@@ -358,8 +358,9 @@ export function onPermissionRequest(
   sessionId: string,
   callback: (req: PermissionRequest) => void,
 ): Promise<UnlistenFn> {
+  const channel = `claude:permission_request:${sessionId}`;
   return listen<PermissionRequest>(
-    `claude:permission_request:${sessionId}`,
+    channel,
     (event) => callback(event.payload),
   );
 }

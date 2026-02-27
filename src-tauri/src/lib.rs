@@ -2,17 +2,16 @@ mod commands;
 mod protocol;
 
 use commands::{ProcessManager, SessionInfo, StartSessionParams, ManagedProcess, StdinManager};
-use protocol::{StdoutMessage, ControlRequestPayload, ControlResponse, PermissionRequestEvent};
+// protocol module kept for ControlRequest (send_control_request) and tests
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::{AppHandle, Emitter, State, Manager};
+use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use std::process::Stdio;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 use std::collections::HashMap;
-use std::io::Write as IoWrite;
 use sha2::{Sha256, Digest};
 use futures_util::StreamExt;
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
@@ -825,7 +824,7 @@ async fn test_api_connection(base_url: String, api_format: String, model: String
     let test_model = model;
     let client = reqwest::Client::new();
 
-    let (url, resp_result) = if api_format == "openai" {
+    let (_url, resp_result) = if api_format == "openai" {
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
         let body = serde_json::json!({
             "model": test_model,
@@ -1222,6 +1221,7 @@ async fn start_claude_session(
     };
 
     let pid = child.id().unwrap_or(0);
+    eprintln!("[TOKENICODE] CLI spawned: pid={}, permission_mode={}, args={:?}", pid, permission_mode, &args);
 
     // Capture stdin and store in StdinManager for sending follow-up messages
     let stdin = child.stdin.take()
@@ -1258,61 +1258,104 @@ async fn start_claude_session(
     let is_bypass = permission_mode == "bypassPermissions";
     tokio::spawn(async move {
         let stream_event = format!("claude:stream:{}", sid_clone);
-        let perm_event = format!("claude:permission_request:{}", sid_clone);
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
         while let Ok(Some(line)) = lines.next_line().await {
-            // Try to identify control_request messages for protocol routing
+            // Parse every line as a JSON Value first (avoids serde enum pitfalls)
+            let json = match serde_json::from_str::<Value>(&line) {
+                Ok(v) => v,
+                Err(_) => continue, // skip non-JSON lines
+            };
+
+            // Intercept control_request messages for SDK protocol routing
             if !is_bypass {
-                if let Ok(msg) = serde_json::from_str::<StdoutMessage>(&line) {
-                    match msg {
-                        StdoutMessage::ControlRequest { request_id, request } => {
-                            match request {
-                                ControlRequestPayload::CanUseTool {
-                                    tool_name, input, description, tool_use_id, ..
-                                } => {
-                                    // Emit structured permission request to frontend
-                                    let event = PermissionRequestEvent {
-                                        request_id,
-                                        tool_name,
-                                        input,
-                                        description,
-                                        tool_use_id,
-                                    };
-                                    let _ = emit_to_frontend(
-                                        &app_clone, &perm_event,
-                                        serde_json::to_value(&event).unwrap_or_default(),
-                                    );
-                                    continue; // Don't forward to stream
-                                }
-                                ControlRequestPayload::HookCallback { .. } => {
-                                    // Auto-allow hook callbacks (TOKENICODE doesn't manage hooks)
-                                    let resp = ControlResponse::allow(request_id);
-                                    if let Ok(json_str) = serde_json::to_string(&resp) {
-                                        let _ = stdin_clone.send(&sid_clone, &json_str).await;
+                if let Some("control_request") = json.get("type").and_then(|v| v.as_str()) {
+                    // Extract request_id (handle both snake_case and camelCase)
+                    let request_id = json.get("request_id")
+                        .or_else(|| json.get("requestId"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string();
+
+                    if let Some(request) = json.get("request") {
+                        let subtype = request.get("subtype").and_then(|v| v.as_str()).unwrap_or_default();
+                        match subtype {
+                            "can_use_tool" => {
+                                let tool_name = request.get("tool_name")
+                                    .or_else(|| request.get("toolName"))
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or_default()
+                                    .to_string();
+                                let input = request.get("input").cloned().unwrap_or(Value::Null);
+                                let description = request.get("description")
+                                    .and_then(|v| v.as_str())
+                                    .map(String::from);
+                                let tool_use_id = request.get("tool_use_id")
+                                    .or_else(|| request.get("toolUseId"))
+                                    .and_then(|v| v.as_str())
+                                    .map(String::from);
+
+                                eprintln!("[TOKENICODE] permission request: tool={} request_id={}", tool_name, request_id);
+
+                                // Emit as a special stream message (reuses the working stream channel)
+                                let perm_payload = serde_json::json!({
+                                    "type": "tokenicode_permission_request",
+                                    "request_id": request_id,
+                                    "tool_name": tool_name,
+                                    "input": input,
+                                    "description": description,
+                                    "tool_use_id": tool_use_id,
+                                });
+                                let _ = emit_to_frontend(&app_clone, &stream_event, perm_payload);
+                                continue; // Don't forward to stream as normal msg
+                            }
+                            "hook_callback" => {
+                                // Auto-allow hook callbacks (TOKENICODE doesn't manage hooks)
+                                let auto_resp = serde_json::json!({
+                                    "type": "control_response",
+                                    "response": {
+                                        "subtype": "success",
+                                        "request_id": request_id,
+                                        "response": { "behavior": "allow" }
                                     }
-                                    continue;
-                                }
-                                ControlRequestPayload::Unknown => {
-                                    // Unknown control request subtype — auto-allow to not block CLI
-                                    let resp = ControlResponse::allow(request_id);
-                                    if let Ok(json_str) = serde_json::to_string(&resp) {
-                                        let _ = stdin_clone.send(&sid_clone, &json_str).await;
+                                });
+                                let _ = stdin_clone.send(&sid_clone, &auto_resp.to_string()).await;
+                                continue;
+                            }
+                            other => {
+                                // Unknown control request subtype — auto-allow to not block CLI
+                                eprintln!("[TOKENICODE] control_request/{}: auto-allowing (request_id={})", other, request_id);
+                                let auto_resp = serde_json::json!({
+                                    "type": "control_response",
+                                    "response": {
+                                        "subtype": "success",
+                                        "request_id": request_id,
+                                        "response": { "behavior": "allow" }
                                     }
-                                    continue;
-                                }
+                                });
+                                let _ = stdin_clone.send(&sid_clone, &auto_resp.to_string()).await;
+                                continue;
                             }
                         }
-                        StdoutMessage::Other => {
-                            // Fall through to normal stream emission below
-                        }
+                    } else {
+                        eprintln!("[TOKENICODE] control_request missing 'request' field: {}", &line[..line.len().min(200)]);
+                        // Auto-allow to avoid blocking CLI
+                        let auto_resp = serde_json::json!({
+                            "type": "control_response",
+                            "response": {
+                                "subtype": "success",
+                                "request_id": request_id,
+                                "response": { "behavior": "allow" }
+                            }
+                        });
+                        let _ = stdin_clone.send(&sid_clone, &auto_resp.to_string()).await;
+                        continue;
                     }
                 }
             }
+
             // Normal message — forward to frontend stream
-            if let Ok(json) = serde_json::from_str::<Value>(&line) {
-                let _ = emit_to_frontend(&app_clone, &stream_event, json);
-            }
+            let _ = emit_to_frontend(&app_clone, &stream_event, json);
         }
         // Emit process_exit on the stream channel (primary detection)
         let _ = emit_to_frontend(
@@ -1389,6 +1432,10 @@ async fn send_raw_stdin(
 
 /// Respond to a structured permission request from the SDK control protocol.
 /// Called by the frontend when the user approves or denies a tool use.
+///
+/// IMPORTANT: The SDK always sends `updatedInput` with the original tool input when allowing.
+/// CLI internally relies on this field. For deny, only `message` is included.
+/// Format mirrors exactly what the SDK constructs (from reverse-engineered source).
 #[tauri::command]
 async fn respond_permission(
     stdin_mgr: State<'_, StdinManager>,
@@ -1396,18 +1443,33 @@ async fn respond_permission(
     request_id: String,
     allow: bool,
     message: Option<String>,
+    tool_use_id: Option<String>,
+    updated_input: Option<Value>,
 ) -> Result<(), String> {
-    let resp = if allow {
-        ControlResponse::allow(request_id)
+    let mut inner = serde_json::Map::new();
+    if allow {
+        inner.insert("behavior".into(), Value::String("allow".into()));
+        // SDK always includes updatedInput with the original tool input on allow
+        inner.insert("updatedInput".into(), updated_input.unwrap_or(Value::Object(serde_json::Map::new())));
     } else {
-        ControlResponse::deny(
-            request_id,
-            message.unwrap_or_else(|| "User denied this operation".to_string()),
-            false,
-        )
-    };
-    let json_str = serde_json::to_string(&resp)
-        .map_err(|e| format!("Failed to serialize control response: {}", e))?;
+        inner.insert("behavior".into(), Value::String("deny".into()));
+        inner.insert("message".into(), Value::String(
+            message.unwrap_or_else(|| "User denied this operation".into()),
+        ));
+    }
+    if let Some(ref tuid) = tool_use_id {
+        inner.insert("toolUseID".into(), Value::String(tuid.clone()));
+    }
+
+    let resp = serde_json::json!({
+        "type": "control_response",
+        "response": {
+            "subtype": "success",
+            "request_id": request_id,
+            "response": inner,
+        }
+    });
+    let json_str = resp.to_string();
     stdin_mgr.send(&session_id, &json_str).await
 }
 
@@ -2249,7 +2311,7 @@ async fn watch_directory(
     state: State<'_, WatcherManager>,
     path: String,
 ) -> Result<(), String> {
-    use notify::{Watcher, RecursiveMode, Config, Event, EventKind};
+    use notify::{Watcher, RecursiveMode, Event, EventKind};
 
     // Stop existing watcher for this path if any
     {
@@ -3929,7 +3991,7 @@ async fn download_with_progress(
 fn extract_node_archive(
     data: &[u8],
     ext: &str,
-    archive_name: &str,
+    _archive_name: &str,
     install_dir: &std::path::Path,
 ) -> Result<(), String> {
     match ext {
