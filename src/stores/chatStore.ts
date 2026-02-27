@@ -228,16 +228,15 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       if (existingIdx !== -1) {
         const updated = [...state.messages];
         updated[existingIdx] = { ...updated[existingIdx], ...message };
-        return {
-          messages: updated,
-          ...(message.isPartial ? {} : { partialText: '', isStreaming: false }),
-        };
+        return { messages: updated };
       }
-      return {
-        messages: [...state.messages, message],
-        // When a non-partial message arrives, clear partial buffer
-        ...(message.isPartial ? {} : { partialText: '', isStreaming: false }),
-      };
+      return { messages: [...state.messages, message] };
+      // NOTE: partialText/isStreaming are NOT cleared here. Clearing is handled
+      // explicitly by clearPartial() in the result/process_exit handlers and
+      // in the assistant message handler when a text block supersedes streaming.
+      // Previously, unconditional clearing here caused TK-322: intermediate
+      // assistant messages (thinking/tool_use blocks) would wipe streaming text,
+      // leaving the UI stuck in "thinking" while text was actually generated.
     }),
 
   updateMessage: (id, updates) =>

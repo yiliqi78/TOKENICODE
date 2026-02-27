@@ -49,7 +49,7 @@ export function ProjectSelector() {
       </button>
 
       {/* Recent project chips */}
-      {recentProjects.slice(0, 5).map((project) => (
+      {recentProjects.slice(0, 4).map((project) => (
         <button
           key={project.path}
           onClick={() => setWorkingDirectory(project.path)}

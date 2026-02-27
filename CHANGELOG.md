@@ -6,6 +6,40 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.6.15] - 2026-02-27
+
+### Fixed
+
+- **Streaming stuck in "thinking"** (TK-322) — Fixed a race condition where intermediate `assistant` messages (thinking/tool_use blocks) would wipe `partialText` and `isStreaming` state via `addMessage` side effect. The UI would show "thinking" spinner indefinitely while text was actually generated in the background. Partial state is now only cleared explicitly in `result`/`process_exit` handlers.
+
+### Improved
+
+- **Project header styling** — Project names in the session list now use larger bold text (`text-[13px] font-extrabold`) with accent-colored chevrons, creating clear visual hierarchy over session items.
+
+- **Skill panel right-click menu** (TK-312) — Right-clicking a skill card now opens the same context menu as the three-dot button (use, edit, duplicate, reveal, delete).
+
+- **Recent projects limit** (TK-321) — The recent projects list now keeps only the 4 most recently used projects, automatically replacing older entries.
+
+- **Project-level context menu** — Right-clicking a project header offers "New Task" (create session in that project) and "Delete All Tasks" (with confirmation dialog). A `+` button also appears on hover for quick session creation.
+
+---
+
+### 修复
+
+- **流式响应卡在「思考中」** (TK-322) — 修复了中间 `assistant` 消息（thinking/tool_use 块）通过 `addMessage` 副作用清空 `partialText` 和 `isStreaming` 状态的竞态条件。此前 UI 会一直显示「思考中」转圈，但文字实际已在后台生成。现在流式状态只在 `result`/`process_exit` 处理器中显式清理。
+
+### 改进
+
+- **项目名样式优化** — 任务列表中的项目名改为更大的粗体文字（`text-[13px] font-extrabold`）+ accent 色箭头，与下方会话项拉开视觉层级。
+
+- **技能面板右键菜单** (TK-312) — 右键点击技能卡片现在弹出与三点按钮相同的上下文菜单（使用、编辑、复制、在 Finder 中显示、删除）。
+
+- **最近项目列表** (TK-321) — 最近项目列表现在只保留最近使用的 4 个项目，自动替换旧条目。
+
+- **项目级右键菜单** — 右键项目标题可「新建任务」或「删除全部任务」（带确认弹窗）。hover 时右侧也会出现 `+` 按钮快速创建会话。
+
+---
+
 ## [0.6.14] - 2026-02-26
 
 ### Fixed

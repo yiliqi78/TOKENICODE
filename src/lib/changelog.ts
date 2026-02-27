@@ -13,6 +13,26 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.6.15',
+    date: '2026-02-27',
+    highlights: {
+      zh: [
+        '修复流式响应卡在「思考中」(TK-322) — 中间消息不再意外清空流式文本状态，解决偶发的 UI 卡死问题',
+        '项目名样式优化 — 更大更粗的字体 + accent 色箭头，项目与会话层级一目了然',
+        '技能面板右键菜单 (TK-312) — 右键技能卡片直接弹出操作菜单',
+        '最近项目列表自动淘汰 (TK-321) — 只保留最近 4 个项目，旧条目自动替换',
+        '项目级右键菜单 — 右键项目标题可新建任务或删除全部任务，hover 时有 + 按钮快捷创建',
+      ],
+      en: [
+        'Fix streaming stuck in "thinking" (TK-322) — Intermediate messages no longer wipe streaming text state, fixing intermittent UI freeze',
+        'Project header styling — Larger bold text + accent chevrons for clear visual hierarchy',
+        'Skill panel right-click menu (TK-312) — Right-click skill cards to open context menu',
+        'Recent projects auto-limit (TK-321) — Keeps only 4 most recent projects, auto-replacing older entries',
+        'Project-level context menu — Right-click project header for new task / delete all, plus hover + button',
+      ],
+    },
+  },
+  {
     version: '0.6.14',
     date: '2026-02-26',
     highlights: {

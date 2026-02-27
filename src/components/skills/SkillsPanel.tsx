@@ -420,6 +420,7 @@ function SkillCard({
   return (
     <div
       onClick={() => onSelect(skill)}
+      onContextMenu={(e) => onOpenMenu(e, skill)}
       className={`mx-1.5 mb-1 px-2.5 py-2 rounded-lg cursor-pointer
         transition-smooth group border
         ${isDisabled ? 'opacity-50' : ''}

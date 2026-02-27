@@ -59,6 +59,12 @@ interface ContextMenuState {
   session: SessionListItem;
 }
 
+interface ProjectMenuState {
+  x: number;
+  y: number;
+  project: string; // project path
+}
+
 export function ConversationList() {
   const t = useT();
   const sessions = useSessionStore((s) => s.sessions);
@@ -72,9 +78,13 @@ export function ConversationList() {
   const setCustomPreview = useSessionStore((s) => s.setCustomPreview);
   const runningSessions = useSessionStore((s) => s.runningSessions);
 
-  // Context menu
+  // Context menu (session-level)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Context menu (project-level)
+  const [projectMenu, setProjectMenu] = useState<ProjectMenuState | null>(null);
+  const projectMenuRef = useRef<HTMLDivElement>(null);
 
   // Inline rename
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -112,6 +122,25 @@ export function ConversationList() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [contextMenu]);
+
+  // Close project menu on outside click or ESC
+  useEffect(() => {
+    if (!projectMenu) return;
+    const handleClick = (e: MouseEvent) => {
+      if (projectMenuRef.current && !projectMenuRef.current.contains(e.target as Node)) {
+        setProjectMenu(null);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setProjectMenu(null);
+    };
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [projectMenu]);
 
   // Focus rename input when it appears
   useEffect(() => {
@@ -453,6 +482,47 @@ export function ConversationList() {
     handleDeleteSession(session.id, session.path);
   }, [handleDeleteSession]);
 
+  // --- Project context menu handlers ---
+  const handleProjectContextMenu = useCallback((e: React.MouseEvent, project: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setProjectMenu({ x: e.clientX, y: e.clientY, project });
+  }, []);
+
+  const handleNewSessionInProject = useCallback((project: string) => {
+    setProjectMenu(null);
+    const draftId = `draft_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    useSettingsStore.getState().setWorkingDirectory(project);
+    useChatStore.getState().resetSession();
+    useSessionStore.getState().addDraftSession(draftId, project);
+  }, []);
+
+  const handleDeleteAllInProject = useCallback(async (project: string) => {
+    // Close menu first, then confirm — avoids stale menu staying open
+    setProjectMenu(null);
+
+    // Use sessions from store directly (filtered may be stale in closure)
+    const allSessions = useSessionStore.getState().sessions;
+    const projectSessions = allSessions.filter((s) => {
+      const raw = s.project || s.projectDir;
+      // Inline normalize: replace home path with ~ for consistent matching
+      const home = _cachedHomeDir;
+      const key = home && raw.startsWith(home) ? '~' + raw.slice(home.length) : raw;
+      return key === project;
+    });
+    if (projectSessions.length === 0) return;
+
+    const ok = confirm(
+      `确定删除「${projectLabel(project)}」下的全部 ${projectSessions.length} 个任务吗？此操作不可撤销。`
+    );
+    if (!ok) return;
+
+    for (const session of projectSessions) {
+      await handleDeleteSession(session.id, session.path);
+    }
+    fetchSessions();
+  }, [handleDeleteSession, fetchSessions]);
+
   // Collapsed project groups state
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
@@ -542,24 +612,37 @@ export function ConversationList() {
             {/* Project header — collapsible */}
             <button
               onClick={() => toggleCollapse(project)}
+              onContextMenu={(e) => handleProjectContextMenu(e, project)}
               className="w-full flex items-center gap-2 px-3 py-1.5
-                hover:bg-bg-secondary rounded-lg transition-smooth"
+                hover:bg-bg-secondary rounded-lg transition-smooth group"
             >
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
                 stroke="currentColor" strokeWidth="1.5"
-                className={`text-text-tertiary transition-transform
+                className={`text-accent transition-transform
                   ${isCollapsed ? '' : 'rotate-90'}`}>
                 <path d="M3 1l4 4-4 4" />
               </svg>
-              <span className="text-xs font-semibold text-text-secondary
+              <span className="text-[13px] font-extrabold text-text-primary
                 truncate flex-1 text-left">
                 {projectLabel(project)}
               </span>
               <span className="text-[11px] text-text-tertiary flex-shrink-0">
                 {items.length} {t('conv.sessions')}
               </span>
+              <span
+                role="button"
+                onClick={(e) => { e.stopPropagation(); handleNewSessionInProject(project); }}
+                className="flex-shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100
+                  hover:bg-bg-tertiary transition-smooth text-text-tertiary hover:text-accent"
+                title={t('conv.newChat')}
+              >
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
+                  stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M8 3v10M3 8h10" />
+                </svg>
+              </span>
             </button>
-            {/* Project path tooltip */}
+            {/* Project path */}
             {!isCollapsed && project !== projectLabel(project) && (
               <div className="px-7 pb-0.5">
                 <span className="text-[10px] text-text-tertiary truncate block">
@@ -701,6 +784,42 @@ export function ConversationList() {
               <path d="M2 4h12M5.333 4V2.667a1.333 1.333 0 011.334-1.334h2.666a1.333 1.333 0 011.334 1.334V4m2 0v9.333a1.333 1.333 0 01-1.334 1.334H4.667a1.333 1.333 0 01-1.334-1.334V4h9.334z" />
             </svg>
             {t('conv.delete')}
+          </button>
+        </div>,
+        document.body
+      )}
+
+      {/* Project context menu */}
+      {projectMenu && createPortal(
+        <div
+          ref={projectMenuRef}
+          className="fixed z-[9999] min-w-[160px] py-1.5 rounded-xl
+            bg-bg-card border border-border-subtle shadow-xl"
+          style={{ left: projectMenu.x, top: projectMenu.y }}
+        >
+          <button
+            onClick={() => handleNewSessionInProject(projectMenu.project)}
+            className="w-full flex items-center gap-2.5 px-3 py-1.5
+              text-xs text-text-primary hover:bg-bg-secondary transition-smooth"
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
+              stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <path d="M8 3v10M3 8h10" />
+            </svg>
+            {t('conv.newChat')}
+          </button>
+          <div className="my-1 border-t border-border-subtle" />
+          <button
+            onClick={() => handleDeleteAllInProject(projectMenu.project)}
+            className="w-full flex items-center gap-2.5 px-3 py-1.5
+              text-xs text-red-500 hover:bg-red-500/10 transition-smooth"
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
+              stroke="currentColor" strokeWidth="1.5"
+              strokeLinecap="round" strokeLinejoin="round">
+              <path d="M2 4h12M5.333 4V2.667a1.333 1.333 0 011.334-1.334h2.666a1.333 1.333 0 011.334 1.334V4m2 0v9.333a1.333 1.333 0 01-1.334 1.334H4.667a1.333 1.333 0 01-1.334-1.334V4h9.334z" />
+            </svg>
+            删除全部任务
           </button>
         </div>,
         document.body

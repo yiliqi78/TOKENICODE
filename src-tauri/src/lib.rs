@@ -2126,6 +2126,9 @@ async fn list_recent_projects() -> Result<Vec<Value>, String> {
         tb.cmp(&ta)
     });
 
+    // TK-321: Keep only the 4 most recent projects
+    result.truncate(4);
+
     Ok(result)
 }
 

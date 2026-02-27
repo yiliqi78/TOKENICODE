@@ -1354,11 +1354,6 @@ export function InputBar() {
         // message only contains a thinking block (no text block yet).
         const hasTextBlock = content.some((b: any) => b.type === 'text' && b.text);
 
-        // Save streaming text state — will be restored if no text block supersedes it
-        const savedPartialText = useChatStore.getState().partialText;
-        const savedIsStreaming = useChatStore.getState().isStreaming;
-        const savedPhase = useChatStore.getState().activityStatus.phase;
-
         if (hasTextBlock) {
           // Full clear — the text block supersedes streaming partial text
           clearPartial();
@@ -1556,22 +1551,10 @@ export function InputBar() {
           }
         }
 
-        // Restore streaming text state if it was wiped by addMessage (which clears
-        // partialText for non-partial messages) but no text block was present to
-        // supersede it. This prevents --include-partial-messages intermediate
-        // assistant messages (containing only thinking blocks) from destroying
-        // the streaming text and resetting the activity phase to 'thinking'.
-        if (!hasTextBlock && savedPartialText && savedIsStreaming) {
-          useChatStore.setState({
-            partialText: savedPartialText,
-            isStreaming: true,
-          });
-          // Restore the activity phase — don't let thinking block processing
-          // override it if text was being streamed
-          if (savedPhase === 'writing') {
-            setActivityStatus({ phase: 'writing' });
-          }
-        }
+        // NOTE: No save/restore hack needed here. addMessage no longer clears
+        // partialText/isStreaming as a side effect (TK-322 fix), so intermediate
+        // assistant messages with only thinking/tool_use blocks won't wipe
+        // streaming text state.
         break;
       }
 
@@ -1981,6 +1964,7 @@ export function InputBar() {
 
       case 'process_exit': {
         // The CLI process has exited — clear the stdin handle but keep sessionId for resume
+        clearPartial();
         setSessionStatus('idle');
         setSessionMeta({ stdinId: undefined });
         useChatStore.getState().clearPendingMessages();
