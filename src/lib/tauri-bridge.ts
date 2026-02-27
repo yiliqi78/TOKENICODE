@@ -18,6 +18,10 @@ export interface StartSessionParams {
   session_mode?: string;
   /** Custom environment variables for API provider override (TK-303) */
   custom_env?: Record<string, string>;
+  /** Permission mode for CLI control protocol.
+   *  "acceptEdits" | "default" | "plan" | "bypassPermissions"
+   *  When not "bypassPermissions", enables structured permission requests via SDK protocol. */
+  permission_mode?: string;
 }
 
 export interface SessionInfo {
@@ -317,9 +321,48 @@ export const bridge = {
 
   loadApiSettings: () =>
     invoke<ApiSettingsBackup | null>('load_api_settings'),
+
+  // --- SDK Control Protocol ---
+
+  /** Respond to a structured permission request from CLI */
+  respondPermission: (sessionId: string, requestId: string, allow: boolean, message?: string) =>
+    invoke<void>('respond_permission', { sessionId, requestId, allow, message: message ?? null }),
+
+  /** Send a runtime control command to change permission mode without restart */
+  setPermissionMode: (sessionId: string, mode: string) =>
+    invoke<void>('send_control_request', { sessionId, subtype: 'set_permission_mode', payload: { mode } }),
+
+  /** Send a runtime control command to change model without restart */
+  setModel: (sessionId: string, model: string | null) =>
+    invoke<void>('send_control_request', { sessionId, subtype: 'set_model', payload: { model } }),
+
+  /** Send a runtime interrupt command */
+  interruptSession: (sessionId: string) =>
+    invoke<void>('send_control_request', { sessionId, subtype: 'interrupt', payload: {} }),
 };
 
+// --- SDK Control Protocol Types ---
+
+export interface PermissionRequest {
+  request_id: string;
+  tool_name: string;
+  input: Record<string, unknown>;
+  description?: string;
+  tool_use_id?: string;
+}
+
 // --- Event Listeners ---
+
+/** Listen for structured permission requests from the SDK control protocol */
+export function onPermissionRequest(
+  sessionId: string,
+  callback: (req: PermissionRequest) => void,
+): Promise<UnlistenFn> {
+  return listen<PermissionRequest>(
+    `claude:permission_request:${sessionId}`,
+    (event) => callback(event.payload),
+  );
+}
 
 export function onClaudeStream(
   sessionId: string,

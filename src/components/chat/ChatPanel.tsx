@@ -6,7 +6,7 @@ import { ToolGroup } from './ToolGroup';
 import { InputBar } from './InputBar';
 import { ExportMenu } from '../conversations/ExportMenu';
 import { UpdateButton } from '../shared/UpdateButton';
-import { useSettingsStore, MODEL_OPTIONS } from '../../stores/settingsStore';
+import { useSettingsStore, MODEL_OPTIONS, mapSessionModeToPermissionMode } from '../../stores/settingsStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useFileStore } from '../../stores/fileStore';
 import { useAgentStore } from '../../stores/agentStore';
@@ -755,6 +755,7 @@ async function startDraftSession(folderPath: string) {
       dangerously_skip_permissions: useSettingsStore.getState().sessionMode === 'bypass',
       thinking_level: useSettingsStore.getState().thinkingLevel,
       custom_env: buildCustomEnvVars(),
+      permission_mode: mapSessionModeToPermissionMode(useSettingsStore.getState().sessionMode),
     });
 
     // Store stdinId so InputBar can send the first message via stdin

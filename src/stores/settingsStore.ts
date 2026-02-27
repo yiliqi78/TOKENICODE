@@ -8,7 +8,19 @@ export type ColorTheme = 'black' | 'blue' | 'orange' | 'green';
 export type SecondaryPanelTab = 'files' | 'skills';
 export type ModelId = 'claude-opus-4-6' | 'claude-sonnet-4-6' | 'claude-haiku-4-5';
 export type SessionMode = 'code' | 'ask' | 'plan' | 'bypass';
+/** CLI permission mode for the SDK control protocol */
+export type CliPermissionMode = 'acceptEdits' | 'default' | 'plan' | 'bypassPermissions';
 export type Locale = 'zh' | 'en';
+
+/** Map frontend session mode to CLI permission mode */
+export function mapSessionModeToPermissionMode(mode: SessionMode): CliPermissionMode {
+  switch (mode) {
+    case 'code': return 'acceptEdits';
+    case 'ask': return 'default';
+    case 'plan': return 'plan';
+    case 'bypass': return 'bypassPermissions';
+  }
+}
 export type ApiProviderMode = 'inherit' | 'official' | 'custom';
 export type ApiFormat = 'anthropic' | 'openai';
 export type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'max';

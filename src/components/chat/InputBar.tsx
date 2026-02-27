@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useChatStore, generateMessageId, type ChatMessage } from '../../stores/chatStore';
-import { useSettingsStore, MODEL_OPTIONS, type ThinkingLevel } from '../../stores/settingsStore';
-import { bridge, onClaudeStream, onClaudeStderr, onSessionExit, type UnifiedCommand } from '../../lib/tauri-bridge';
+import { useSettingsStore, MODEL_OPTIONS, mapSessionModeToPermissionMode, type ThinkingLevel } from '../../stores/settingsStore';
+import { bridge, onClaudeStream, onClaudeStderr, onSessionExit, onPermissionRequest, type UnifiedCommand, type PermissionRequest } from '../../lib/tauri-bridge';
 import { ModelSelector } from './ModelSelector';
 import { ModeSelector } from './ModeSelector';
 import { FileUploadChips } from './FileUploadChips';
@@ -18,6 +18,7 @@ import { stripAnsi } from '../../lib/strip-ansi';
 import { usePlanPanelStore } from './ChatPanel';
 import { useSnapshotStore } from '../../stores/snapshotStore';
 import { PlanReviewCard } from './PlanReviewCard';
+import { PermissionCard } from './PermissionCard';
 import { QuestionCard } from './QuestionCard';
 import { TiptapEditor, type TiptapEditorHandle } from './TiptapEditor';
 // drag-state import removed — tree drag handled by ChatPanel
@@ -216,7 +217,7 @@ export function InputBar() {
   const floatingCard = useChatStore((s) => {
     for (let i = s.messages.length - 1; i >= 0; i--) {
       const m = s.messages[i];
-      if ((m.type === 'plan_review' || m.type === 'question') && !m.resolved) return m;
+      if ((m.type === 'plan_review' || m.type === 'question' || m.type === 'permission') && !m.resolved) return m;
     }
     return null;
   });
@@ -838,6 +839,32 @@ export function InputBar() {
           }
         );
 
+        // SDK control protocol: listen for structured permission requests
+        const unlistenPermission = await onPermissionRequest(
+          preGeneratedId,
+          (req: PermissionRequest) => {
+            const { addMessage, setActivityStatus } = useChatStore.getState();
+            addMessage({
+              id: generateMessageId(),
+              role: 'assistant',
+              type: 'permission',
+              content: req.description || `${req.tool_name} wants to execute`,
+              permissionTool: req.tool_name,
+              permissionDescription: req.description || '',
+              timestamp: Date.now(),
+              interactionState: 'pending',
+              permissionData: {
+                requestId: req.request_id,
+                toolName: req.tool_name,
+                input: req.input,
+                description: req.description,
+                toolUseId: req.tool_use_id,
+              },
+            });
+            setActivityStatus({ phase: 'awaiting' });
+          }
+        );
+
         // Backup exit detection: if process_exit from stdout stream is missed
         // (e.g., listener was removed), this fires as a safety net.
         const unlistenExit = await onSessionExit(preGeneratedId, () => {
@@ -860,6 +887,7 @@ export function InputBar() {
         (window as any).__claudeUnlisteners[preGeneratedId] = () => {
           unlisten();
           unlistenStderr();
+          unlistenPermission();
           unlistenExit();
         };
         (window as any).__claudeUnlisten = (window as any).__claudeUnlisteners[preGeneratedId];
@@ -880,6 +908,7 @@ export function InputBar() {
           thinking_level: useSettingsStore.getState().thinkingLevel,
           session_mode: (liveSessionMode === 'ask' || liveSessionMode === 'plan') ? liveSessionMode : undefined,
           custom_env: buildCustomEnvVars(),
+          permission_mode: mapSessionModeToPermissionMode(liveSessionMode),
         });
 
         // Store both: session_id for tracking, stdinId (preGeneratedId) for stdin communication
@@ -1761,6 +1790,7 @@ export function InputBar() {
                   thinking_level: useSettingsStore.getState().thinkingLevel,
                   session_mode: (sessionMode === 'ask' || sessionMode === 'plan') ? sessionMode : undefined,
                   custom_env: buildCustomEnvVars(),
+                  permission_mode: mapSessionModeToPermissionMode(sessionMode),
                 });
 
                 setSessionMeta({ sessionId: session.session_id, stdinId: retryId, envFingerprint: envFingerprint(), spawnedModel: resolveModelForProvider(selectedModel) });
@@ -1991,7 +2021,7 @@ export function InputBar() {
     // Strip ANSI escape codes so regex matching works on raw text
     const clean = stripAnsi(line).trim();
     console.log('[TOKENICODE:stderr]', clean);
-    const { addMessage, setActivityStatus } = useChatStore.getState();
+    const { addMessage } = useChatStore.getState();
 
     // Detect ExitPlanMode prompt — create plan_review card as fallback (Plan mode only).
     // In Code mode the CLI handles this natively.
@@ -2022,53 +2052,10 @@ export function InputBar() {
       return;
     }
 
-    // Detect permission prompts from Claude CLI stderr.
-    // The CLI outputs prompts like:
-    //   "❓ Allow Bash {"command":"ls"}? (y/n)"
-    //   "Allow mcp__tool? (y/n)"
-    //   "Do you want to allow Bash? (y/n)"
-    // After ANSI stripping, match against clean text.
-    const permissionPatterns = [
-      // "❓ Allow <tool>" or "Allow <tool>" — primary CLI format
-      /(?:❓\s*)?(?:Allow|Permit|Approve)\s+(\S+)/i,
-      // "Do you want to allow/permit/run <tool>?"
-      /(?:Do you want to (?:allow|permit|run))\s+(.+?)\s*\?/i,
-      // "Permission requested/required for <tool>"
-      /Permission (?:requested|required)(?:\s+for)?\s*(.*)/i,
-      // "Press Y to allow/approve/continue"
-      /(?:Press|Type)\s+[Yy]\s+to\s+(?:allow|approve|continue)/i,
-    ];
-
-    for (const pattern of permissionPatterns) {
-      const match = clean.match(pattern);
-      if (match) {
-        // Guard: don't create duplicate permission cards for the same prompt
-        const store = useChatStore.getState();
-        const msgs = store.messages;
-        let recentPermission = false;
-        for (let i = msgs.length - 1; i >= 0; i--) {
-          if (msgs[i].type === 'permission' && !msgs[i].resolved) {
-            recentPermission = true;
-            break;
-          }
-        }
-        if (recentPermission) return;
-
-        addMessage({
-          id: generateMessageId(),
-          role: 'system',
-          type: 'permission',
-          content: clean,
-          permissionTool: match[1]?.trim() || '',
-          permissionDescription: clean,
-          resolved: false,
-          timestamp: Date.now(),
-        });
-        // Hold: pause generation display while awaiting user approval
-        setActivityStatus({ phase: 'awaiting' });
-        return;
-      }
-    }
+    // Permission prompts are now handled via SDK control protocol (P1-03/P1-04).
+    // The Rust backend intercepts control_request messages from stdout and emits
+    // them on the claude:permission_request channel, which is handled by
+    // onPermissionRequest above. Stderr is now purely for diagnostic logging.
   }, []);
 
   // Keep stderr ref in sync so auto-retry logic in handleStreamMessage can call it
@@ -2190,12 +2177,14 @@ export function InputBar() {
           <RewindPanel onClose={() => setShowRewindPanel(false)} />
         )}
 
-        {/* Floating approval card — plan_review or question awaiting user response */}
+        {/* Floating approval card — plan_review, question, or permission awaiting user response */}
         {floatingCard && (
           <div className="mb-3 animate-scale-in">
             {floatingCard.type === 'plan_review'
               ? <PlanReviewCard message={floatingCard} floating />
-              : <QuestionCard message={floatingCard} floating />}
+              : floatingCard.type === 'permission'
+                ? <PermissionCard message={floatingCard} />
+                : <QuestionCard message={floatingCard} floating />}
           </div>
         )}
 

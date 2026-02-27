@@ -29,6 +29,16 @@ export interface MessageAttachment {
   preview?: string;  // base64 data URL (thumbnail)
 }
 
+export type InteractionState = 'pending' | 'sending' | 'resolved' | 'failed' | 'expired';
+
+export interface PermissionRequestData {
+  requestId: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  description?: string;
+  toolUseId?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -44,6 +54,10 @@ export interface ChatMessage {
   permissionTool?: string;         // tool requesting permission
   permissionDescription?: string;  // what the tool wants to do
   resolved?: boolean;              // whether the user responded
+  // SDK control protocol permission data (Phase 2)
+  interactionState?: InteractionState;
+  interactionError?: string;
+  permissionData?: PermissionRequestData;
   planItems?: string[];            // plan steps
   planContent?: string;            // markdown content for plan_review
   // AskUserQuestion fields
@@ -180,6 +194,11 @@ interface ChatState {
 
   /** Rewind conversation to a specific message index (truncates messages[]) */
   rewindToTurn: (startMsgIdx: number) => void;
+
+  /** Update the interaction state of a permission/question message */
+  setInteractionState: (msgId: string, state: InteractionState, error?: string) => void;
+  /** Get the active (pending) interaction message, if any */
+  getActiveInteraction: () => ChatMessage | undefined;
 
   /** Add a message to a background session's cache (for stream events arriving while tab is not active) */
   addMessageToCache: (tabId: string, message: ChatMessage) => void;
@@ -352,6 +371,30 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         activityStatus: { phase: 'idle' as ActivityPhase },
       };
     }),
+
+  setInteractionState: (msgId, interactionState, error) =>
+    set((state) => ({
+      messages: state.messages.map((m) =>
+        m.id === msgId ? {
+          ...m,
+          interactionState,
+          interactionError: error,
+          resolved: interactionState === 'resolved',
+        } : m,
+      ),
+    })),
+
+  getActiveInteraction: () => {
+    const messages = get().messages;
+    // Return the last message with an active (pending) interaction
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if ((m.type === 'permission' || m.type === 'question') && m.interactionState === 'pending') {
+        return m;
+      }
+    }
+    return undefined;
+  },
 
   // --- Session cache operations ---
 

@@ -1,6 +1,8 @@
 mod commands;
+mod protocol;
 
 use commands::{ProcessManager, SessionInfo, StartSessionParams, ManagedProcess, StdinManager};
+use protocol::{StdoutMessage, ControlRequestPayload, ControlResponse, PermissionRequestEvent};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, State, Manager};
@@ -986,16 +988,18 @@ async fn start_claude_session(
         }
     }
 
-    // GUI wrapper cannot handle CLI stdin permission prompts, so always skip.
-    // The frontend sessionMode ('code'/'ask'/'plan'/'bypass') is a UI concept only.
-    args.push("--dangerously-skip-permissions".to_string());
-
-    // Session mode: ask, plan, or auto (default)
-    if let Some(ref mode) = params.session_mode {
-        if mode == "ask" || mode == "plan" {
-            args.push("--mode".to_string());
-            args.push(mode.clone());
-        }
+    // Permission mode: use SDK control protocol for structured permission requests,
+    // or bypass permissions entirely (legacy behavior).
+    let permission_mode = params.permission_mode.as_deref().unwrap_or("bypassPermissions");
+    if permission_mode == "bypassPermissions" {
+        // Legacy: skip all permission checks
+        args.push("--dangerously-skip-permissions".to_string());
+    } else {
+        // SDK control protocol: structured permission requests via stdout/stdin
+        args.push("--permission-mode".to_string());
+        args.push(permission_mode.to_string());
+        args.push("--permission-prompt-tool".to_string());
+        args.push("stdio".to_string());
     }
 
     // Extended thinking + effort level
@@ -1247,22 +1251,73 @@ async fn start_claude_session(
         Ok(())
     }
 
-    // Spawn stdout reader — streams NDJSON to frontend
+    // Spawn stdout reader — streams NDJSON to frontend, intercepts control_request
     let app_clone = app.clone();
     let sid_clone = sid.clone();
+    let stdin_clone = stdin_mgr.inner().clone();
+    let is_bypass = permission_mode == "bypassPermissions";
     tokio::spawn(async move {
-        let event_name = format!("claude:stream:{}", sid_clone);
+        let stream_event = format!("claude:stream:{}", sid_clone);
+        let perm_event = format!("claude:permission_request:{}", sid_clone);
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
         while let Ok(Some(line)) = lines.next_line().await {
+            // Try to identify control_request messages for protocol routing
+            if !is_bypass {
+                if let Ok(msg) = serde_json::from_str::<StdoutMessage>(&line) {
+                    match msg {
+                        StdoutMessage::ControlRequest { request_id, request } => {
+                            match request {
+                                ControlRequestPayload::CanUseTool {
+                                    tool_name, input, description, tool_use_id, ..
+                                } => {
+                                    // Emit structured permission request to frontend
+                                    let event = PermissionRequestEvent {
+                                        request_id,
+                                        tool_name,
+                                        input,
+                                        description,
+                                        tool_use_id,
+                                    };
+                                    let _ = emit_to_frontend(
+                                        &app_clone, &perm_event,
+                                        serde_json::to_value(&event).unwrap_or_default(),
+                                    );
+                                    continue; // Don't forward to stream
+                                }
+                                ControlRequestPayload::HookCallback { .. } => {
+                                    // Auto-allow hook callbacks (TOKENICODE doesn't manage hooks)
+                                    let resp = ControlResponse::allow(request_id);
+                                    if let Ok(json_str) = serde_json::to_string(&resp) {
+                                        let _ = stdin_clone.send(&sid_clone, &json_str).await;
+                                    }
+                                    continue;
+                                }
+                                ControlRequestPayload::Unknown => {
+                                    // Unknown control request subtype — auto-allow to not block CLI
+                                    let resp = ControlResponse::allow(request_id);
+                                    if let Ok(json_str) = serde_json::to_string(&resp) {
+                                        let _ = stdin_clone.send(&sid_clone, &json_str).await;
+                                    }
+                                    continue;
+                                }
+                            }
+                        }
+                        StdoutMessage::Other => {
+                            // Fall through to normal stream emission below
+                        }
+                    }
+                }
+            }
+            // Normal message — forward to frontend stream
             if let Ok(json) = serde_json::from_str::<Value>(&line) {
-                let _ = emit_to_frontend(&app_clone, &event_name, json);
+                let _ = emit_to_frontend(&app_clone, &stream_event, json);
             }
         }
         // Emit process_exit on the stream channel (primary detection)
         let _ = emit_to_frontend(
             &app_clone,
-            &event_name,
+            &stream_event,
             serde_json::json!({"type": "process_exit"}),
         );
         // Also emit on the dedicated exit channel (backup detection via onSessionExit)
@@ -1330,6 +1385,61 @@ async fn send_raw_stdin(
     message: String,
 ) -> Result<(), String> {
     stdin_mgr.send(&session_id, &message).await
+}
+
+/// Respond to a structured permission request from the SDK control protocol.
+/// Called by the frontend when the user approves or denies a tool use.
+#[tauri::command]
+async fn respond_permission(
+    stdin_mgr: State<'_, StdinManager>,
+    session_id: String,
+    request_id: String,
+    allow: bool,
+    message: Option<String>,
+) -> Result<(), String> {
+    let resp = if allow {
+        ControlResponse::allow(request_id)
+    } else {
+        ControlResponse::deny(
+            request_id,
+            message.unwrap_or_else(|| "User denied this operation".to_string()),
+            false,
+        )
+    };
+    let json_str = serde_json::to_string(&resp)
+        .map_err(|e| format!("Failed to serialize control response: {}", e))?;
+    stdin_mgr.send(&session_id, &json_str).await
+}
+
+/// Send a runtime control request to the CLI (set_permission_mode, set_model, interrupt).
+#[tauri::command]
+async fn send_control_request(
+    stdin_mgr: State<'_, StdinManager>,
+    session_id: String,
+    subtype: String,
+    payload: Value,
+) -> Result<(), String> {
+    use protocol::ControlRequest;
+    let req = match subtype.as_str() {
+        "interrupt" => ControlRequest::interrupt(),
+        "set_permission_mode" => {
+            let mode = payload.get("mode")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing 'mode' in payload")?
+                .to_string();
+            ControlRequest::set_permission_mode(mode)
+        }
+        "set_model" => {
+            let model = payload.get("model")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            ControlRequest::set_model(model)
+        }
+        other => return Err(format!("Unknown control request subtype: {}", other)),
+    };
+    let json_str = serde_json::to_string(&req)
+        .map_err(|e| format!("Failed to serialize control request: {}", e))?;
+    stdin_mgr.send(&session_id, &json_str).await
 }
 
 #[tauri::command]
@@ -4272,6 +4382,8 @@ pub fn run() {
             test_api_connection,
             save_api_settings,
             load_api_settings,
+            respond_permission,
+            send_control_request,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

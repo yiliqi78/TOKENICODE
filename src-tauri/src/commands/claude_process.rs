@@ -23,7 +23,7 @@ pub struct ProcessManager {
 }
 
 /// Manages stdin handles for sending user responses to Claude processes
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct StdinManager {
     handles: Arc<Mutex<HashMap<String, ChildStdin>>>,
 }
@@ -97,4 +97,9 @@ pub struct StartSessionParams {
     /// Custom environment variables for API provider override.
     /// Used by TK-303 to inject ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN, etc.
     pub custom_env: Option<HashMap<String, String>>,
+    /// Permission mode for CLI. Maps from frontend session modes:
+    ///   "acceptEdits" (code mode) | "default" (ask mode) | "plan" | "bypassPermissions" (bypass)
+    /// When not "bypassPermissions", enables --permission-prompt-tool stdio for structured
+    /// permission requests via the SDK control protocol.
+    pub permission_mode: Option<String>,
 }
