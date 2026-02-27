@@ -45,9 +45,7 @@ async function doCheck(): Promise<void> {
     if (update) {
       _updateHandle = update;
       useSettingsStore.getState().setUpdateAvailable(true, update.version);
-
-      // Start silent background download immediately
-      backgroundDownload();
+      // Don't auto-download — wait for user to click the UpdateButton
     } else {
       _updateHandle = null;
       useSettingsStore.getState().setUpdateAvailable(false);

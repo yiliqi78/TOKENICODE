@@ -492,9 +492,10 @@ export function ConversationList() {
   const handleNewSessionInProject = useCallback((project: string) => {
     setProjectMenu(null);
     const draftId = `draft_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    useSettingsStore.getState().setWorkingDirectory(project);
+    const fullPath = resolveProjectPath(project);
+    useSettingsStore.getState().setWorkingDirectory(fullPath);
     useChatStore.getState().resetSession();
-    useSessionStore.getState().addDraftSession(draftId, project);
+    useSessionStore.getState().addDraftSession(draftId, fullPath);
   }, []);
 
   const handleDeleteAllInProject = useCallback(async (project: string) => {
