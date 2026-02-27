@@ -6,6 +6,24 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.6.16] - 2026-02-27
+
+### Fixed
+
+- **Quick new session path resolution** — The "+" button and right-click "New Task" on project headers now correctly resolve the working directory. Previously, the `~` home prefix was not expanded (due to async cache miss), causing `No such file or directory` errors when spawning the CLI.
+
+- **Auto-update requires user confirmation** — Updates are no longer silently downloaded in the background. The app detects available updates and shows a version badge; users must click to start the download, then click again to restart. Previously, updates were downloaded and staged automatically.
+
+---
+
+### 修复
+
+- **快速新建任务路径解析** — 项目标题上的「+」按钮和右键「新建任务」现在能正确解析工作目录。此前由于 `~` 前缀未展开（异步缓存未就绪），会导致启动 CLI 时报「找不到文件或目录」。
+
+- **自动更新需用户确认** — 不再在后台静默下载更新。应用检测到新版本后显示版本标记，用户点击后才开始下载，再次点击重启。此前更新会自动下载并暂存。
+
+---
+
 ## [0.6.15] - 2026-02-27
 
 ### Fixed

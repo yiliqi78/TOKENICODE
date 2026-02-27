@@ -489,30 +489,35 @@ export function ConversationList() {
     setProjectMenu({ x: e.clientX, y: e.clientY, project });
   }, []);
 
-  const handleNewSessionInProject = useCallback((project: string) => {
+  const handleNewSessionInProject = useCallback((projectKey: string) => {
     setProjectMenu(null);
-    const fullPath = resolveProjectPath(project);
-    useSettingsStore.getState().setWorkingDirectory(fullPath);
+    // projectKey is ~/... — match by suffix against session raw paths
+    const suffix = projectKey.replace(/^~/, '');
+    const allSessions = useSessionStore.getState().sessions;
+    const match = allSessions.find((s) => {
+      const raw = s.project || s.projectDir;
+      return raw.endsWith(suffix);
+    });
+    const realPath = match ? (match.project || match.projectDir) : resolveProjectPath(projectKey);
+    useSettingsStore.getState().setWorkingDirectory(realPath);
     useChatStore.getState().resetSession();
+    const draftId = `draft_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    useSessionStore.getState().addDraftSession(draftId, realPath);
   }, []);
 
-  const handleDeleteAllInProject = useCallback(async (project: string) => {
-    // Close menu first, then confirm — avoids stale menu staying open
+  const handleDeleteAllInProject = useCallback(async (projectKey: string) => {
     setProjectMenu(null);
 
-    // Use sessions from store directly (filtered may be stale in closure)
+    const suffix = projectKey.replace(/^~/, '');
     const allSessions = useSessionStore.getState().sessions;
     const projectSessions = allSessions.filter((s) => {
       const raw = s.project || s.projectDir;
-      // Inline normalize: replace home path with ~ for consistent matching
-      const home = _cachedHomeDir;
-      const key = home && raw.startsWith(home) ? '~' + raw.slice(home.length) : raw;
-      return key === project;
+      return raw.endsWith(suffix);
     });
     if (projectSessions.length === 0) return;
 
     const ok = confirm(
-      `确定删除「${projectLabel(project)}」下的全部 ${projectSessions.length} 个任务吗？此操作不可撤销。`
+      `确定删除「${projectLabel(projectKey)}」下的全部 ${projectSessions.length} 个任务吗？此操作不可撤销。`
     );
     if (!ok) return;
 

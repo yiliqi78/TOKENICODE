@@ -13,6 +13,20 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.6.16',
+    date: '2026-02-27',
+    highlights: {
+      zh: [
+        '修复快速新建任务路径解析 — + 按钮和右键「新建任务」不再因 ~ 路径未展开而报错',
+        '自动更新改为用户确认制 — 检测到新版本后仅显示提示，用户点击后才下载更新',
+      ],
+      en: [
+        'Fix quick new session path resolution — "+" button and "New Task" no longer fail due to unexpanded ~ path',
+        'Auto-update requires user confirmation — Updates are detected but only downloaded after user clicks',
+      ],
+    },
+  },
+  {
     version: '0.6.15',
     date: '2026-02-27',
     highlights: {
