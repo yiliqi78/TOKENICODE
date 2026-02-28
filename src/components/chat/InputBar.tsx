@@ -14,7 +14,8 @@ import { useSessionStore } from '../../stores/sessionStore';
 import { useT } from '../../lib/i18n';
 import { SlashCommandPopover, getFilteredCommandList } from './SlashCommandPopover';
 import { useCommandStore } from '../../stores/commandStore';
-import { buildCustomEnvVars, envFingerprint, resolveModelForProvider } from '../../lib/api-provider';
+import { envFingerprint, resolveModelForProvider } from '../../lib/api-provider';
+import { useProviderStore } from '../../stores/providerStore';
 import { stripAnsi } from '../../lib/strip-ansi';
 import { usePlanPanelStore } from './ChatPanel';
 import { PlanReviewCard } from './PlanReviewCard';
@@ -857,7 +858,7 @@ export function InputBar() {
           resume_session_id: existingSessionId || undefined,
           thinking_level: useSettingsStore.getState().thinkingLevel,
           session_mode: (liveSessionMode === 'ask' || liveSessionMode === 'plan') ? liveSessionMode : undefined,
-          custom_env: buildCustomEnvVars(),
+          provider_id: useProviderStore.getState().activeProviderId || undefined,
           permission_mode: mapSessionModeToPermissionMode(liveSessionMode),
         });
 

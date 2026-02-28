@@ -1,13 +1,14 @@
-import { useSettingsStore, type ModelId } from '../stores/settingsStore';
+import { useProviderStore } from '../stores/providerStore';
+import type { ModelId } from '../stores/settingsStore';
 
 /**
  * Resolve the UI-selected model ID to the provider's actual model name.
- * In custom mode, looks up the model mapping for the selected tier.
+ * When a provider is active, looks up the model mapping for the selected tier.
  * Returns the original model ID if no mapping is configured.
  */
 export function resolveModelForProvider(selectedModel: ModelId): string {
-  const state = useSettingsStore.getState();
-  if (state.apiProviderMode !== 'custom') return selectedModel;
+  const provider = useProviderStore.getState().getActive();
+  if (!provider) return selectedModel;
 
   // Map UI model ID to tier
   const tierMap: Record<ModelId, 'opus' | 'sonnet' | 'haiku'> = {
@@ -18,7 +19,7 @@ export function resolveModelForProvider(selectedModel: ModelId): string {
   const tier = tierMap[selectedModel];
   if (!tier) return selectedModel;
 
-  const mapping = state.customProviderModelMappings.find(
+  const mapping = provider.modelMappings.find(
     (m) => m.tier === tier && m.providerModel,
   );
   return mapping?.providerModel || selectedModel;
@@ -26,56 +27,13 @@ export function resolveModelForProvider(selectedModel: ModelId): string {
 
 /**
  * Stable fingerprint of the current API provider config.
- * Includes env vars AND model mappings so that any provider config change
- * invalidates the pre-warmed session.
+ * Any provider config change invalidates the pre-warmed session.
  */
 export function envFingerprint(): string {
-  const state = useSettingsStore.getState();
+  const { activeProviderId, providers } = useProviderStore.getState();
+  const provider = providers.find((p) => p.id === activeProviderId);
   return JSON.stringify({
-    env: buildCustomEnvVars() ?? null,
-    mappings: state.apiProviderMode === 'custom' ? state.customProviderModelMappings : null,
-    keyVer: state.apiKeyVersion ?? 0,
+    activeProviderId,
+    updatedAt: provider?.updatedAt ?? 0,
   });
-}
-
-/**
- * Build custom environment variables for the Claude CLI process based on
- * the current API provider settings.
- *
- * - inherit: returns undefined (no env injection, use system config as-is)
- * - official: forces the official Anthropic endpoint
- * - custom: injects user-configured endpoint and API key sentinel
- *
- * Note: model name mapping is handled by resolveModelForProvider() which
- * translates the --model CLI argument directly, since Claude Code CLI
- * does not support ANTHROPIC_DEFAULT_*_MODEL env vars.
- */
-export function buildCustomEnvVars(): Record<string, string> | undefined {
-  const state = useSettingsStore.getState();
-
-  switch (state.apiProviderMode) {
-    case 'inherit':
-      return undefined;
-
-    case 'official':
-      return {
-        ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
-      };
-
-    case 'custom': {
-      const env: Record<string, string> = {};
-
-      if (state.customProviderBaseUrl) {
-        env.ANTHROPIC_BASE_URL = state.customProviderBaseUrl;
-      }
-
-      // Sentinel value: Rust backend will substitute the real key from encrypted storage.
-      // Set both API_KEY and AUTH_TOKEN so Claude CLI's settings.json cannot shadow
-      // our value with an old ANTHROPIC_AUTH_TOKEN entry.
-      env.ANTHROPIC_API_KEY = 'USE_STORED_KEY';
-      env.ANTHROPIC_AUTH_TOKEN = 'USE_STORED_KEY';
-
-      return env;
-    }
-  }
 }

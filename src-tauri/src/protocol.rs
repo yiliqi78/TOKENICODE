@@ -89,6 +89,10 @@ pub enum SdkControlRequestPayload {
         #[serde(skip_serializing_if = "Option::is_none")]
         model: Option<String>,
     },
+    #[serde(rename = "rewind_files")]
+    RewindFiles {
+        user_message_id: String,
+    },
 }
 
 impl ControlRequest {
@@ -121,6 +125,14 @@ impl ControlRequest {
             r#type: "control_request",
             request_id: Self::random_id(),
             request: SdkControlRequestPayload::SetModel { model },
+        }
+    }
+
+    pub fn rewind_files(user_message_id: String) -> Self {
+        Self {
+            r#type: "control_request",
+            request_id: Self::random_id(),
+            request: SdkControlRequestPayload::RewindFiles { user_message_id },
         }
     }
 }

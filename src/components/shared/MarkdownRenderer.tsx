@@ -136,7 +136,7 @@ const FILE_PATH_RE = /^(?:\/|\.\/|\.\.\/|[a-zA-Z]:[/\\]|src\/|lib\/|components\/
  * Matches absolute paths (/..., C:\...), relative (./..., ../...), and
  * common project-relative paths (src/..., lib/..., etc.).
  */
-const BARE_PATH_RE = /(?<![`\w:@#/])(?:(?:\/|\.\.?\/)[\w.@/+-]+\.\w{1,10}|(?:src|lib|components|stores|hooks|utils|tests|__tests__|app|pages|public|assets|styles|config)\/[\w.@/+-]+\.\w{1,10})(?![`\w])/g;
+const BARE_PATH_RE = /(^|[^`\w:@#/])((?:(?:\/|\.\.?\/)[\w.@/+-]+\.\w{1,10}|(?:src|lib|components|stores|hooks|utils|tests|__tests__|app|pages|public|assets|styles|config)\/[\w.@/+-]+\.\w{1,10}))(?![`\w])/g;
 
 function wrapBareFilePaths(content: string): string {
   // Split by fenced code blocks (``` ... ```) — don't touch code blocks
@@ -148,13 +148,14 @@ function wrapBareFilePaths(content: string): string {
     return inlined.map((seg, j) => {
       if (j % 2 === 1) return seg; // inside inline code
       // Also skip markdown link targets: [text](url)
-      return seg.replace(BARE_PATH_RE, (match, offset, str) => {
+      return seg.replace(BARE_PATH_RE, (match, prefix, path, offset, str) => {
+        const pathStart = offset + prefix.length;
         // Don't wrap if inside a markdown link target: ...](path)
-        if (offset > 0 && str[offset - 1] === '(') return match;
+        if (pathStart > 0 && str[pathStart - 1] === '(') return match;
         // Don't wrap if preceded by ]( (markdown link)
-        const before = str.slice(Math.max(0, offset - 2), offset);
+        const before = str.slice(Math.max(0, pathStart - 2), pathStart);
         if (before.endsWith('](')) return match;
-        return `\`${match}\``;
+        return `${prefix}\`${path}\``;
       });
     }).join('');
   }).join('');

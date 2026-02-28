@@ -98,7 +98,7 @@ export interface SessionMeta {
   totalOutputTokens?: number;
   /** Timestamp (Date.now()) when the current turn started — used for elapsed timer */
   turnStartTime?: number;
-  /** JSON fingerprint of custom_env used when spawning the CLI process (TK-303).
+  /** JSON fingerprint of the active provider config used when spawning the CLI process.
    *  Compared before sending via stdin to detect stale pre-warm sessions. */
   envFingerprint?: string;
   /** The resolved model name used when spawning the CLI process.

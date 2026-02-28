@@ -6,6 +6,40 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [Unreleased] - dev/core-refactor
+
+### Improved
+
+- **Settings panel redesign** — Full restructure with left sidebar tabs (General, API Provider, CLI, MCP) and near-fullscreen layout. Each tab is now an independent component for better maintainability.
+
+- **Settings visual unification** — Consistent typography across all tabs: `text-[13px]` for body/controls, `text-xs` for labels, removed all `uppercase tracking-wider` patterns. Unified form controls (inputs, buttons, segment controls) with consistent padding and border styles.
+
+- **Theme color showcase** — Color theme selector now shows mini UI preview cards (2×2 grid) with a simplified chat interface mockup, replacing plain color circles. Right side stacks appearance, language, font size, and model selectors vertically.
+
+- **Provider system extraction** — API provider management moved from settingsStore into a dedicated `providerStore` with its own tab. Supports preset selection (Anthropic Official + Custom API), JSON import/export, and connection testing.
+
+- **Compact settings footer** — Bottom bar reduced from `h-14` to `h-10` with smaller text (`text-xs`) and muted version label.
+
+- **Provider list borders** — All provider selection items now have consistent `border-border-subtle` borders in both active and inactive states.
+
+---
+
+### 改进
+
+- **设置面板重新设计** — 全面重构，采用左侧标签栏（通用、API 提供商、CLI 管理、MCP 服务器）+ 近全屏布局。各标签页拆分为独立组件，便于维护。
+
+- **设置页视觉统一** — 四个标签页统一排版规范：正文/控件 `text-[13px]`、标签 `text-xs`，去掉所有 `uppercase tracking-wider`。表单控件（输入框、按钮、分段控件）统一间距和边框风格。
+
+- **主题颜色展示卡片** — 颜色选择器改为 2×2 迷你界面预览卡片，展示简化的聊天界面轮廓，替代原先的纯色圆点。右侧竖排放置外观、语言、字体大小、默认模型。
+
+- **Provider 系统独立** — API 提供商管理从 settingsStore 抽离至独立的 `providerStore`，拥有专属标签页。支持预设选择（Anthropic 官方 + 自定义 API）、JSON 导入/导出和连接测试。
+
+- **底栏精简** — 设置面板底栏高度从 `h-14` 缩小至 `h-10`，文字降为 `text-xs`，版本号更淡。
+
+- **Provider 列表边框** — 所有提供商选择项在激活和未激活状态下均有统一的 `border-border-subtle` 边框。
+
+---
+
 ## [0.6.16] - 2026-02-27
 
 ### Fixed

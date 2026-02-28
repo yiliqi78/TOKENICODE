@@ -95,9 +95,9 @@ pub struct StartSessionParams {
     pub thinking_level: Option<String>,
     /// Session mode: "ask", "plan", or "auto" (default).
     pub session_mode: Option<String>,
-    /// Custom environment variables for API provider override.
-    /// Used by TK-303 to inject ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN, etc.
-    pub custom_env: Option<HashMap<String, String>>,
+    /// Active provider ID from providers.json.
+    /// When set, the provider's env vars are injected into the CLI process.
+    pub provider_id: Option<String>,
     /// Permission mode for CLI. Maps from frontend session modes:
     ///   "acceptEdits" (code mode) | "default" (ask mode) | "plan" | "bypassPermissions" (bypass)
     /// When not "bypassPermissions", enables --permission-prompt-tool stdio for structured

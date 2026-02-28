@@ -14,7 +14,8 @@ import { AgentPanel } from '../agents/AgentPanel';
 import { bridge, onClaudeStream, onClaudeStderr } from '../../lib/tauri-bridge';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useT } from '../../lib/i18n';
-import { buildCustomEnvVars, envFingerprint, resolveModelForProvider } from '../../lib/api-provider';
+import { envFingerprint, resolveModelForProvider } from '../../lib/api-provider';
+import { useProviderStore } from '../../stores/providerStore';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
 import { SetupWizard } from '../setup/SetupWizard';
 import { endTreeDrag } from '../../lib/drag-state';
@@ -301,8 +302,10 @@ export function ChatPanel() {
   const agentPanelOpen = useSettingsStore((s) => s.agentPanelOpen);
   const toggleAgentPanel = useSettingsStore((s) => s.toggleAgentPanel);
   const workingDirectory = useSettingsStore((s) => s.workingDirectory);
-  const apiProviderMode = useSettingsStore((s) => s.apiProviderMode);
-  const customProviderName = useSettingsStore((s) => s.customProviderName);
+  const activeProvider = useProviderStore((s) => {
+    if (!s.activeProviderId) return null;
+    return s.providers.find((p) => p.id === s.activeProviderId) ?? null;
+  });
   const selectedSessionId = useSessionStore((s) => s.selectedSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const isFilePreviewMode = !!useFileStore((s) => s.selectedFile);
@@ -500,11 +503,7 @@ export function ChatPanel() {
                   ? 'bg-error'
                   : 'bg-text-tertiary/30'}`} />
             <span className="text-text-tertiary">
-              {apiProviderMode === 'inherit'
-                ? 'CLI'
-                : apiProviderMode === 'official'
-                  ? 'Anthropic'
-                  : (customProviderName || 'Custom')}
+              {activeProvider ? (activeProvider.name || 'Custom') : 'CLI'}
             </span>
           </div>
 
@@ -754,7 +753,7 @@ async function startDraftSession(folderPath: string) {
       session_id: preWarmId,
       dangerously_skip_permissions: useSettingsStore.getState().sessionMode === 'bypass',
       thinking_level: useSettingsStore.getState().thinkingLevel,
-      custom_env: buildCustomEnvVars(),
+      provider_id: useProviderStore.getState().activeProviderId || undefined,
       permission_mode: mapSessionModeToPermissionMode(useSettingsStore.getState().sessionMode),
     });
 

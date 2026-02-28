@@ -27,12 +27,21 @@ export type RewindAction = 'restore_all' | 'restore_conversation' | 'restore_cod
 async function restoreFilesViaCheckpoint(turn: Turn): Promise<boolean> {
   if (!turn.checkpointUuid) return false;
 
+  const { sessionMeta } = useChatStore.getState();
+  const stdinId = sessionMeta.stdinId;
+  const sessionId = sessionMeta.sessionId;
   const cwd = useSettingsStore.getState().workingDirectory;
-  const sessionId = useChatStore.getState().sessionMeta.sessionId;
-  if (!cwd || !sessionId) return false;
+  if (!sessionId || !cwd) return false;
 
-  await bridge.rewindFiles(sessionId, turn.checkpointUuid, cwd);
-  return true;
+  try {
+    // Primary: SDK control protocol via stdin (fast, in-process)
+    // Fallback: spawn new CLI process (slow, full initialization)
+    await bridge.rewindFiles(stdinId || '', turn.checkpointUuid, sessionId, cwd);
+    return true;
+  } catch (err) {
+    console.error('[rewind] rewindFiles failed:', err);
+    return false;
+  }
 }
 
 export function useRewind() {
@@ -89,30 +98,41 @@ export function useRewind() {
       return;
     }
 
-    // 1. Kill current CLI process
+    // For file-restore actions, send rewind via stdin BEFORE killing the process
+    // (SDK control protocol is fast and needs the process alive)
+    const needsFileRestore = action === 'restore_all' || action === 'restore_code';
+    let fileRestoreOk = false;
+    if (needsFileRestore && turn.checkpointUuid) {
+      try {
+        fileRestoreOk = await restoreFilesViaCheckpoint(turn);
+      } catch { /* handled below */ }
+    }
+
+    // Kill CLI process after file restore (or immediately for non-file actions)
     try {
       await killProcess();
     } catch (err) {
       console.warn('[useRewind] Failed to kill process:', err);
     }
 
-    // 2. Grab original text before truncating
+    // Grab original text before truncating
     const originalUserText = state.messages[turn.startMsgIdx]?.content || '';
 
     try {
       switch (action) {
         case 'restore_all': {
-          // Restore both code and conversation
-          await restoreFilesViaCheckpoint(turn).catch(() => {});
           useChatStore.getState().rewindToTurn(turn.startMsgIdx);
           resetSession();
           useChatStore.getState().setInputDraft(originalUserText);
 
+          const successMsg = fileRestoreOk
+            ? t('rewind.successAll').replace('{n}', String(turn.index))
+            : t('rewind.successAllNoFiles').replace('{n}', String(turn.index));
           useChatStore.getState().addMessage({
             id: generateMessageId(),
             role: 'system',
             type: 'text',
-            content: t('rewind.successAll').replace('{n}', String(turn.index)),
+            content: successMsg,
             commandType: 'action',
             commandData: { action: 'rewind', turnIndex: turn.index, mode: 'restore_all' },
             timestamp: Date.now(),
@@ -121,7 +141,7 @@ export function useRewind() {
         }
 
         case 'restore_conversation': {
-          // Only restore conversation (keep code as-is)
+          // Only restore conversation (keep code as-is) — instant, no CLI call
           useChatStore.getState().rewindToTurn(turn.startMsgIdx);
           resetSession();
           useChatStore.getState().setInputDraft(originalUserText);
@@ -139,17 +159,18 @@ export function useRewind() {
         }
 
         case 'restore_code': {
-          // Only restore code (keep conversation intact)
-          await restoreFilesViaCheckpoint(turn).catch(() => {});
           // Don't truncate messages — keep full conversation
           resetSession();
           useChatStore.getState().setInputDraft(originalUserText);
 
+          const codeMsg = fileRestoreOk
+            ? t('rewind.successCode').replace('{n}', String(turn.index))
+            : t('rewind.codeRestoreFailed');
           useChatStore.getState().addMessage({
             id: generateMessageId(),
             role: 'system',
             type: 'text',
-            content: t('rewind.successCode').replace('{n}', String(turn.index)),
+            content: codeMsg,
             commandType: 'action',
             commandData: { action: 'rewind', turnIndex: turn.index, mode: 'restore_code' },
             timestamp: Date.now(),

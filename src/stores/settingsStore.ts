@@ -21,14 +21,7 @@ export function mapSessionModeToPermissionMode(mode: SessionMode): CliPermission
     case 'bypass': return 'bypassPermissions';
   }
 }
-export type ApiProviderMode = 'inherit' | 'official' | 'custom';
-export type ApiFormat = 'anthropic' | 'openai';
 export type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'max';
-
-export interface ModelMapping {
-  tier: 'opus' | 'sonnet' | 'haiku';
-  providerModel: string;
-}
 
 // --- Model options (display mapping) ---
 
@@ -69,21 +62,6 @@ interface SettingsState {
   /** Last app version the user has seen the changelog for */
   lastSeenVersion: string;
 
-  // --- API Provider (TK-303) ---
-  /** API provider mode: inherit system config / force official / custom third-party */
-  apiProviderMode: ApiProviderMode;
-  /** Custom provider display name (e.g. "OpenRouter") */
-  customProviderName: string;
-  /** Custom provider API endpoint URL */
-  customProviderBaseUrl: string;
-  /** Model name mappings for custom provider */
-  customProviderModelMappings: ModelMapping[];
-  /** API format used by the custom provider */
-  customProviderApiFormat: ApiFormat;
-  /** Monotonic counter bumped on each API key save — used by envFingerprint to
-   *  detect key changes and kill stale pre-warmed sessions. */
-  apiKeyVersion: number;
-
   toggleTheme: () => void;
   setTheme: (theme: Theme) => void;
   setColorTheme: (colorTheme: ColorTheme) => void;
@@ -110,14 +88,6 @@ interface SettingsState {
   setUpdateAvailable: (available: boolean, version?: string) => void;
   setUpdateDownloaded: (downloaded: boolean) => void;
   setLastSeenVersion: (version: string) => void;
-
-  // --- API Provider actions ---
-  setApiProviderMode: (mode: ApiProviderMode) => void;
-  setCustomProviderName: (name: string) => void;
-  setCustomProviderBaseUrl: (url: string) => void;
-  setCustomProviderModelMappings: (mappings: ModelMapping[]) => void;
-  setCustomProviderApiFormat: (format: ApiFormat) => void;
-  bumpApiKeyVersion: () => void;
 }
 
 // --- Theme cycle order ---
@@ -154,18 +124,6 @@ export const useSettingsStore = create<SettingsState>()(
       updateVersion: '',
       updateDownloaded: false,
       lastSeenVersion: '',
-
-      // API Provider defaults
-      apiProviderMode: 'inherit',
-      customProviderName: '',
-      customProviderBaseUrl: '',
-      customProviderModelMappings: [
-        { tier: 'opus', providerModel: 'claude-opus-4-6' },
-        { tier: 'sonnet', providerModel: 'claude-sonnet-4-6' },
-        { tier: 'haiku', providerModel: 'claude-haiku-4-5-20251001' },
-      ],
-      customProviderApiFormat: 'anthropic',
-      apiKeyVersion: 0,
 
       toggleTheme: () =>
         set((state) => ({ theme: nextTheme(state.theme) })),
@@ -246,25 +204,6 @@ export const useSettingsStore = create<SettingsState>()(
 
       setLastSeenVersion: (version) =>
         set(() => ({ lastSeenVersion: version })),
-
-      // API Provider setters
-      setApiProviderMode: (mode) =>
-        set(() => ({ apiProviderMode: mode })),
-
-      setCustomProviderName: (name) =>
-        set(() => ({ customProviderName: name })),
-
-      setCustomProviderBaseUrl: (url) =>
-        set(() => ({ customProviderBaseUrl: url })),
-
-      setCustomProviderModelMappings: (mappings) =>
-        set(() => ({ customProviderModelMappings: mappings })),
-
-      setCustomProviderApiFormat: (format) =>
-        set(() => ({ customProviderApiFormat: format })),
-
-      bumpApiKeyVersion: () =>
-        set((s) => ({ apiKeyVersion: (s.apiKeyVersion ?? 0) + 1 })),
     }),
     {
       name: 'tokenicode-settings',
@@ -319,54 +258,10 @@ export const useSettingsStore = create<SettingsState>()(
         updateAvailable: state.updateAvailable,
         updateVersion: state.updateVersion,
         lastSeenVersion: state.lastSeenVersion,
-        apiProviderMode: state.apiProviderMode,
-        customProviderName: state.customProviderName,
-        customProviderBaseUrl: state.customProviderBaseUrl,
-        customProviderModelMappings: state.customProviderModelMappings,
-        customProviderApiFormat: state.customProviderApiFormat,
       }),
     },
   ),
 );
-
-// --- Auto-backup API settings to ~/.tokenicode/api_settings.json ---
-// Survives Windows NSIS updates that wipe localStorage.
-
-const API_SETTINGS_KEYS = [
-  'apiProviderMode',
-  'customProviderName',
-  'customProviderBaseUrl',
-  'customProviderModelMappings',
-  'customProviderApiFormat',
-] as const;
-
-let _backupTimer: ReturnType<typeof setTimeout> | undefined;
-
-useSettingsStore.subscribe((state, prevState) => {
-  const changed = API_SETTINGS_KEYS.some(
-    (key) => JSON.stringify(state[key]) !== JSON.stringify(prevState[key]),
-  );
-  if (!changed) return;
-
-  clearTimeout(_backupTimer);
-  _backupTimer = setTimeout(async () => {
-    try {
-      const { bridge } = await import('../lib/tauri-bridge');
-      await bridge.saveApiSettings({
-        apiProviderMode: state.apiProviderMode,
-        customProviderName: state.customProviderName,
-        customProviderBaseUrl: state.customProviderBaseUrl,
-        customProviderModelMappings: state.customProviderModelMappings.map((m) => ({
-          tier: m.tier,
-          providerModel: m.providerModel,
-        })),
-        customProviderApiFormat: state.customProviderApiFormat,
-      });
-    } catch {
-      // Best-effort backup; ignore errors
-    }
-  }, 500);
-});
 
 // --- Runtime mode switching via SDK control protocol ---
 // When sessionMode changes and there's an active CLI session, send set_permission_mode.
@@ -406,35 +301,3 @@ useSettingsStore.subscribe((state, prevState) => {
     });
   });
 });
-
-/**
- * Restore API provider settings from disk backup if localStorage was wiped.
- * Call once on app startup (e.g. in App.tsx useEffect).
- */
-export async function restoreApiSettingsIfNeeded(): Promise<void> {
-  const state = useSettingsStore.getState();
-
-  // Only restore if settings look like defaults (localStorage was wiped)
-  if (state.apiProviderMode !== 'inherit' || state.customProviderBaseUrl) return;
-
-  try {
-    const { bridge } = await import('../lib/tauri-bridge');
-    const backup = await bridge.loadApiSettings();
-    if (!backup) return;
-    // Only restore if backup has non-default data
-    if (backup.apiProviderMode === 'inherit' && !backup.customProviderBaseUrl) return;
-
-    useSettingsStore.setState({
-      apiProviderMode: backup.apiProviderMode as ApiProviderMode,
-      customProviderName: backup.customProviderName,
-      customProviderBaseUrl: backup.customProviderBaseUrl,
-      customProviderModelMappings: backup.customProviderModelMappings.map((m) => ({
-        tier: m.tier as 'opus' | 'sonnet' | 'haiku',
-        providerModel: m.providerModel,
-      })),
-      customProviderApiFormat: backup.customProviderApiFormat as ApiFormat,
-    });
-  } catch {
-    // Best-effort restore; ignore errors
-  }
-}

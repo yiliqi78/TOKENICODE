@@ -16,8 +16,8 @@ export interface StartSessionParams {
   thinking_level?: string;
   /** Session mode: "ask", "plan", or undefined for auto */
   session_mode?: string;
-  /** Custom environment variables for API provider override (TK-303) */
-  custom_env?: Record<string, string>;
+  /** Active provider ID from providers.json */
+  provider_id?: string;
   /** Permission mode for CLI control protocol.
    *  "acceptEdits" | "default" | "plan" | "bypassPermissions"
    *  When not "bypassPermissions", enables structured permission requests via SDK protocol. */
@@ -117,12 +117,21 @@ export interface NodeEnvStatus {
   npm_available: boolean;
 }
 
-export interface ApiSettingsBackup {
-  apiProviderMode: string;
-  customProviderName: string;
-  customProviderBaseUrl: string;
-  customProviderModelMappings: { tier: string; providerModel: string }[];
-  customProviderApiFormat: string;
+export interface ProvidersFile {
+  version: number;
+  activeProviderId: string | null;
+  providers: {
+    id: string;
+    name: string;
+    baseUrl: string;
+    apiFormat: string;
+    apiKey?: string;
+    modelMappings: { tier: string; providerModel: string }[];
+    extra_env?: Record<string, string>;
+    preset?: string;
+    createdAt: number;
+    updatedAt: number;
+  }[];
 }
 
 export interface UnifiedCommand {
@@ -255,9 +264,16 @@ export const bridge = {
   runGitCommand: (cwd: string, args: string[]) =>
     invoke<string>('run_git_command', { cwd, args }),
 
-  // Rewind files to a CLI checkpoint (delegates to `claude --rewind-files`)
-  rewindFiles: (sessionId: string, checkpointUuid: string, cwd: string) =>
-    invoke<string>('rewind_files', { sessionId, checkpointUuid, cwd }),
+  // Rewind files via SDK control protocol (fast, in-process) with CLI spawn fallback
+  rewindFiles: (stdinId: string, userMessageId: string, sessionId: string, cwd: string) =>
+    invoke<void>('send_control_request', {
+      sessionId: stdinId,
+      subtype: 'rewind_files',
+      payload: { user_message_id: userMessageId },
+    }).catch(() =>
+      // Fallback: spawn new CLI process if stdin pipe not available
+      invoke<string>('rewind_files', { sessionId, checkpointUuid: userMessageId, cwd }),
+    ),
 
   // Set macOS dock icon from base64-encoded PNG
   setDockIcon: (pngBase64: string) =>
@@ -296,27 +312,16 @@ export const bridge = {
   saveCustomPreviews: (data: Record<string, string>) =>
     invoke<void>('save_custom_previews', { data }),
 
-  // --- API Provider Credentials (TK-303) ---
+  // --- Provider Management ---
 
-  saveApiKey: (key: string) =>
-    invoke<void>('save_api_key', { key }),
+  loadProviders: () =>
+    invoke<ProvidersFile>('load_providers'),
 
-  loadApiKey: () =>
-    invoke<string | null>('load_api_key'),
+  saveProviders: (data: ProvidersFile) =>
+    invoke<void>('save_providers', { data }),
 
-  deleteApiKey: () =>
-    invoke<void>('delete_api_key'),
-
-  testApiConnection: (baseUrl: string, apiFormat: string, model: string) =>
-    invoke<string>('test_api_connection', { baseUrl, apiFormat, model }),
-
-  // --- API Settings Backup (survives NSIS update on Windows) ---
-
-  saveApiSettings: (settings: ApiSettingsBackup) =>
-    invoke<void>('save_api_settings', { settings }),
-
-  loadApiSettings: () =>
-    invoke<ApiSettingsBackup | null>('load_api_settings'),
+  testProviderConnection: (baseUrl: string, apiFormat: string, apiKey: string, model: string) =>
+    invoke<string>('test_provider_connection', { baseUrl, apiFormat, apiKey, model }),
 
   // --- SDK Control Protocol ---
 

@@ -12,11 +12,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 use std::collections::HashMap;
-use sha2::{Sha256, Digest};
 use futures_util::StreamExt;
-use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
-use aes_gcm::aead::Aead;
-use rand::RngCore;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -592,242 +588,88 @@ fn safe_data_dir() -> Result<std::path::PathBuf, String> {
         .ok_or_else(|| "Cannot determine home directory".to_string())
 }
 
-/// Legacy path (may be wiped on Windows update)
-fn legacy_credentials_path() -> Result<std::path::PathBuf, String> {
-    Ok(app_data_dir()?.join("credentials.enc"))
+// ================================================================
+// Provider system — multi-provider API config stored as plaintext JSON
+// ================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelMapping {
+    tier: String,
+    provider_model: String,
 }
 
-/// Primary path for encrypted credentials (safe from NSIS cleanup)
-fn credentials_path() -> Result<std::path::PathBuf, String> {
-    Ok(safe_data_dir()?.join("credentials.enc"))
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ApiProvider {
+    id: String,
+    name: String,
+    base_url: String,
+    api_format: String,
+    api_key: Option<String>,
+    model_mappings: Vec<ModelMapping>,
+    extra_env: Option<HashMap<String, String>>,
+    preset: Option<String>,
+    created_at: u64,
+    updated_at: u64,
 }
 
-/// Derive a machine-specific 256-bit key for credential encryption.
-/// Uses hostname + username as entropy source.
-fn derive_encryption_key() -> [u8; 32] {
-    let hostname = hostname::get()
-        .map(|h| h.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "tokenicode".to_string());
-    let username = std::env::var("USER")
-        .or_else(|_| std::env::var("USERNAME"))
-        .unwrap_or_else(|_| "default".to_string());
-    let mut hasher = Sha256::new();
-    hasher.update(format!("tokenicode-cred:{}:{}", hostname, username));
-    hasher.finalize().into()
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProvidersFile {
+    version: u32,
+    active_provider_id: Option<String>,
+    providers: Vec<ApiProvider>,
 }
 
-/// Encrypt and store an API key to disk.
-/// Dual-write: primary to ~/.tokenicode/ (safe), fallback to legacy app data dir.
-fn encrypt_and_save(plaintext: &str) -> Result<(), String> {
-    let key_bytes = derive_encryption_key();
-    let cipher = Aes256Gcm::new_from_slice(&key_bytes)
-        .map_err(|e| format!("Cipher init error: {}", e))?;
+impl Default for ProvidersFile {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            active_provider_id: None,
+            providers: vec![],
+        }
+    }
+}
 
-    let mut nonce_bytes = [0u8; 12];
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
+fn providers_path() -> Result<std::path::PathBuf, String> {
+    Ok(safe_data_dir()?.join("providers.json"))
+}
 
-    let ciphertext = cipher.encrypt(nonce, plaintext.as_bytes())
-        .map_err(|e| format!("Encryption error: {}", e))?;
+#[tauri::command]
+fn load_providers() -> Result<ProvidersFile, String> {
+    let path = providers_path()?;
+    if !path.exists() {
+        return Ok(ProvidersFile::default());
+    }
+    let data = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Cannot read providers: {}", e))?;
+    serde_json::from_str(&data)
+        .map_err(|e| format!("Cannot parse providers: {}", e))
+}
 
-    // Store as: 12-byte nonce || ciphertext
-    let mut data = Vec::with_capacity(12 + ciphertext.len());
-    data.extend_from_slice(&nonce_bytes);
-    data.extend_from_slice(&ciphertext);
-
-    // Primary: write to ~/.tokenicode/credentials.enc (safe from NSIS cleanup)
-    let path = credentials_path()?;
+#[tauri::command]
+fn save_providers(data: ProvidersFile) -> Result<(), String> {
+    let path = providers_path()?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Cannot create data dir: {}", e))?;
+            .map_err(|e| format!("Cannot create dir: {}", e))?;
     }
-    std::fs::write(&path, &data)
-        .map_err(|e| format!("Cannot write credentials: {}", e))?;
-
-    // Legacy fallback: also write to old location (best-effort, for backward compat)
-    if let Ok(legacy_path) = legacy_credentials_path() {
-        if let Some(parent) = legacy_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::write(&legacy_path, &data);
-    }
-
+    let json = serde_json::to_string_pretty(&data)
+        .map_err(|e| format!("Serialize error: {}", e))?;
+    std::fs::write(&path, json)
+        .map_err(|e| format!("Write error: {}", e))?;
     Ok(())
 }
 
-/// Load and decrypt an API key from disk.
-/// Reads from safe path first; if missing, migrates from legacy path.
-fn load_and_decrypt() -> Result<Option<String>, String> {
-    let safe_path = credentials_path()?;
-    let legacy_path = legacy_credentials_path().ok();
-
-    // Determine which file to read
-    let read_path = if safe_path.exists() {
-        safe_path
-    } else if let Some(ref lp) = legacy_path {
-        if lp.exists() {
-            // Migrate: copy from legacy to safe location
-            if let Ok(legacy_data) = std::fs::read(lp) {
-                if let Some(parent) = safe_path.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                let _ = std::fs::write(&safe_path, &legacy_data);
-                eprintln!("Migrated credentials.enc to safe location");
-            }
-            if safe_path.exists() { safe_path } else { lp.clone() }
-        } else {
-            return Ok(None);
-        }
-    } else {
-        return Ok(None);
-    };
-
-    let data = std::fs::read(&read_path)
-        .map_err(|e| format!("Cannot read credentials: {}", e))?;
-    if data.len() < 13 {
-        // Corrupted file — delete and treat as "no key"
-        let _ = std::fs::remove_file(&read_path);
-        if let Some(ref lp) = legacy_path { let _ = std::fs::remove_file(lp); }
-        eprintln!("[TOKENICODE] Deleted corrupted credentials.enc (too short)");
-        return Ok(None);
-    }
-
-    let key_bytes = derive_encryption_key();
-    let cipher = Aes256Gcm::new_from_slice(&key_bytes)
-        .map_err(|e| format!("Cipher init error: {}", e))?;
-
-    let nonce = Nonce::from_slice(&data[..12]);
-    match cipher.decrypt(nonce, &data[12..]) {
-        Ok(plaintext) => {
-            String::from_utf8(plaintext)
-                .map(Some)
-                .map_err(|e| format!("Invalid UTF-8 in credentials: {}", e))
-        }
-        Err(_) => {
-            // Decryption failed — likely credentials.enc synced from another machine
-            // (different hostname → different encryption key). Delete the unusable
-            // file so the user can re-enter their key cleanly.
-            let _ = std::fs::remove_file(&read_path);
-            if let Some(ref lp) = legacy_path { let _ = std::fs::remove_file(lp); }
-            eprintln!(
-                "[TOKENICODE] Deleted credentials.enc — decryption failed \
-                 (likely synced from another machine with a different hostname). \
-                 Please re-enter your API key in Settings."
-            );
-            Ok(None)
-        }
-    }
-}
-
-/// Collect all ANTHROPIC_* env var keys that Claude CLI's settings.json sets.
-/// These must be cleared from the child process so TOKENICODE's injected values win.
-#[allow(dead_code)]
-fn anthropic_env_keys_from_cli_settings() -> Vec<String> {
-    let home = dirs::home_dir().unwrap_or_default();
-    let settings_path = home.join(".claude").join("settings.json");
-    let Ok(content) = std::fs::read_to_string(&settings_path) else {
-        return vec![];
-    };
-    let Ok(mut root) = serde_json::from_str::<serde_json::Value>(&content) else {
-        return vec![];
-    };
-    let Some(env_obj) = root.get_mut("env").and_then(|v| v.as_object_mut()) else {
-        return vec![];
-    };
-    env_obj.keys()
-        .filter(|k| k.starts_with("ANTHROPIC_"))
-        .cloned()
-        .collect()
-}
-
-/// When TOKENICODE overrides API settings, strip all ANTHROPIC_* entries from
-/// Claude CLI's `~/.claude/settings.json` env section so they don't shadow
-/// the env vars we inject into the child process.  Returns the removed entries
-/// for optional later restoration.
-fn strip_anthropic_env_from_cli_settings() -> Vec<(String, serde_json::Value)> {
-    let home = dirs::home_dir().unwrap_or_default();
-    let settings_path = home.join(".claude").join("settings.json");
-    let Ok(content) = std::fs::read_to_string(&settings_path) else {
-        return vec![];
-    };
-    let Ok(mut root) = serde_json::from_str::<serde_json::Value>(&content) else {
-        return vec![];
-    };
-    let Some(env_obj) = root.get_mut("env").and_then(|v| v.as_object_mut()) else {
-        return vec![];
-    };
-    let keys: Vec<String> = env_obj.keys()
-        .filter(|k| k.starts_with("ANTHROPIC_"))
-        .cloned()
-        .collect();
-    if keys.is_empty() {
-        return vec![];
-    }
-    let removed: Vec<(String, serde_json::Value)> = keys.iter()
-        .filter_map(|k| env_obj.remove(k).map(|v| (k.clone(), v)))
-        .collect();
-    // Write back (best-effort)
-    if let Ok(json) = serde_json::to_string_pretty(&root) {
-        let _ = std::fs::write(&settings_path, json);
-    }
-    removed
-}
-
-/// Restore previously stripped ANTHROPIC_* entries to settings.json env section.
-#[allow(dead_code)]
-fn restore_anthropic_env_to_cli_settings(entries: &[(String, serde_json::Value)]) {
-    if entries.is_empty() { return; }
-    let home = dirs::home_dir().unwrap_or_default();
-    let settings_path = home.join(".claude").join("settings.json");
-    let Ok(content) = std::fs::read_to_string(&settings_path) else { return };
-    let Ok(mut root) = serde_json::from_str::<serde_json::Value>(&content) else { return };
-    let env_obj = root.as_object_mut()
-        .and_then(|r| {
-            if !r.contains_key("env") {
-                r.insert("env".to_string(), serde_json::json!({}));
-            }
-            r.get_mut("env").and_then(|v| v.as_object_mut())
-        });
-    let Some(env_obj) = env_obj else { return };
-    for (k, v) in entries {
-        env_obj.insert(k.clone(), v.clone());
-    }
-    if let Ok(json) = serde_json::to_string_pretty(&root) {
-        let _ = std::fs::write(&settings_path, json);
-    }
-}
-
-/// Resolve custom_env map, substituting USE_STORED_KEY sentinel with real API key.
-fn resolve_custom_env(custom_env: Option<&HashMap<String, String>>) -> Result<HashMap<String, String>, String> {
-    let Some(env) = custom_env else {
-        return Ok(HashMap::new());
-    };
-    let mut resolved = HashMap::with_capacity(env.len());
-    for (key, value) in env {
-        if value == "USE_STORED_KEY" {
-            let real_key = load_and_decrypt()?
-                .ok_or_else(|| "API key not configured. Please set it in Settings → API Provider.".to_string())?;
-            resolved.insert(key.clone(), real_key);
-        } else {
-            resolved.insert(key.clone(), value.clone());
-        }
-    }
-    Ok(resolved)
-}
-
-/// Test API connection by sending a minimal request to the configured endpoint.
 #[tauri::command]
-async fn test_api_connection(base_url: String, api_format: String, model: String) -> Result<String, String> {
-    let api_key = load_and_decrypt()?
-        .ok_or_else(|| "API key not configured".to_string())?;
-
-    let test_model = model;
+async fn test_provider_connection(base_url: String, api_format: String, api_key: String, model: String) -> Result<String, String> {
     let client = reqwest::Client::new();
 
     let (_url, resp_result) = if api_format == "openai" {
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
         let body = serde_json::json!({
-            "model": test_model,
+            "model": model,
             "max_tokens": 1,
             "messages": [{"role": "user", "content": "hi"}]
         });
@@ -842,7 +684,7 @@ async fn test_api_connection(base_url: String, api_format: String, model: String
     } else {
         let url = format!("{}/v1/messages", base_url.trim_end_matches('/'));
         let body = serde_json::json!({
-            "model": test_model,
+            "model": model,
             "max_tokens": 1,
             "messages": [{"role": "user", "content": "hi"}]
         });
@@ -866,83 +708,63 @@ async fn test_api_connection(base_url: String, api_format: String, model: String
     } else if status == 401 {
         Err(format!("AUTH_ERROR: HTTP {} — {}", status, text.chars().take(500).collect::<String>()))
     } else {
-        // Any non-401 server response proves endpoint + key are reachable.
-        // 400/403/429/etc. are typically model/quota/format issues, not connection problems.
         Ok(format!("OK ({})", status))
     }
 }
 
-#[tauri::command]
-fn save_api_key(key: String) -> Result<(), String> {
-    encrypt_and_save(&key)
-}
+/// Resolve provider env vars and CLI args from a provider_id.
+/// Returns (extra_env, keys_to_remove, extra_args).
+fn resolve_provider_env(provider_id: Option<&str>) -> Result<(HashMap<String, String>, Vec<String>, Vec<String>), String> {
+    let Some(pid) = provider_id else {
+        return Ok((HashMap::new(), vec![], vec![]));
+    };
 
-#[tauri::command]
-fn load_api_key() -> Result<Option<String>, String> {
-    load_and_decrypt()
-}
+    let providers_file = load_providers()?;
+    let provider = providers_file.providers.iter()
+        .find(|p| p.id == pid)
+        .ok_or_else(|| format!("Provider '{}' not found", pid))?;
 
-#[tauri::command]
-fn delete_api_key() -> Result<(), String> {
-    // Delete from safe location
-    let path = credentials_path()?;
-    if path.exists() {
-        std::fs::remove_file(&path)
-            .map_err(|e| format!("Cannot delete credentials: {}", e))?;
+    let mut env = HashMap::new();
+
+    // Set base URL
+    if !provider.base_url.is_empty() {
+        env.insert("ANTHROPIC_BASE_URL".to_string(), provider.base_url.clone());
     }
-    // Delete from legacy location (best-effort)
-    if let Ok(legacy_path) = legacy_credentials_path() {
-        if legacy_path.exists() {
-            let _ = std::fs::remove_file(&legacy_path);
+
+    // Set API key (plaintext, no encryption)
+    if let Some(ref key) = provider.api_key {
+        if !key.is_empty() {
+            env.insert("ANTHROPIC_API_KEY".to_string(), key.clone());
+            env.insert("ANTHROPIC_AUTH_TOKEN".to_string(), key.clone());
         }
     }
-    Ok(())
-}
 
-// --- API settings backup (survives NSIS update) ---
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ApiSettings {
-    api_provider_mode: String,
-    custom_provider_name: String,
-    custom_provider_base_url: String,
-    custom_provider_model_mappings: Vec<ApiModelMapping>,
-    custom_provider_api_format: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ApiModelMapping {
-    tier: String,
-    provider_model: String,
-}
-
-#[tauri::command]
-fn save_api_settings(settings: ApiSettings) -> Result<(), String> {
-    let path = safe_data_dir()?.join("api_settings.json");
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Cannot create dir: {}", e))?;
+    // Merge extra_env (empty string = delete from child process env)
+    let mut keys_to_remove = Vec::new();
+    if let Some(ref extra) = provider.extra_env {
+        for (k, v) in extra {
+            if v.is_empty() {
+                keys_to_remove.push(k.clone());
+            } else {
+                env.insert(k.clone(), v.clone());
+            }
+        }
     }
-    let json = serde_json::to_string_pretty(&settings)
-        .map_err(|e| format!("Serialize error: {}", e))?;
-    std::fs::write(&path, json)
-        .map_err(|e| format!("Write error: {}", e))?;
-    Ok(())
-}
 
-#[tauri::command]
-fn load_api_settings() -> Result<Option<ApiSettings>, String> {
-    let path = safe_data_dir()?.join("api_settings.json");
-    if !path.exists() {
-        return Ok(None);
-    }
-    let data = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Cannot read settings: {}", e))?;
-    serde_json::from_str(&data)
-        .map(Some)
-        .map_err(|e| format!("Cannot parse settings: {}", e))
+    // Remove inherited ANTHROPIC_* vars that we don't explicitly set
+    let inherited_removals: Vec<String> = std::env::vars()
+        .filter(|(k, _)| k.starts_with("ANTHROPIC_") && !env.contains_key(k))
+        .map(|(k, _)| k)
+        .collect();
+    keys_to_remove.extend(inherited_removals);
+
+    // Add --setting-sources to skip user-level settings.json env conflicts
+    let extra_args = vec![
+        "--setting-sources".to_string(),
+        "project,local".to_string(),
+    ];
+
+    Ok((env, keys_to_remove, extra_args))
 }
 
 #[tauri::command]
@@ -1024,30 +846,12 @@ async fn start_claude_session(
     // Build an enriched PATH for the child process
     let enriched_path = build_enriched_path();
 
-    // Resolve custom environment variables for API provider override (TK-303)
-    let mut resolved_env = resolve_custom_env(params.custom_env.as_ref())?;
+    // Resolve provider environment variables from provider_id
+    let (mut resolved_env, inherited_keys_to_remove, provider_extra_args) =
+        resolve_provider_env(params.provider_id.as_deref())?;
 
-    // When TOKENICODE injects custom API env vars, we must prevent conflicts from
-    // two sources: (1) shell-inherited env vars and (2) Claude CLI's own
-    // ~/.claude/settings.json `env` section.  Both can shadow our values.
-    // Collect the keys to env_remove from the child process, and strip them from
-    // settings.json so Claude CLI doesn't re-apply them after startup.
-    let has_custom_api_env = resolved_env.contains_key("ANTHROPIC_BASE_URL")
-        || resolved_env.contains_key("ANTHROPIC_API_KEY");
-    let _stripped_settings = if has_custom_api_env {
-        strip_anthropic_env_from_cli_settings()
-    } else {
-        vec![]
-    };
-    let inherited_keys_to_remove: Vec<String> = if has_custom_api_env {
-        // Remove all ANTHROPIC_* from parent env that we don't explicitly set
-        std::env::vars()
-            .filter(|(k, _)| k.starts_with("ANTHROPIC_") && !resolved_env.contains_key(k))
-            .map(|(k, _)| k)
-            .collect()
-    } else {
-        vec![]
-    };
+    // Append provider-specific CLI args (e.g. --setting-sources project,local)
+    args.extend(provider_extra_args);
 
     // Inject effort level env var for non-off thinking levels
     if thinking_level != "off" {
@@ -1505,6 +1309,13 @@ async fn send_control_request(
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
             ControlRequest::set_model(model)
+        }
+        "rewind_files" => {
+            let user_message_id = payload.get("user_message_id")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing 'user_message_id' in payload")?
+                .to_string();
+            ControlRequest::rewind_files(user_message_id)
         }
         other => return Err(format!("Unknown control request subtype: {}", other)),
     };
@@ -3072,6 +2883,7 @@ async fn rewind_files(session_id: String, checkpoint_uuid: String, cwd: String) 
         .current_dir(&cwd)
         .env("PATH", &enriched_path)
         .env("CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING", "1")
+        .env_remove("CLAUDECODE")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .output()
@@ -4435,12 +4247,9 @@ pub fn run() {
             open_terminal_login,
             load_custom_previews,
             save_custom_previews,
-            save_api_key,
-            load_api_key,
-            delete_api_key,
-            test_api_connection,
-            save_api_settings,
-            load_api_settings,
+            load_providers,
+            save_providers,
+            test_provider_connection,
             respond_permission,
             send_control_request,
         ])

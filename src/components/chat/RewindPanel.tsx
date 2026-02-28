@@ -72,18 +72,16 @@ export function RewindPanel({ onClose }: RewindPanelProps) {
   ];
 
   // --- Execute action by index ---
-  const doAction = useCallback(async (idx: number) => {
+  const doAction = useCallback((idx: number) => {
     if (!selectedTurn) return;
     const a = actions[idx];
     if (!a || a.disabled) return;
 
-    if (a.action === 'cancel') {
-      onClose();
-      return;
-    }
-
-    await executeRewind(selectedTurn, a.action);
+    // Close panel immediately for snappy UX, then run rewind async
     onClose();
+    if (a.action !== 'cancel') {
+      executeRewind(selectedTurn, a.action);
+    }
   }, [selectedTurn, executeRewind, onClose]);
 
   // --- Keyboard navigation (capture phase to intercept before InputBar) ---

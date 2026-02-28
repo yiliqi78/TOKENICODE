@@ -4,7 +4,8 @@ import { useSettingsStore, mapSessionModeToPermissionMode } from '../stores/sett
 import { useSessionStore } from '../stores/sessionStore';
 import { useAgentStore, resolveAgentId, getAgentDepth } from '../stores/agentStore';
 import { bridge, onClaudeStream, onClaudeStderr } from '../lib/tauri-bridge';
-import { buildCustomEnvVars, envFingerprint, resolveModelForProvider } from '../lib/api-provider';
+import { envFingerprint, resolveModelForProvider } from '../lib/api-provider';
+import { useProviderStore } from '../stores/providerStore';
 
 /**
  * Configuration refs and callbacks that the stream processor needs
@@ -751,13 +752,22 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
 
       case 'user':
       case 'human': {
-        // Store CLI checkpoint UUID on the most recent user message (for rewind)
-        if (msg.uuid) {
-          const { messages: allMsgs, updateMessage: um2 } = useChatStore.getState();
-          for (let i = allMsgs.length - 1; i >= 0; i--) {
-            if (allMsgs[i].role === 'user') {
-              um2(allMsgs[i].id, { checkpointUuid: msg.uuid });
-              break;
+        // Store CLI checkpoint UUID on the most recent user message (for rewind).
+        // Only store from genuine user-input messages, NOT tool-result messages.
+        // Tool-result user messages have content with tool_result blocks and their
+        // UUIDs don't match the file-history-snapshot messageId used by --rewind-files.
+        {
+          const content = msg.message?.content;
+          const isToolResult = Array.isArray(content)
+            && content.some((b: any) => b.type === 'tool_result');
+          if (msg.uuid && !isToolResult) {
+            const { messages: allMsgs, updateMessage: um2 } = useChatStore.getState();
+            for (let i = allMsgs.length - 1; i >= 0; i--) {
+              if (allMsgs[i].role === 'user') {
+                console.log('[stream] Storing checkpointUuid:', msg.uuid, 'on msg:', allMsgs[i].id);
+                um2(allMsgs[i].id, { checkpointUuid: msg.uuid });
+                break;
+              }
             }
           }
         }
@@ -961,7 +971,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
                   // No resume_session_id — fresh start to avoid thinking signature issue
                   thinking_level: useSettingsStore.getState().thinkingLevel,
                   session_mode: (sessionMode === 'ask' || sessionMode === 'plan') ? sessionMode : undefined,
-                  custom_env: buildCustomEnvVars(),
+                  provider_id: useProviderStore.getState().activeProviderId || undefined,
                   permission_mode: mapSessionModeToPermissionMode(sessionMode),
                 });
 
