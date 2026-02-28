@@ -80,6 +80,8 @@ All notable changes to TOKENICODE will be documented in this file.
 
 - **Hardcoded Chinese in delete dialog** — `"删除全部任务"` replaced with `t('conv.deleteAll')`.
 
+- **GUI apps don't inherit proxy env vars** — macOS GUI apps launched from Finder/Dock get a minimal environment from `launchd`, missing proxy settings (`https_proxy`, etc.) defined in `.zshrc`. This caused 403 "Request not allowed" errors in regions requiring a proxy to reach Anthropic's API. Fixed by capturing proxy vars from an interactive shell (`zsh -ic`) via `login_shell_proxy_env()` and injecting them into CLI child processes and the reqwest HTTP client.
+
 ### Removed
 
 - **6 redundant slash commands** — Removed `/model`, `/theme`, `/config`, `/exit`, `/resume`, `/status` from backend, frontend, and i18n. All have direct UI equivalents (model selector, theme toggle, settings panel, window close, sidebar sessions).
@@ -159,6 +161,8 @@ All notable changes to TOKENICODE will be documented in this file.
 - **单个删除无确认** — 此前右键「删除」立即执行。现在改为 undo toast，提供 5 秒恢复窗口。
 
 - **删除弹窗硬编码中文** — `"删除全部任务"` 替换为 `t('conv.deleteAll')`。
+
+- **GUI 应用不继承代理环境变量** — macOS 从 Finder/Dock 启动的 GUI 应用从 `launchd` 获取最小化环境，缺少 `.zshrc` 中定义的代理设置（`https_proxy` 等）。在需要代理才能访问 Anthropic API 的地区会导致 403 "Request not allowed" 错误。通过 `login_shell_proxy_env()` 从交互式 shell（`zsh -ic`）捕获代理变量，注入 CLI 子进程和 reqwest HTTP 客户端。
 
 ### 移除
 
