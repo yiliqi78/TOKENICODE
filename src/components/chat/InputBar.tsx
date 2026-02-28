@@ -272,17 +272,24 @@ export function InputBar() {
 
   // Rewind state
   const [showRewindPanel, setShowRewindPanel] = useState(false);
-  const { canRewind } = useRewind();
+  const { showRewind, canRewind } = useRewind();
   const lastEscTime = useRef(0);
 
   // Listen for rewind event from /rewind command
   useEffect(() => {
     const handler = () => {
-      if (canRewind) setShowRewindPanel(true);
+      if (canRewind) {
+        setShowRewindPanel(true);
+      } else {
+        useChatStore.getState().addMessage({
+          id: generateMessageId(), role: 'system', type: 'text',
+          content: t('rewind.disabled'), commandType: 'error', timestamp: Date.now(),
+        });
+      }
     };
     window.addEventListener('tokenicode:rewind', handler);
     return () => window.removeEventListener('tokenicode:rewind', handler);
-  }, [canRewind]);
+  }, [canRewind, t]);
 
   // Double-Esc detection (global — works even when textarea is not focused)
   useEffect(() => {
@@ -295,14 +302,21 @@ export function InputBar() {
       if (now - lastEscTime.current < 400) {
         // Double Esc within 400ms → toggle rewind
         lastEscTime.current = 0;
-        if (canRewind) setShowRewindPanel(true);
+        if (canRewind) {
+          setShowRewindPanel(true);
+        } else {
+          useChatStore.getState().addMessage({
+            id: generateMessageId(), role: 'system', type: 'text',
+            content: t('rewind.disabled'), commandType: 'error', timestamp: Date.now(),
+          });
+        }
       } else {
         lastEscTime.current = now;
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [canRewind, showRewindPanel]);
+  }, [canRewind, showRewindPanel, t]);
 
   // Drag state (file drop)
   const [isDragging, setIsDragging] = useState(false);
@@ -1229,7 +1243,28 @@ export function InputBar() {
           {/* Think toggle */}
           <ThinkLevelSelector disabled={isRunning} />
 
-          {/* Rewind button — temporarily hidden (TK-TODO: refactor rewind UX) */}
+          {/* Rewind button */}
+          {showRewind && (
+            <button
+              onClick={() => { if (canRewind) setShowRewindPanel(!showRewindPanel); }}
+              disabled={!canRewind}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-smooth
+                ${canRewind
+                  ? 'text-text-secondary hover:bg-bg-tertiary hover:text-text-primary cursor-pointer'
+                  : 'text-text-muted cursor-not-allowed opacity-50'
+                }`}
+              title={canRewind ? `${t('rewind.title')} (Esc×2)` : t('rewind.disabled')}
+            >
+              <svg width="12" height="12" viewBox="0 0 14 14" fill="none"
+                stroke="currentColor" strokeWidth="1.5" className="flex-shrink-0">
+                <path d="M2 7a5 5 0 019.33-2.5M12 7a5 5 0 01-9.33 2.5"
+                  strokeLinecap="round" />
+                <path d="M11 2v3h-3" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M3 12V9h3" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <span className="text-[10px]">{t('rewind.title')}</span>
+            </button>
+          )}
 
           {/* Spacer */}
           <div className="flex-1" />

@@ -201,6 +201,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'rewind.successCode': '已恢复到第 {n} 轮的代码状态（任务保持不变）。',
     'rewind.summaryTitle': '第 {from}–{to} 轮摘要',
     'rewind.disabled': '运行中无法回退',
+    'rewind.noCheckpoint': '历史对话无法恢复代码',
 
     // Markdown rich text
     'msg.copyCode': '复制',
@@ -761,6 +762,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'rewind.successCode': 'Code restored to turn {n} state (task unchanged).',
     'rewind.summaryTitle': 'Summary of turns {from}–{to}',
     'rewind.disabled': 'Cannot rewind while running',
+    'rewind.noCheckpoint': 'Code restore unavailable for historical conversations',
 
     // Markdown rich text
     'msg.copyCode': 'Copy',
