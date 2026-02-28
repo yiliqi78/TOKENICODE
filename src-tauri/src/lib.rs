@@ -4136,81 +4136,71 @@ async fn save_archived_sessions(data: Value) -> Result<(), String> {
         .map_err(|e| format!("Failed to write archived sessions: {}", e))
 }
 
-/// Generate a short AI title for a session using the active provider.
+/// Generate a short AI title for a session by spawning a separate Claude CLI process.
+/// Uses Haiku model for fast, cheap title generation. Completely isolated from the
+/// main conversation channel — spawns a new process that exits after one response.
 #[tauri::command]
 async fn generate_session_title(
-    provider_id: Option<String>,
     user_message: String,
     assistant_message: String,
 ) -> Result<String, String> {
-    // Truncate inputs to avoid sending too much data
-    let user_msg = if user_message.len() > 500 { &user_message[..500] } else { &user_message };
-    let asst_msg = if assistant_message.len() > 500 { &assistant_message[..500] } else { &assistant_message };
+    // Safe UTF-8 truncation (don't slice mid-character)
+    fn safe_truncate(s: &str, max_bytes: usize) -> &str {
+        if s.len() <= max_bytes { return s; }
+        let mut end = max_bytes;
+        while end > 0 && !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        &s[..end]
+    }
+
+    let user_msg = safe_truncate(&user_message, 500);
+    let asst_msg = safe_truncate(&assistant_message, 500);
 
     let prompt = format!(
-        "Generate a very short title (5-10 words, in the same language as the conversation) for this conversation. Reply with ONLY the title, no quotes or extra text.\n\nUser: {}\n\nAssistant: {}",
+        "Generate a very short title (5-10 words, in the same language as the conversation) for this conversation. Reply with ONLY the title text, no quotes, no extra text, no explanation.\n\nUser: {}\n\nAssistant: {}",
         user_msg, asst_msg
     );
 
-    // Try to find the provider config
-    let home = dirs::home_dir().ok_or("Cannot find home dir")?;
-    let providers_path = home.join(".tokenicode").join("providers.json");
+    // Resolve claude binary
+    let claude_bin = find_claude_binary()
+        .ok_or_else(|| "Claude CLI not found".to_string())?;
 
-    if !providers_path.exists() {
-        return Err("No providers configured".to_string());
+    let enriched_path = build_enriched_path();
+
+    // Spawn a one-shot CLI process: -p for single prompt, --output-format json for structured output
+    let args = vec![
+        "-p".to_string(), prompt,
+        "--model".to_string(), "claude-haiku-4-5-20251001".to_string(),
+        "--output-format".to_string(), "json".to_string(),
+        "--max-turns".to_string(), "1".to_string(),
+        "--dangerously-skip-permissions".to_string(),
+    ];
+
+    let output = tokio::process::Command::new(&claude_bin)
+        .args(&args)
+        .env("PATH", &enriched_path)
+        .env_remove("CLAUDECODE")       // Allow nested CLI launch
+        .env_remove("CLAUDE_CODE_ENTRY") // Remove any other nesting guards
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn claude for title gen: {}", e))?
+        .wait_with_output()
+        .await
+        .map_err(|e| format!("Failed to wait for title gen process: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Title gen process failed: {}", stderr.chars().take(200).collect::<String>()));
     }
 
-    let providers_content = std::fs::read_to_string(&providers_path)
-        .map_err(|e| format!("Failed to read providers: {}", e))?;
-    let providers: Value = serde_json::from_str(&providers_content)
-        .map_err(|e| format!("Failed to parse providers: {}", e))?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // Find the target provider
-    let provider_list = providers.get("providers")
-        .and_then(|v| v.as_array())
-        .ok_or("No providers array")?;
-
-    let provider = if let Some(pid) = &provider_id {
-        provider_list.iter().find(|p| p.get("id").and_then(|v| v.as_str()) == Some(pid))
-    } else {
-        // Use the default (first enabled) provider
-        provider_list.iter().find(|p| p.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false))
-    }.ok_or("No matching provider found")?;
-
-    let base_url = provider.get("baseUrl").and_then(|v| v.as_str()).unwrap_or("");
-    let api_key = provider.get("apiKey").and_then(|v| v.as_str()).unwrap_or("");
-    let api_type = provider.get("type").and_then(|v| v.as_str()).unwrap_or("anthropic");
-
-    if base_url.is_empty() || api_key.is_empty() {
-        return Err("Provider not fully configured".to_string());
-    }
-
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
-
-    if api_type == "openai" || api_type == "openai-compatible" {
-        let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
-        let body = serde_json::json!({
-            "model": provider.get("model").and_then(|v| v.as_str()).unwrap_or("gpt-4o-mini"),
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 50,
-            "temperature": 0.3
-        });
-        let resp = client.post(&url)
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| format!("Request failed: {}", e))?;
-        let json: Value = resp.json().await
-            .map_err(|e| format!("Failed to parse response: {}", e))?;
-        let title = json.get("choices")
-            .and_then(|c| c.get(0))
-            .and_then(|c| c.get("message"))
-            .and_then(|m| m.get("content"))
+    // Parse JSON output — Claude CLI --output-format json returns:
+    // { "type": "result", "result": "the title text", ... }
+    if let Ok(json) = serde_json::from_str::<Value>(stdout.trim()) {
+        let title = json.get("result")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .trim()
@@ -4219,38 +4209,15 @@ async fn generate_session_title(
         if title.is_empty() {
             return Err("Empty title generated".to_string());
         }
-        Ok(title)
-    } else {
-        // Anthropic API
-        let url = format!("{}/v1/messages", base_url.trim_end_matches('/'));
-        let body = serde_json::json!({
-            "model": provider.get("model").and_then(|v| v.as_str()).unwrap_or("claude-haiku-4-5-20251001"),
-            "max_tokens": 50,
-            "messages": [{"role": "user", "content": prompt}]
-        });
-        let resp = client.post(&url)
-            .header("x-api-key", api_key)
-            .header("anthropic-version", "2023-06-01")
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| format!("Request failed: {}", e))?;
-        let json: Value = resp.json().await
-            .map_err(|e| format!("Failed to parse response: {}", e))?;
-        let title = json.get("content")
-            .and_then(|c| c.get(0))
-            .and_then(|b| b.get("text"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .trim()
-            .trim_matches('"')
-            .to_string();
-        if title.is_empty() {
-            return Err("Empty title generated".to_string());
-        }
-        Ok(title)
+        return Ok(title);
     }
+
+    // Fallback: if not valid JSON, try to use raw stdout as title
+    let raw = stdout.trim().trim_matches('"').to_string();
+    if raw.is_empty() || raw.len() > 200 {
+        return Err("Could not parse title from CLI output".to_string());
+    }
+    Ok(raw)
 }
 
 /// Open a native terminal window to run `claude login`.

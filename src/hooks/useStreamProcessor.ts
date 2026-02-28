@@ -292,6 +292,31 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           }
         }
         useSessionStore.getState().fetchSessions();
+
+        // AI Title Generation for background tabs (same 3rd-turn logic)
+        if (msg.subtype === 'success') {
+          const customPreviews = useSessionStore.getState().customPreviews;
+          if (!customPreviews[tabId]) {
+            const bgSnap = cache.sessionCache.get(tabId);
+            const bgUserMsgs = bgSnap?.messages.filter(
+              (m) => m.role === 'user' && m.type === 'text' && m.content,
+            ) || [];
+            const bgAssistantMsgs = bgSnap?.messages.filter(
+              (m) => m.role === 'assistant' && m.type === 'text' && m.content,
+            ) || [];
+            if (bgUserMsgs.length >= 3 && bgAssistantMsgs.length >= 3) {
+              const userMsg = bgUserMsgs.map((m) => m.content).join('\n').slice(0, 500);
+              const assistantMsg = bgAssistantMsgs.map((m) => m.content).join('\n').slice(0, 500);
+              bridge.generateSessionTitle(userMsg, assistantMsg)
+                .then((title) => {
+                  if (title) {
+                    useSessionStore.getState().setCustomPreview(tabId, title);
+                  }
+                })
+                .catch(() => {});
+            }
+          }
+        }
         break;
       }
       case 'process_exit':
@@ -1122,32 +1147,32 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         useSessionStore.getState().fetchSessions();
         setTimeout(() => useSessionStore.getState().fetchSessions(), 1000);
 
-        // --- AI Title Generation (TK-001): on first successful turn, generate a title ---
+        // --- AI Title Generation (TK-001): on 3rd successful turn, generate a title ---
         if (msg.subtype === 'success') {
-          const currentMessages = useChatStore.getState().messages;
-          const assistantTextMsgs = currentMessages.filter(
-            (m) => m.role === 'assistant' && m.type === 'text' && m.content,
-          );
-          const userTextMsgs = currentMessages.filter(
-            (m) => m.role === 'user' && m.type === 'text' && m.content,
-          );
-          // Only on first turn (1 assistant text response)
-          if (assistantTextMsgs.length === 1 && userTextMsgs.length >= 1) {
-            const sessionId = useChatStore.getState().sessionMeta.sessionId;
+          const sessionId = useChatStore.getState().sessionMeta.sessionId;
+          if (sessionId) {
             const customPreviews = useSessionStore.getState().customPreviews;
-            // Skip if user already set a custom name
-            if (sessionId && !customPreviews[sessionId]) {
-              const userMsg = userTextMsgs[0].content;
-              const assistantMsg = assistantTextMsgs[0].content;
-              bridge.generateSessionTitle(null, userMsg, assistantMsg)
-                .then((title) => {
-                  if (title) {
-                    useSessionStore.getState().setCustomPreview(sessionId, title);
-                  }
-                })
-                .catch(() => {
-                  // Silently ignore — keep original preview
-                });
+            if (!customPreviews[sessionId]) {
+              const currentMessages = useChatStore.getState().messages;
+              const userTextMsgs = currentMessages.filter(
+                (m) => m.role === 'user' && m.type === 'text' && m.content,
+              );
+              if (userTextMsgs.length >= 3) {
+                const assistantTextMsgs = currentMessages.filter(
+                  (m) => m.role === 'assistant' && m.type === 'text' && m.content,
+                );
+                if (assistantTextMsgs.length >= 3) {
+                  const userMsg = userTextMsgs.map((m) => m.content).join('\n').slice(0, 500);
+                  const assistantMsg = assistantTextMsgs.map((m) => m.content).join('\n').slice(0, 500);
+                  bridge.generateSessionTitle(userMsg, assistantMsg)
+                    .then((title) => {
+                      if (title) {
+                        useSessionStore.getState().setCustomPreview(sessionId, title);
+                      }
+                    })
+                    .catch(() => {});
+                }
+              }
             }
           }
         }

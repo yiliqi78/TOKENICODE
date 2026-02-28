@@ -91,11 +91,8 @@ export function ConversationList() {
     count: number;
   } | null>(null);
 
-  // Undo delete toast
-  const [pendingDelete, setPendingDelete] = useState<{
-    session: SessionListItem;
-    timer: ReturnType<typeof setTimeout>;
-  } | null>(null);
+  // Shift+click multi-select: track last clicked index
+  const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
 
   // Smart collapse (Phase 2)
   const [manualExpanded, setManualExpanded] = useState<Set<string>>(new Set());
@@ -116,12 +113,22 @@ export function ConversationList() {
   });
   const [showArchived, setShowArchived] = useState(false);
 
-  // Status filter
-  const [filterRunning, setFilterRunning] = useState(false);
-
   // Multi-select
   const [multiSelect, setMultiSelect] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // ESC to cancel multi-select
+  useEffect(() => {
+    if (!multiSelect) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMultiSelect(false);
+        setSelectedIds(new Set());
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [multiSelect]);
 
   // Persist pinned/archived
   const persistPinned = useCallback((next: Set<string>) => {
@@ -183,23 +190,13 @@ export function ConversationList() {
     return customPreviews[session.id] || session.preview || '';
   }, [customPreviews]);
 
-  // Filtered sessions (search + archive + running filter + pending delete)
+  // Filtered sessions (search + archive)
   const filtered = useMemo(() => {
     let result = sessions;
-
-    // Exclude pending delete
-    if (pendingDelete) {
-      result = result.filter((s) => s.id !== pendingDelete.session.id);
-    }
 
     // Exclude archived unless toggle on
     if (!showArchived) {
       result = result.filter((s) => !archivedSessions.has(s.id));
-    }
-
-    // Running filter
-    if (filterRunning) {
-      result = result.filter((s) => runningSessions.has(s.id));
     }
 
     // Search
@@ -214,8 +211,7 @@ export function ConversationList() {
     }
 
     return result;
-  }, [sessions, searchQuery, displayName, showArchived, archivedSessions,
-      filterRunning, runningSessions, pendingDelete]);
+  }, [sessions, searchQuery, displayName, showArchived, archivedSessions]);
 
   // Group by project
   const projectGroups = useMemo(() => {
@@ -361,26 +357,10 @@ export function ConversationList() {
     }
   }, [selectedId, setSelected, fetchSessions]);
 
-  // Single delete → undo toast
+  // Single delete → confirm dialog
   const handleDeleteSingle = useCallback((session: SessionListItem) => {
-    // Cancel any existing pending delete
-    if (pendingDelete) {
-      clearTimeout(pendingDelete.timer);
-      executeDelete(pendingDelete.session.id, pendingDelete.session.path);
-    }
-    const timer = setTimeout(() => {
-      executeDelete(session.id, session.path);
-      setPendingDelete(null);
-    }, 5000);
-    setPendingDelete({ session, timer });
-  }, [pendingDelete, executeDelete]);
-
-  const handleUndoDelete = useCallback(() => {
-    if (pendingDelete) {
-      clearTimeout(pendingDelete.timer);
-      setPendingDelete(null);
-    }
-  }, [pendingDelete]);
+    setDeleteTarget(session);
+  }, []);
 
   // Delete all in project → confirm dialog
   const handleDeleteAllInProject = useCallback((projectKey: string) => {
@@ -466,15 +446,47 @@ export function ConversationList() {
     persistArchived(next);
   }, [archivedSessions, persistArchived]);
 
-  // Multi-select handlers
-  const handleToggleCheck = useCallback((sessionId: string) => {
+  // Build flat list of visible session IDs for shift+click range selection
+  const flatSessionIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const [project, items] of projectGroups) {
+      if (isExpanded(project)) {
+        for (const s of items) ids.push(s.id);
+      }
+    }
+    return ids;
+  }, [projectGroups, isExpanded]);
+
+  // Multi-select handlers (with shift+click range support)
+  const handleToggleCheck = useCallback((sessionId: string, shiftKey?: boolean) => {
+    // Auto-enter multiSelect mode if not already in it
+    if (!multiSelect) {
+      setMultiSelect(true);
+    }
     setSelectedIds((prev) => {
       const next = new Set(prev);
+
+      // Shift+click: range select
+      if (shiftKey && lastClickedIndex !== null) {
+        const currentIndex = flatSessionIds.indexOf(sessionId);
+        if (currentIndex !== -1) {
+          const start = Math.min(lastClickedIndex, currentIndex);
+          const end = Math.max(lastClickedIndex, currentIndex);
+          for (let i = start; i <= end; i++) {
+            next.add(flatSessionIds[i]);
+          }
+          setLastClickedIndex(currentIndex);
+          return next;
+        }
+      }
+
       if (next.has(sessionId)) next.delete(sessionId);
       else next.add(sessionId);
+
+      setLastClickedIndex(flatSessionIds.indexOf(sessionId));
       return next;
     });
-  }, []);
+  }, [flatSessionIds, lastClickedIndex, multiSelect]);
 
   const handleBatchDelete = useCallback(() => {
     if (selectedIds.size === 0) return;
@@ -550,23 +562,6 @@ export function ConversationList() {
             />
           </div>
 
-          {/* Running filter toggle */}
-          <button
-            onClick={() => setFilterRunning(!filterRunning)}
-            className={`flex-shrink-0 p-2 rounded-lg transition-smooth
-              ${filterRunning
-                ? 'bg-accent/10 text-accent'
-                : 'text-text-tertiary hover:bg-bg-secondary hover:text-text-primary'
-              }`}
-            title={t('conv.filterRunning')}
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
-              stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-              <circle cx="8" cy="8" r="3" />
-              {filterRunning && <circle cx="8" cy="8" r="1.5" fill="currentColor" />}
-            </svg>
-          </button>
-
           {/* Archive toggle */}
           <button
             onClick={() => setShowArchived(!showArchived)}
@@ -640,10 +635,11 @@ export function ConversationList() {
         {t('conv.refresh')}
       </button>
 
-      {/* Multi-select toolbar */}
+      {/* Multi-select floating toolbar — sticky at bottom of scroll container */}
       {multiSelect && (
-        <div className="mx-1 mt-2 p-2 rounded-xl bg-bg-secondary border border-border-subtle
-          flex items-center gap-2 animate-fade-in">
+        <div className="sticky bottom-0 mx-1 mt-2 p-2 rounded-xl
+          bg-bg-card/95 backdrop-blur-sm border border-border-subtle shadow-lg
+          flex items-center gap-2 animate-fade-in z-10">
           <span className="text-xs text-text-muted flex-1">
             {t('conv.selected').replace('{n}', String(selectedIds.size))}
           </span>
@@ -671,23 +667,6 @@ export function ConversationList() {
               hover:text-text-primary transition-smooth"
           >
             {t('common.cancel')}
-          </button>
-        </div>
-      )}
-
-      {/* Undo delete toast */}
-      {pendingDelete && (
-        <div className="mx-1 mt-2 p-2.5 rounded-xl bg-bg-secondary border border-border-subtle
-          flex items-center gap-2 animate-fade-in">
-          <span className="text-xs text-text-muted flex-1 truncate">
-            {t('conv.undoDelete').replace('{name}', displayName(pendingDelete.session) || t('conv.empty'))}
-          </span>
-          <button
-            onClick={handleUndoDelete}
-            className="px-2 py-1 text-xs rounded-lg bg-accent/10 text-accent
-              hover:bg-accent/20 transition-smooth flex-shrink-0"
-          >
-            {t('conv.undo')}
           </button>
         </div>
       )}
@@ -723,7 +702,7 @@ export function ConversationList() {
         />
       )}
 
-      {/* Delete single confirm dialog (unused now, replaced by undo toast) */}
+      {/* Delete single confirm dialog */}
       {deleteTarget && (
         <ConfirmDialog
           open={true}

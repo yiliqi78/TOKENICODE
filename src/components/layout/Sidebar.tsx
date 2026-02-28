@@ -115,7 +115,7 @@ export function Sidebar() {
       </div>
 
       {/* Conversation History */}
-      <div className="flex-1 overflow-y-auto min-h-0 -mr-1.5 pr-1.5">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 -mr-1.5 pr-1.5">
         <ConversationList />
       </div>
 

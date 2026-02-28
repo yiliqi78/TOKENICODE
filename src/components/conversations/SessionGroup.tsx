@@ -39,7 +39,7 @@ interface SessionGroupProps {
   onLoadSession: (session: SessionListItem) => void;
   onRename: (sessionId: string, newName: string) => void;
   onNewSession: (project: string) => void;
-  onToggleCheck: (sessionId: string) => void;
+  onToggleCheck: (sessionId: string, shiftKey?: boolean) => void;
 }
 
 export function SessionGroup({
@@ -112,27 +112,29 @@ export function SessionGroup({
   return (
     <div className="mb-1">
       {/* Project header */}
-      <button
+      <div
         onClick={() => onToggleCollapse(projectKey)}
         onContextMenu={(e) => onProjectContextMenu(e, projectKey)}
-        className="w-full flex items-center gap-2 px-3 py-1.5
+        className="w-full flex items-center gap-2 px-3 py-1.5 cursor-pointer
           hover:bg-bg-secondary rounded-lg transition-smooth group"
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onToggleCollapse(projectKey); }}
       >
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
           stroke="currentColor" strokeWidth="1.5"
-          className={`text-accent transition-transform
+          className={`text-accent transition-transform flex-shrink-0
             ${isExpanded ? 'rotate-90' : ''}`}>
           <path d="M3 1l4 4-4 4" />
         </svg>
         <span className="text-[13px] font-extrabold text-text-primary
-          truncate flex-1 text-left">
+          truncate flex-1 text-left min-w-0">
           {label}
         </span>
         <span className="text-[11px] text-text-tertiary flex-shrink-0">
           {sessions.length} {t('conv.sessions')}
         </span>
-        <span
-          role="button"
+        <button
           onClick={(e) => { e.stopPropagation(); onNewSession(projectKey); }}
           className="flex-shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100
             hover:bg-bg-tertiary transition-smooth text-text-tertiary hover:text-accent"
@@ -142,8 +144,8 @@ export function SessionGroup({
             stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <path d="M8 3v10M3 8h10" />
           </svg>
-        </span>
-      </button>
+        </button>
+      </div>
 
       {/* Project path */}
       {isExpanded && projectKey !== label && (

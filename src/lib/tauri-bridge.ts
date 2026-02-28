@@ -329,9 +329,9 @@ export const bridge = {
   saveArchivedSessions: (data: string[]) =>
     invoke<void>('save_archived_sessions', { data }).catch(() => {}),
 
-  // AI title generation
-  generateSessionTitle: (providerId: string | null, userMessage: string, assistantMessage: string) =>
-    invoke<string>('generate_session_title', { providerId, userMessage, assistantMessage }),
+  // AI title generation (spawns separate CLI process, no channel interference)
+  generateSessionTitle: (userMessage: string, assistantMessage: string) =>
+    invoke<string>('generate_session_title', { userMessage, assistantMessage }),
 
   // --- Provider Management ---
 

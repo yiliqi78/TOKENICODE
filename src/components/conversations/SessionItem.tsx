@@ -28,7 +28,7 @@ interface SessionItemProps {
   onSelect: (session: SessionListItem) => void;
   onContextMenu: (e: React.MouseEvent, session: SessionListItem) => void;
   onRename: (sessionId: string, newName: string) => void;
-  onToggleCheck?: (sessionId: string) => void;
+  onToggleCheck?: (sessionId: string, shiftKey?: boolean) => void;
 }
 
 export function SessionItem({
@@ -49,6 +49,19 @@ export function SessionItem({
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const renameInputRef = useRef<HTMLInputElement>(null);
+
+  // Animate title changes (AI-generated titles)
+  const [titleAnimating, setTitleAnimating] = useState(false);
+  const prevNameRef = useRef(name);
+  useEffect(() => {
+    if (prevNameRef.current !== name && prevNameRef.current !== '' && name !== '') {
+      setTitleAnimating(true);
+      const timer = setTimeout(() => setTitleAnimating(false), 600);
+      prevNameRef.current = name;
+      return () => clearTimeout(timer);
+    }
+    prevNameRef.current = name;
+  }, [name]);
 
   const startRename = useCallback(() => {
     setIsRenaming(true);
@@ -77,9 +90,12 @@ export function SessionItem({
 
   return (
     <button
-      onClick={() => {
+      onClick={(e) => {
         if (multiSelect && onToggleCheck) {
-          onToggleCheck(session.id);
+          onToggleCheck(session.id, e.shiftKey);
+        } else if (e.shiftKey && onToggleCheck) {
+          // Shift+click outside multiSelect mode: auto-enter multiSelect
+          onToggleCheck(session.id, false);
         } else {
           onSelect(session);
         }
@@ -104,7 +120,7 @@ export function SessionItem({
           <input
             type="checkbox"
             checked={isChecked || false}
-            onChange={() => onToggleCheck?.(session.id)}
+            onChange={(e) => onToggleCheck?.(session.id, (e.nativeEvent as MouseEvent).shiftKey)}
             onClick={(e) => e.stopPropagation()}
             className="flex-shrink-0 w-3.5 h-3.5 rounded border-border-subtle
               accent-accent cursor-pointer"
@@ -128,7 +144,8 @@ export function SessionItem({
           />
         ) : (
           <div className={`text-xs truncate leading-snug font-normal flex-1 min-w-0
-            ${name ? 'text-text-primary' : 'text-text-muted italic'}`}>
+            ${name ? 'text-text-primary' : 'text-text-muted italic'}
+            ${titleAnimating ? 'animate-title-update' : ''}`}>
             {isPinned && (
               <svg width="10" height="10" viewBox="0 0 16 16" fill="none"
                 stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
