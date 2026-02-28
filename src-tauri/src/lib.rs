@@ -2782,34 +2782,28 @@ async fn list_all_commands(cwd: Option<String>) -> Result<Vec<UnifiedCommand>, S
 
     // 1. Built-in commands: (name, description, has_args, execution)
     // execution: "ui" = handled in frontend, "cli" = run as separate CLI process, "session" = needs active CLI session
-    let builtins: [(&str, &str, bool, &str); 29] = [
+    let builtins: [(&str, &str, bool, &str); 23] = [
         ("/ask", "Ask a question without making changes", false, "ui"),
         ("/bug", "Report a bug with Claude Code", false, "ui"),
         ("/clear", "Clear conversation history", false, "ui"),
         ("/code", "Switch to code mode (default)", false, "ui"),
         ("/compact", "Compact conversation to reduce context", false, "session"),
-        ("/config", "Open settings panel", false, "ui"),
         ("/context", "Manage context files and directories", false, "session"),
         ("/cost", "Show session cost and token usage", false, "ui"),
         ("/doctor", "Check Claude Code health status", false, "session"),
-        ("/exit", "Close the application", false, "ui"),
         ("/export", "Export conversation to markdown", true, "ui"),
         ("/help", "Show available commands", false, "ui"),
         ("/init", "Initialize project configuration", false, "session"),
         ("/mcp", "Manage MCP server connections", false, "session"),
         ("/memory", "View or edit MEMORY.md files", false, "session"),
-        ("/model", "Switch the AI model", false, "ui"),
         ("/permissions", "View and manage tool permissions", false, "session"),
         ("/plan", "Enter plan mode for complex tasks", false, "ui"),
         ("/rename", "Rename the current session", true, "ui"),
-        ("/resume", "Resume a previous session", true, "ui"),
         ("/rewind", "Rewind conversation to a previous turn", false, "ui"),
         ("/stats", "Show session statistics", false, "session"),
-        ("/status", "Show session status", false, "ui"),
         ("/statusline", "Configure status line display", false, "session"),
         ("/tasks", "View running background tasks", false, "session"),
         ("/teleport", "Teleport context to a new session", false, "session"),
-        ("/theme", "Toggle light/dark/system theme", false, "ui"),
         ("/todos", "View todo items from the session", false, "session"),
         ("/usage", "Show detailed token usage breakdown", false, "session"),
     ];

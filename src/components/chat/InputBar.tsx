@@ -435,35 +435,6 @@ export function InputBar() {
         return;
       }
 
-      case 'status': {
-        const status = useChatStore.getState().sessionStatus;
-        const meta = useChatStore.getState().sessionMeta;
-        feedback('info', t('cmd.statusTitle'), {
-          command: '/status',
-          title: t('cmd.statusTitle'),
-          rows: [
-            { label: t('cmd.statusState'), value: status },
-            { label: t('cmd.statusMode'), value: useSettingsStore.getState().sessionMode },
-            { label: t('cmd.costModel'), value: modelLabel(meta.model || useSettingsStore.getState().selectedModel) },
-            { label: t('cmd.statusProcess'), value: meta.stdinId ? '✓' : '✗' },
-          ],
-          hasData: true,
-        });
-        return;
-      }
-
-      case 'model': {
-        feedback('info', t('cmd.currentModel'), {
-          command: '/model',
-          title: t('cmd.currentModel'),
-          rows: [
-            { label: t('cmd.costModel'), value: modelLabel(useSettingsStore.getState().selectedModel) },
-          ],
-          hint: t('cmd.modelHint'),
-          hasData: true,
-        });
-        return;
-      }
 
       case 'help': {
         const cmds = useCommandStore.getState().commands;
@@ -485,24 +456,6 @@ export function InputBar() {
         return;
 
       // --- UI-handled commands ---
-      case 'config':
-        useSettingsStore.getState().toggleSettings();
-        feedback('action', t('cmd.configOpened'));
-        return;
-
-      case 'exit': {
-        const { getCurrentWindow } = await import('@tauri-apps/api/window');
-        getCurrentWindow().close();
-        return;
-      }
-
-      case 'theme': {
-        useSettingsStore.getState().toggleTheme();
-        const newTheme = useSettingsStore.getState().theme;
-        const themeIcons: Record<string, string> = { light: '☀️', dark: '🌙', system: '💻' };
-        feedback('mode', newTheme, { mode: newTheme, icon: themeIcons[newTheme] || '🎨' });
-        return;
-      }
 
       case 'rename': {
         if (!args) {
@@ -532,28 +485,6 @@ export function InputBar() {
         return;
       }
 
-      case 'resume': {
-        if (!args) {
-          // No args: open sidebar to show session list
-          if (!useSettingsStore.getState().sidebarOpen) {
-            useSettingsStore.getState().toggleSidebar();
-          }
-          feedback('action', t('cmd.resumeList'));
-          return;
-        }
-        const allSessions = useSessionStore.getState().sessions;
-        const target = allSessions.find(
-          (s: any) => s.id === args || s.id?.startsWith(args) ||
-            (s.preview && s.preview.toLowerCase().includes(args.toLowerCase()))
-        );
-        if (target) {
-          useSessionStore.getState().setSelectedSession(target.id);
-          feedback('action', t('cmd.resumed').replace('{name}', target.preview || target.id));
-        } else {
-          feedback('error', t('cmd.resumeNotFound').replace('{query}', args));
-        }
-        return;
-      }
 
       // --- All CLI commands: pass through to active session via stdin ---
       // TOKENICODE is a GUI wrapper — all slash commands are handled by Claude Code CLI.
