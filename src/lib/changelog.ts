@@ -13,6 +13,30 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.8.0',
+    date: '2026-03-01',
+    highlights: {
+      zh: [
+        '全模块重构 — 底层架构全面升级，运行更稳定、响应更快',
+        '权限交互升级 — 用 Claude 原生控制协议替代旧方案，权限弹窗更可靠',
+        '会话列表大改 — 支持置顶、归档、撤销删除、批量操作、日期分组、运行中筛选',
+        '设置面板重做 — 分标签页布局，API 提供商管理更直观，预设一键添加',
+        '文件回退改用 CLI 检查点 — 不再依赖自建快照，回退更准确',
+        '修复代理环境变量丢失 — 安装版应用现在能正确走代理连接 API',
+        '更新检测优先走 GitHub — 国内不可达时自动降级到 Gitee',
+      ],
+      en: [
+        'Full module refactor — Complete architecture overhaul for better stability and responsiveness',
+        'Permission handling upgrade — Native SDK control protocol replaces old regex-based approach',
+        'Session list revamp — Pin, archive, undo delete, batch ops, date groups, running filter',
+        'Settings panel redesign — Tabbed layout, intuitive provider management, one-click presets',
+        'File rewind uses CLI checkpoints — More accurate rollback without custom snapshot system',
+        'Fix proxy env vars not inherited — Installed app now correctly uses proxy to reach API',
+        'Updater checks GitHub first — Auto-falls back to Gitee when GitHub is unreachable',
+      ],
+    },
+  },
+  {
     version: '0.6.16',
     date: '2026-02-27',
     highlights: {
