@@ -149,16 +149,16 @@ export function SkillsPanel() {
             className="text-accent flex-shrink-0">
             <path d="M8 1L1 4.5l7 3.5 7-3.5L8 1zM1 11.5l7 3.5 7-3.5M1 8l7 3.5L15 8" />
           </svg>
-          <span className="text-xs font-semibold text-text-primary">
+          <span className="text-[13px] font-medium text-text-primary">
             {t('skills.title')}
           </span>
-          <span className="text-[10px] text-text-muted flex-shrink-0">
+          <span className="text-xs text-text-muted flex-shrink-0">
             {totalCount}
           </span>
         </div>
         <button
           onClick={() => fetchSkills(workingDirectory || undefined)}
-          className="p-1 rounded hover:bg-bg-secondary
+          className="p-1.5 rounded-lg hover:bg-bg-secondary
             text-text-tertiary transition-smooth"
           title={t('skills.refresh')}
         >
@@ -325,8 +325,8 @@ export function SkillsPanel() {
           {/* Delete */}
           <button
             onClick={() => handleDelete(contextMenu.skill)}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-500
-              hover:bg-red-500/10 transition-smooth text-left"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-error
+              hover:bg-error/10 transition-smooth text-left"
           >
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
               stroke="currentColor" strokeWidth="1.5"
@@ -376,10 +376,10 @@ function SkillGroup({
             ${collapsed ? '' : 'rotate-90'}`}>
           <path d="M3 1l4 4-4 4" />
         </svg>
-        <span className="text-[10px] font-medium text-text-tertiary uppercase tracking-wider flex-1 text-left">
+        <span className="text-xs font-medium text-text-tertiary uppercase tracking-wider flex-1 text-left">
           {label}
         </span>
-        <span className="text-[10px] text-text-tertiary flex-shrink-0">
+        <span className="text-xs text-text-tertiary flex-shrink-0">
           {skills.length}
         </span>
       </button>
@@ -431,7 +431,11 @@ function SkillCard({
     >
       {/* Row 1: Name + scope badge + actions */}
       <div className="flex items-center gap-1.5">
-        <span className="text-xs leading-none flex-shrink-0 text-text-tertiary">◇</span>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+          stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"
+          className="flex-shrink-0 text-text-tertiary">
+          <path d="M6 1l5 5-5 5-5-5z" />
+        </svg>
         <span className={`text-[13px] truncate flex-1 ${
           isSelected ? 'text-accent' : 'text-text-primary'
         }`}>
@@ -471,7 +475,7 @@ function SkillCard({
       </div>
 
       {/* Row 2: Description (1-2 lines, truncated) */}
-      <p className="text-[11px] text-text-muted mt-1 line-clamp-2 leading-relaxed pl-5">
+      <p className="text-xs text-text-muted mt-1 line-clamp-2 leading-relaxed pl-5">
         {skill.description}
       </p>
 

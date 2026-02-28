@@ -23,6 +23,8 @@ export interface Turn {
   startMsgIdx: number;
   /** Files modified during this turn */
   codeChanges: CodeChange[];
+  /** CLI checkpoint UUID for file restoration (from --replay-user-messages) */
+  checkpointUuid?: string;
 }
 
 /**
@@ -48,6 +50,7 @@ export function parseTurns(messages: ChatMessage[]): Turn[] {
       timestamp: msg.timestamp,
       startMsgIdx: i,
       codeChanges: extractCodeChanges(messages, i + 1, nextUserIdx),
+      checkpointUuid: msg.checkpointUuid,
     });
   }
 

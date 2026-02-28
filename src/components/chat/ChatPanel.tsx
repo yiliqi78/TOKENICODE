@@ -6,7 +6,7 @@ import { ToolGroup } from './ToolGroup';
 import { InputBar } from './InputBar';
 import { ExportMenu } from '../conversations/ExportMenu';
 import { UpdateButton } from '../shared/UpdateButton';
-import { useSettingsStore, MODEL_OPTIONS } from '../../stores/settingsStore';
+import { useSettingsStore, MODEL_OPTIONS, mapSessionModeToPermissionMode } from '../../stores/settingsStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useFileStore } from '../../stores/fileStore';
 import { useAgentStore } from '../../stores/agentStore';
@@ -14,10 +14,10 @@ import { AgentPanel } from '../agents/AgentPanel';
 import { bridge, onClaudeStream, onClaudeStderr } from '../../lib/tauri-bridge';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useT } from '../../lib/i18n';
-import { buildCustomEnvVars, envFingerprint, resolveModelForProvider } from '../../lib/api-provider';
+import { envFingerprint, resolveModelForProvider } from '../../lib/api-provider';
+import { useProviderStore } from '../../stores/providerStore';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
 import { SetupWizard } from '../setup/SetupWizard';
-import { endTreeDrag } from '../../lib/drag-state';
 
 /** Shared plan panel toggle — used by ChatPanel (panel) and InputBar (button) */
 export const usePlanPanelStore = create<{
@@ -301,8 +301,10 @@ export function ChatPanel() {
   const agentPanelOpen = useSettingsStore((s) => s.agentPanelOpen);
   const toggleAgentPanel = useSettingsStore((s) => s.toggleAgentPanel);
   const workingDirectory = useSettingsStore((s) => s.workingDirectory);
-  const apiProviderMode = useSettingsStore((s) => s.apiProviderMode);
-  const customProviderName = useSettingsStore((s) => s.customProviderName);
+  const activeProvider = useProviderStore((s) => {
+    if (!s.activeProviderId) return null;
+    return s.providers.find((p) => p.id === s.activeProviderId) ?? null;
+  });
   const selectedSessionId = useSessionStore((s) => s.selectedSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const isFilePreviewMode = !!useFileStore((s) => s.selectedFile);
@@ -323,20 +325,6 @@ export function ChatPanel() {
 
   // Listen for internal file tree drag-drop (mouse-based, not HTML5 drag-and-drop)
   // HTML5 drag events don't work in Tauri because dragDropEnabled: true intercepts them.
-  // Always insert as inline file chip in the editor.
-  useEffect(() => {
-    const onTreeDrop = () => {
-      const treePath = endTreeDrag();
-      if (!treePath) return;
-
-      window.dispatchEvent(new CustomEvent('tokenicode:tree-file-inline', { detail: treePath }));
-    };
-    window.addEventListener('tree-drag-drop', onTreeDrop);
-    return () => {
-      window.removeEventListener('tree-drag-drop', onTreeDrop);
-    };
-  }, []);
-
   // Listen for file-chip click → open file in secondary panel's file browser
   useEffect(() => {
     const onOpenFile = (e: Event) => {
@@ -500,11 +488,7 @@ export function ChatPanel() {
                   ? 'bg-error'
                   : 'bg-text-tertiary/30'}`} />
             <span className="text-text-tertiary">
-              {apiProviderMode === 'inherit'
-                ? 'CLI'
-                : apiProviderMode === 'official'
-                  ? 'Anthropic'
-                  : (customProviderName || 'Custom')}
+              {activeProvider ? (activeProvider.name || 'Custom') : 'CLI'}
             </span>
           </div>
 
@@ -754,7 +738,8 @@ async function startDraftSession(folderPath: string) {
       session_id: preWarmId,
       dangerously_skip_permissions: useSettingsStore.getState().sessionMode === 'bypass',
       thinking_level: useSettingsStore.getState().thinkingLevel,
-      custom_env: buildCustomEnvVars(),
+      provider_id: useProviderStore.getState().activeProviderId || undefined,
+      permission_mode: mapSessionModeToPermissionMode(useSettingsStore.getState().sessionMode),
     });
 
     // Store stdinId so InputBar can send the first message via stdin

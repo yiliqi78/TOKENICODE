@@ -3,6 +3,7 @@ import { bridge } from '../lib/tauri-bridge';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { isTreeDragActive } from '../lib/drag-state';
 import { useSettingsStore } from '../stores/settingsStore';
+import { useFileStore } from '../stores/fileStore';
 
 // --- Types ---
 
@@ -186,19 +187,64 @@ export function useFileAttachments() {
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     getCurrentWindow().onDragDropEvent((event) => {
-      if (event.payload.type === 'drop') {
+      const { type } = event.payload;
+
+      if (type === 'over' || type === 'enter') {
+        // Skip internal tree drags
+        if (isTreeDragActive()) return;
+        // Check if pointer is over the file tree area
+        const pos = (event.payload as any).position;
+        if (pos) {
+          const el = document.elementFromPoint(pos.x, pos.y);
+          const overTree = !!el?.closest('[data-file-tree]');
+          useFileStore.getState().setDragOverTree(overTree);
+        }
+        return;
+      }
+
+      if (type === 'leave') {
+        useFileStore.getState().setDragOverTree(false);
+        return;
+      }
+
+      if (type === 'drop') {
+        const wasOverTree = useFileStore.getState().isDragOverTree;
+        useFileStore.getState().setDragOverTree(false);
+
         // Skip if this is an internal file tree drag
         if (isTreeDragActive()) return;
-        const paths = event.payload.paths;
+        const paths = (event.payload as any).paths as string[] | undefined;
         if (!paths || paths.length === 0) return;
+
         // Deduplicate: skip if same paths within 500ms
         const now = Date.now();
-        const key = paths.sort().join('|');
+        const key = [...paths].sort().join('|');
         if (now - lastDropRef.current.time < 500 && key === lastDropRef.current.key) return;
         lastDropRef.current = { time: now, key };
-        // Insert as inline file chips (same as internal tree drag)
-        for (const p of paths) {
-          window.dispatchEvent(new CustomEvent('tokenicode:tree-file-inline', { detail: p }));
+
+        if (wasOverTree) {
+          // Drop onto file tree → copy files into project
+          const rootPath = useSettingsStore.getState().workingDirectory
+            || useFileStore.getState().rootPath;
+          if (rootPath) {
+            (async () => {
+              for (const srcPath of paths) {
+                const name = srcPath.split(/[\\/]/).pop() || srcPath;
+                const dest = `${rootPath}/${name}`;
+                try {
+                  await bridge.copyFile(srcPath, dest);
+                } catch (err) {
+                  console.error('Failed to copy file to project:', name, err);
+                }
+              }
+              useFileStore.getState().refreshTree(rootPath);
+            })();
+          }
+        } else {
+          // Drop onto chat area → insert as inline file chips
+          for (const p of paths) {
+            window.dispatchEvent(new CustomEvent('tokenicode:tree-file-inline', { detail: p }));
+          }
         }
       }
     }).then((fn) => { unlisten = fn; });

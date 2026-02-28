@@ -5,25 +5,10 @@ import { useFileStore, FileChangeKind } from '../../stores/fileStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { bridge } from '../../lib/tauri-bridge';
 import { useT } from '../../lib/i18n';
-import { startTreeDrag, moveTreeDrag } from '../../lib/drag-state';
+import { startTreeDrag, moveTreeDrag, endTreeDrag } from '../../lib/drag-state';
 import { useChatStore } from '../../stores/chatStore';
-
-function getFileIcon(name: string, isDir: boolean): string {
-  if (isDir) return '📁';
-  const ext = name.split('.').pop()?.toLowerCase();
-  switch (ext) {
-    case 'ts': case 'tsx': return '🟦';
-    case 'js': case 'jsx': return '🟨';
-    case 'rs': return '🦀';
-    case 'json': return '📋';
-    case 'md': return '📝';
-    case 'css': return '🎨';
-    case 'html': return '🌐';
-    case 'toml': case 'yaml': case 'yml': return '⚙️';
-    case 'png': case 'jpg': case 'svg': return '🖼️';
-    default: return '📄';
-  }
-}
+import { FileIcon } from '../shared/FileIcon';
+import { ConfirmDialog } from '../shared/ConfirmDialog';
 
 function getChangeBadge(kind: FileChangeKind | undefined) {
   if (!kind) return null;
@@ -34,7 +19,7 @@ function getChangeBadge(kind: FileChangeKind | undefined) {
   };
   const labels = { created: 'A', modified: 'M', removed: 'D' };
   return (
-    <span className={`ml-auto flex-shrink-0 w-3.5 h-3.5 rounded text-[8px]
+    <span className={`ml-auto flex-shrink-0 w-4 h-4 rounded text-[9px]
       font-bold text-text-inverse flex items-center justify-center ${colors[kind]}`}>
       {labels[kind]}
     </span>
@@ -56,6 +41,8 @@ interface ContextMenuCallbacks {
   onRename: (path: string) => void;
   onDelete: (path: string, isDir: boolean) => void;
   onInsertToChat: (path: string) => void;
+  onNewFile: (dir: string) => void;
+  onNewFolder: (dir: string) => void;
   clipboardPath: string | null;
 }
 
@@ -99,6 +86,19 @@ function ContextMenu({ menu, onClose, callbacks }: {
   }, [onClose]);
 
   const items: MenuItem[] = [
+    ...(menu.isDir ? [
+      {
+        label: t('files.newFile'),
+        icon: <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M9 2H4v12h8V5l-3-3z" /><path d="M8 7v4M6 9h4" /></svg>,
+        action: () => { callbacks.onNewFile(menu.path); onClose(); },
+      },
+      {
+        label: t('files.newFolder'),
+        icon: <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M2 4h4l2 2h6v7H2V4z" /><path d="M7 8v3M5.5 9.5h3" /></svg>,
+        action: () => { callbacks.onNewFolder(menu.path); onClose(); },
+      },
+      'separator' as const,
+    ] as MenuItem[] : []),
     ...(!menu.isDir ? [{
       label: t('files.insertToChat'),
       icon: <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M2 14l4-2 8-8-2-2-8 8-2 4z" /><path d="M10 4l2 2" /></svg>,
@@ -163,7 +163,7 @@ function ContextMenu({ menu, onClose, callbacks }: {
           <button
             key={i}
             onClick={item.action}
-            className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs
+            className={`w-full flex items-center gap-2 px-3 py-2 text-[13px]
               hover:bg-bg-secondary transition-smooth text-left cursor-pointer
               ${item.danger ? 'text-error hover:bg-error/10' : 'text-text-primary'}`}
           >
@@ -179,35 +179,100 @@ function ContextMenu({ menu, onClose, callbacks }: {
   );
 }
 
-// --- Tree Node ---
-function hasMatchingDescendant(node: FileNode, query: string): boolean {
-  if (node.name.toLowerCase().includes(query)) return true;
-  if (node.children) {
-    return node.children.some((child) => hasMatchingDescendant(child, query));
-  }
-  return false;
+// --- Search Result Item (flat list) ---
+interface FlatMatch {
+  node: FileNode;
+  /** Relative directory path for context, e.g. "src/components" */
+  relDir: string;
 }
+
+function collectMatches(nodes: FileNode[], query: string, rootPrefix: string): FlatMatch[] {
+  const results: FlatMatch[] = [];
+  function walk(node: FileNode) {
+    if (node.name.toLowerCase().includes(query)) {
+      // Compute relative directory (parent path minus root prefix)
+      const lastSep = node.path.lastIndexOf('/');
+      const parentPath = lastSep > 0 ? node.path.slice(0, lastSep) : '';
+      const relDir = parentPath.startsWith(rootPrefix)
+        ? parentPath.slice(rootPrefix.length).replace(/^\//, '')
+        : parentPath;
+      results.push({ node, relDir });
+    }
+    if (node.children) {
+      for (const child of node.children) walk(child);
+    }
+  }
+  for (const n of nodes) walk(n);
+  return results;
+}
+
+function SearchResultItem({
+  match,
+  onContextMenu,
+}: {
+  match: FlatMatch;
+  onContextMenu: (e: React.MouseEvent, path: string, isDir: boolean) => void;
+}) {
+  const { node, relDir } = match;
+  const selectedFile = useFileStore((s) => s.selectedFile);
+  const selectFile = useFileStore((s) => s.selectFile);
+  const changeKind = useFileStore((s) => s.changedFiles.get(node.path));
+  const isSelected = selectedFile === node.path;
+  return (
+    <button
+      onClick={() => { if (!node.is_dir) selectFile(node.path); }}
+      onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, node.path, node.is_dir); }}
+      className={`w-full flex items-center gap-2 py-1.5 px-3 rounded-lg
+        text-left text-[13px] transition-smooth group
+        ${isSelected
+          ? 'bg-accent/10 text-accent'
+          : changeKind
+            ? 'text-success'
+            : 'text-text-muted hover:bg-bg-secondary hover:text-text-primary'
+        }`}
+    >
+      <FileIcon name={node.name} isDir={node.is_dir} size={14} className="flex-shrink-0" />
+      <span className="truncate">{node.name}</span>
+      {relDir && (
+        <span className="ml-auto text-xs text-text-tertiary truncate max-w-[40%] flex-shrink-0">
+          {relDir}
+        </span>
+      )}
+      {getChangeBadge(changeKind)}
+    </button>
+  );
+}
+
+// --- Tree Node ---
 
 function TreeNode({
   node,
   depth,
-  searchQuery,
   onContextMenu,
   renamingPath,
   renameValue,
   onRenameChange,
   onRenameSubmit,
   onRenameCancel,
+  creatingIn,
+  createName,
+  onCreateNameChange,
+  onCreateSubmit,
+  onCreateCancel,
 }: {
   node: FileNode;
   depth: number;
-  searchQuery: string;
   onContextMenu: (e: React.MouseEvent, path: string, isDir: boolean) => void;
   renamingPath: string | null;
   renameValue: string;
   onRenameChange: (v: string) => void;
   onRenameSubmit: () => void;
   onRenameCancel: () => void;
+  creatingIn: { dir: string; type: 'file' | 'folder' } | null;
+  createName: string;
+  onCreateNameChange: (v: string) => void;
+  onCreateSubmit: () => void;
+  onCreateCancel: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const selectedFile = useFileStore((s) => s.selectedFile);
@@ -220,21 +285,7 @@ function TreeNode({
     (p) => p.startsWith(node.path + '/')
   );
 
-  // Search filtering
-  const matchesSearch = useMemo(() => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    if (node.name.toLowerCase().includes(q)) return true;
-    if (node.is_dir && node.children) {
-      return hasMatchingDescendant(node, q);
-    }
-    return false;
-  }, [node, searchQuery]);
-
-  if (!matchesSearch) return null;
-
-  // Auto-expand directories when searching
-  const isExpanded = searchQuery ? true : expanded;
+  const isExpanded = expanded;
 
   const handleClick = () => {
     if (node.is_dir) {
@@ -274,10 +325,28 @@ function TreeNode({
                 ce.stopPropagation();
                 ce.preventDefault();
               };
-              // Capture phase to suppress before React sees it
               document.addEventListener('click', suppressClick, { capture: true, once: true });
-              // Signal ChatPanel to consume the drag path
-              window.dispatchEvent(new CustomEvent('tree-drag-drop'));
+              // End drag (cleans up ghost + detects drop target)
+              const result = endTreeDrag();
+              if (result) {
+                if (result.targetFolder) {
+                  // Drop on folder → move file
+                  const fileName = result.sourcePath.split(/[\\/]/).pop() || '';
+                  const dest = `${result.targetFolder}/${fileName}`;
+                  bridge.renameFile(result.sourcePath, dest)
+                    .then(() => {
+                      const dir = useSettingsStore.getState().workingDirectory
+                        || useFileStore.getState().rootPath;
+                      if (dir) useFileStore.getState().refreshTree(dir);
+                    })
+                    .catch((err: unknown) => console.error('Failed to move file:', err));
+                } else if (!result.droppedInTree) {
+                  // Drop outside file tree → insert file chip in chat
+                  window.dispatchEvent(
+                    new CustomEvent('tokenicode:tree-file-inline', { detail: result.sourcePath }),
+                  );
+                }
+              }
             }
           };
 
@@ -288,8 +357,9 @@ function TreeNode({
           e.preventDefault();
           onContextMenu(e, node.path, node.is_dir);
         }}
-        className={`w-full flex items-center gap-1.5 py-1 px-2 rounded-lg
-          text-left text-xs transition-smooth group
+        {...(node.is_dir ? { 'data-dir-path': node.path } : {})}
+        className={`w-full flex items-center gap-2 py-1.5 px-2 rounded-lg
+          text-left text-[13px] transition-smooth group
           ${isSelected
             ? 'bg-accent/10 text-accent'
             : changeKind
@@ -307,9 +377,8 @@ function TreeNode({
           </svg>
         )}
         {!node.is_dir && <span className="w-2.5" />}
-        <span className="text-xs leading-none">
-          {getFileIcon(node.name, node.is_dir)}
-        </span>
+        <FileIcon name={node.name} isDir={node.is_dir} size={14}
+          className="flex-shrink-0" />
         {renamingPath === node.path ? (
           <input
             autoFocus
@@ -321,8 +390,8 @@ function TreeNode({
             }}
             onBlur={onRenameCancel}
             onClick={(e) => e.stopPropagation()}
-            className="flex-1 min-w-0 text-xs bg-bg-input border border-border-focus
-              rounded px-1 py-0 outline-none text-text-primary"
+            className="flex-1 min-w-0 text-[13px] bg-bg-input border border-border-focus
+              rounded-lg px-1.5 py-0.5 outline-none text-text-primary"
           />
         ) : (
           <span className="truncate">{node.name}</span>
@@ -335,18 +404,43 @@ function TreeNode({
       </button>
       {node.is_dir && isExpanded && node.children && (
         <div>
+          {creatingIn?.dir === node.path && (
+            <div className="flex items-center gap-2 py-1 px-2"
+              style={{ paddingLeft: `${(depth + 1) * 16 + 8}px` }}>
+              <FileIcon name={creatingIn.type === 'folder' ? '' : createName}
+                isDir={creatingIn.type === 'folder'} size={14}
+                className="flex-shrink-0 text-text-tertiary" />
+              <input
+                autoFocus
+                value={createName}
+                onChange={(e) => onCreateNameChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && createName.trim()) onCreateSubmit();
+                  if (e.key === 'Escape') onCreateCancel();
+                }}
+                onBlur={onCreateCancel}
+                placeholder={creatingIn.type === 'folder' ? 'folder name' : 'file name'}
+                className="flex-1 min-w-0 text-[13px] bg-bg-input border border-border-focus
+                  rounded-lg px-1.5 py-0.5 outline-none text-text-primary"
+              />
+            </div>
+          )}
           {node.children.map((child) => (
             <TreeNode
               key={child.path}
               node={child}
               depth={depth + 1}
-              searchQuery={searchQuery}
               onContextMenu={onContextMenu}
               renamingPath={renamingPath}
               renameValue={renameValue}
               onRenameChange={onRenameChange}
               onRenameSubmit={onRenameSubmit}
               onRenameCancel={onRenameCancel}
+              creatingIn={creatingIn}
+              createName={createName}
+              onCreateNameChange={onCreateNameChange}
+              onCreateSubmit={onCreateSubmit}
+              onCreateCancel={onCreateCancel}
             />
           ))}
         </div>
@@ -366,6 +460,9 @@ export function FileExplorer() {
   const workingDirectory = useSettingsStore((s) => s.workingDirectory);
 
   const refreshTree = useFileStore((s) => s.refreshTree);
+  const createFile = useFileStore((s) => s.createFile);
+  const createFolder = useFileStore((s) => s.createFolder);
+  const isDragOverTree = useFileStore((s) => s.isDragOverTree);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -376,6 +473,10 @@ export function FileExplorer() {
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<{ path: string; isDir: boolean } | null>(null);
+
+  // New file/folder inline creation state
+  const [creatingIn, setCreatingIn] = useState<{ dir: string; type: 'file' | 'folder' } | null>(null);
+  const [createName, setCreateName] = useState('');
 
   const changedCount = changedFiles.size;
 
@@ -460,6 +561,35 @@ export function FileExplorer() {
     useChatStore.getState().setInputDraft(currentDraft + prefix + path);
   }, []);
 
+  const handleNewFile = useCallback((dir: string) => {
+    setCreatingIn({ dir, type: 'file' });
+    setCreateName('');
+  }, []);
+
+  const handleNewFolder = useCallback((dir: string) => {
+    setCreatingIn({ dir, type: 'folder' });
+    setCreateName('');
+  }, []);
+
+  const handleCreateSubmit = useCallback(async () => {
+    if (!creatingIn || !createName.trim()) {
+      setCreatingIn(null);
+      return;
+    }
+    if (creatingIn.type === 'file') {
+      await createFile(creatingIn.dir, createName.trim());
+    } else {
+      await createFolder(creatingIn.dir, createName.trim());
+    }
+    setCreatingIn(null);
+    setCreateName('');
+  }, [creatingIn, createName, createFile, createFolder]);
+
+  const handleCreateCancel = useCallback(() => {
+    setCreatingIn(null);
+    setCreateName('');
+  }, []);
+
   const contextMenuCallbacks: ContextMenuCallbacks = useMemo(() => ({
     onCopyPath: handleCopyPath,
     onCopyFile: handleCopyFile,
@@ -467,15 +597,17 @@ export function FileExplorer() {
     onRename: handleStartRename,
     onDelete: handleRequestDelete,
     onInsertToChat: handleInsertToChat,
+    onNewFile: handleNewFile,
+    onNewFolder: handleNewFolder,
     clipboardPath,
-  }), [handleCopyPath, handleCopyFile, handlePaste, handleStartRename, handleRequestDelete, handleInsertToChat, clipboardPath]);
+  }), [handleCopyPath, handleCopyFile, handlePaste, handleStartRename, handleRequestDelete, handleInsertToChat, handleNewFile, handleNewFolder, clipboardPath]);
 
   // No project selected
   if (!workingDirectory) {
     return (
       <div className="flex flex-col h-full">
         <div className="flex items-center px-3 py-2 border-b border-border-subtle">
-          <span className="text-xs font-semibold text-text-tertiary
+          <span className="text-[13px] font-medium text-text-tertiary
             uppercase tracking-wider">{t('files.title')}</span>
         </div>
         <div className="flex-1 flex flex-col items-center justify-center
@@ -506,33 +638,55 @@ export function FileExplorer() {
             <path d="M2 4h4l2 2h6v7H2V4z" />
           </svg>
           <div className="min-w-0">
-            <span className="text-xs font-semibold text-text-primary
+            <span className="text-[13px] font-medium text-text-primary
               truncate block">
               {workingDirectory.split(/[\\/]/).pop()}
             </span>
           </div>
           {changedCount > 0 && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full
+            <span className="text-xs px-1.5 py-0.5 rounded-full
               bg-success/15 text-success
               font-medium flex-shrink-0">
               {changedCount} {t('files.changed')}
             </span>
           )}
         </div>
-        <button onClick={() => {
-            clearChangedFiles();
-            const dir = workingDirectory || rootPath;
-            if (dir) refreshTree(dir);
-          }}
-          className="p-1.5 rounded-lg hover:bg-bg-secondary active:bg-bg-tertiary
-            text-text-tertiary hover:text-text-secondary transition-smooth"
-          title={t('files.refresh')}>
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
-            stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-            <path d="M1.5 7a5.5 5.5 0 0110-3M12.5 7a5.5 5.5 0 01-10 3" />
-            <path d="M11.5 1v3h-3M2.5 13v-3h3" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-0.5">
+          <button onClick={() => handleNewFile(workingDirectory || rootPath)}
+            className="p-1.5 rounded-lg hover:bg-bg-secondary active:bg-bg-tertiary
+              text-text-tertiary hover:text-text-secondary transition-smooth"
+            title={t('files.newFile')}>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
+              stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <path d="M9 2H4v12h8V5l-3-3z" />
+              <path d="M8 7v4M6 9h4" />
+            </svg>
+          </button>
+          <button onClick={() => handleNewFolder(workingDirectory || rootPath)}
+            className="p-1.5 rounded-lg hover:bg-bg-secondary active:bg-bg-tertiary
+              text-text-tertiary hover:text-text-secondary transition-smooth"
+            title={t('files.newFolder')}>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
+              stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <path d="M2 4h4l2 2h6v7H2V4z" />
+              <path d="M7 8v3M5.5 9.5h3" />
+            </svg>
+          </button>
+          <button onClick={() => {
+              clearChangedFiles();
+              const dir = workingDirectory || rootPath;
+              if (dir) refreshTree(dir);
+            }}
+            className="p-1.5 rounded-lg hover:bg-bg-secondary active:bg-bg-tertiary
+              text-text-tertiary hover:text-text-secondary transition-smooth"
+            title={t('files.refresh')}>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
+              stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <path d="M1.5 7a5.5 5.5 0 0110-3M12.5 7a5.5 5.5 0 01-10 3" />
+              <path d="M11.5 1v3h-3M2.5 13v-3h3" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Search bar */}
@@ -550,7 +704,7 @@ export function FileExplorer() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={t('files.search')}
-            className="w-full pl-7 pr-7 py-1 text-xs bg-bg-secondary/50
+            className="w-full pl-7 pr-7 py-1 text-[13px] bg-bg-secondary/50
               border border-border-subtle rounded-lg text-text-primary
               placeholder:text-text-tertiary outline-none
               focus:border-border-focus focus:bg-bg-input
@@ -560,7 +714,7 @@ export function FileExplorer() {
             <button
               onClick={() => setSearchQuery('')}
               className="absolute right-1.5 top-1/2 -translate-y-1/2
-                p-0.5 rounded text-text-tertiary hover:text-text-primary
+                p-0.5 rounded-lg text-text-tertiary hover:text-text-primary
                 transition-smooth"
             >
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
@@ -573,33 +727,95 @@ export function FileExplorer() {
       </div>
 
       {/* File tree */}
-      <div className="flex-1 overflow-y-auto py-1">
+      <div className="flex-1 min-h-0 relative" data-file-tree>
+        {isDragOverTree && (
+          <div className="absolute inset-0 z-10 border-2 border-dashed border-accent
+            bg-accent/5 rounded-lg flex items-center justify-center pointer-events-none">
+            <span className="text-xs text-accent font-medium">
+              {t('files.dropHere')}
+            </span>
+          </div>
+        )}
+        <div className="h-full overflow-y-auto py-1">
         {isLoading && tree.length === 0 ? (
           <div className="flex items-center justify-center py-8">
             <div className="w-5 h-5 border-2 border-accent/30
               border-t-accent rounded-full animate-spin" />
           </div>
         ) : tree.length > 0 ? (
-          tree.map((node) => (
-            <TreeNode
-              key={node.path}
-              node={node}
-              depth={0}
-              searchQuery={searchQuery}
-              onContextMenu={handleContextMenu}
-              renamingPath={renamingPath}
-              renameValue={renameValue}
-              onRenameChange={setRenameValue}
-              onRenameSubmit={handleRenameSubmit}
-              onRenameCancel={handleRenameCancel}
-            />
-          ))
+          searchQuery ? (
+            // --- Flat search results ---
+            (() => {
+              const matches = collectMatches(tree, searchQuery.toLowerCase(), rootPath || '');
+              return matches.length > 0 ? (
+                <div className="py-1">
+                  {matches.map((m) => (
+                    <SearchResultItem
+                      key={m.node.path}
+                      match={m}
+                      onContextMenu={handleContextMenu}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-xs text-text-tertiary">
+                  {t('files.noFiles')}
+                </div>
+              );
+            })()
+          ) : (
+            // --- Normal tree view ---
+            <>
+              {/* Inline creation input at root level */}
+              {creatingIn && creatingIn.dir === (workingDirectory || rootPath) && (
+                <div className="flex items-center gap-2 py-1.5 px-2"
+                  style={{ paddingLeft: '8px' }}>
+                  <FileIcon name={creatingIn.type === 'folder' ? '__dir__' : 'untitled'}
+                    isDir={creatingIn.type === 'folder'} size={14}
+                    className="flex-shrink-0 text-text-tertiary" />
+                  <input
+                    autoFocus
+                    value={createName}
+                    onChange={(e) => setCreateName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleCreateSubmit();
+                      if (e.key === 'Escape') handleCreateCancel();
+                    }}
+                    onBlur={handleCreateCancel}
+                    placeholder={creatingIn.type === 'file' ? t('files.newFile') : t('files.newFolder')}
+                    className="flex-1 min-w-0 text-[13px] bg-bg-input border border-border-focus
+                      rounded-lg px-1.5 py-0.5 outline-none text-text-primary
+                      placeholder:text-text-tertiary"
+                  />
+                </div>
+              )}
+              {tree.map((node) => (
+                <TreeNode
+                  key={node.path}
+                  node={node}
+                  depth={0}
+                  onContextMenu={handleContextMenu}
+                  renamingPath={renamingPath}
+                  renameValue={renameValue}
+                  onRenameChange={setRenameValue}
+                  onRenameSubmit={handleRenameSubmit}
+                  onRenameCancel={handleRenameCancel}
+                  creatingIn={creatingIn}
+                  createName={createName}
+                  onCreateNameChange={setCreateName}
+                  onCreateSubmit={handleCreateSubmit}
+                  onCreateCancel={handleCreateCancel}
+                />
+              ))}
+            </>
+          )
         ) : (
           <div className="text-center py-8 text-xs text-text-tertiary">
             {t('files.noFiles')}
           </div>
         )}
-      </div>
+        </div>{/* end scroll container */}
+      </div>{/* end data-file-tree wrapper */}
 
       {/* Context menu */}
       {contextMenu && (
@@ -607,35 +823,21 @@ export function FileExplorer() {
       )}
 
       {/* Delete confirmation dialog */}
-      {deleteTarget && createPortal(
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40"
-          onClick={() => setDeleteTarget(null)}>
-          <div className="bg-bg-card border border-border-subtle rounded-xl p-5
-            shadow-lg max-w-sm w-full mx-4 animate-fade-in"
-            onClick={(e) => e.stopPropagation()}>
-            <p className="text-sm text-text-primary mb-1">
-              {(deleteTarget.isDir ? t('files.deleteConfirmDir') : t('files.deleteConfirm'))
-                .replace('{name}', deleteTarget.path.split(/[\\/]/).pop() ?? '')}
-            </p>
-            <p className="text-xs text-text-muted mb-4 truncate">{deleteTarget.path}</p>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setDeleteTarget(null)}
-                className="px-3 py-1.5 text-xs rounded-lg bg-bg-secondary
-                  text-text-muted hover:bg-bg-tertiary transition-smooth cursor-pointer">
-                {t('common.cancel')}
-              </button>
-              <button
-                onClick={handleConfirmDelete}
-                className="px-3 py-1.5 text-xs rounded-lg bg-error/10
-                  text-error hover:bg-error/20 transition-smooth cursor-pointer">
-                {t('files.delete')}
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body,
-      )}
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title={t('files.delete')}
+        message={
+          deleteTarget
+            ? (deleteTarget.isDir ? t('files.deleteConfirmDir') : t('files.deleteConfirm'))
+                .replace('{name}', deleteTarget.path.split(/[\\/]/).pop() ?? '')
+            : ''
+        }
+        detail={deleteTarget?.path}
+        variant="danger"
+        confirmLabel={t('files.delete')}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

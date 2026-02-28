@@ -16,8 +16,12 @@ export interface StartSessionParams {
   thinking_level?: string;
   /** Session mode: "ask", "plan", or undefined for auto */
   session_mode?: string;
-  /** Custom environment variables for API provider override (TK-303) */
-  custom_env?: Record<string, string>;
+  /** Active provider ID from providers.json */
+  provider_id?: string;
+  /** Permission mode for CLI control protocol.
+   *  "acceptEdits" | "default" | "plan" | "bypassPermissions"
+   *  When not "bypassPermissions", enables structured permission requests via SDK protocol. */
+  permission_mode?: string;
 }
 
 export interface SessionInfo {
@@ -113,12 +117,21 @@ export interface NodeEnvStatus {
   npm_available: boolean;
 }
 
-export interface ApiSettingsBackup {
-  apiProviderMode: string;
-  customProviderName: string;
-  customProviderBaseUrl: string;
-  customProviderModelMappings: { tier: string; providerModel: string }[];
-  customProviderApiFormat: string;
+export interface ProvidersFile {
+  version: number;
+  activeProviderId: string | null;
+  providers: {
+    id: string;
+    name: string;
+    baseUrl: string;
+    apiFormat: string;
+    apiKey?: string;
+    modelMappings: { tier: string; providerModel: string }[];
+    extra_env?: Record<string, string>;
+    preset?: string;
+    createdAt: number;
+    updatedAt: number;
+  }[];
 }
 
 export interface UnifiedCommand {
@@ -192,6 +205,9 @@ export const bridge = {
   deleteFile: (path: string) =>
     invoke<void>('delete_file', { path }),
 
+  createDirectory: (path: string) =>
+    invoke<void>('create_directory', { path }),
+
   getHomeDir: () =>
     invoke<string>('get_home_dir'),
 
@@ -251,13 +267,16 @@ export const bridge = {
   runGitCommand: (cwd: string, args: string[]) =>
     invoke<string>('run_git_command', { cwd, args }),
 
-  // File snapshot — capture file contents before a turn for code restore
-  snapshotFiles: (paths: string[]) =>
-    invoke<Record<string, string>>('snapshot_files', { paths }),
-
-  // Restore file snapshot — write files back from snapshot, delete created files
-  restoreSnapshot: (snapshot: Record<string, string>, createdPaths: string[]) =>
-    invoke<void>('restore_snapshot', { snapshot, createdPaths }),
+  // Rewind files via SDK control protocol (fast, in-process) with CLI spawn fallback
+  rewindFiles: (stdinId: string, userMessageId: string, sessionId: string, cwd: string) =>
+    invoke<void>('send_control_request', {
+      sessionId: stdinId,
+      subtype: 'rewind_files',
+      payload: { user_message_id: userMessageId },
+    }).catch(() =>
+      // Fallback: spawn new CLI process if stdin pipe not available
+      invoke<string>('rewind_files', { sessionId, checkpointUuid: userMessageId, cwd }),
+    ),
 
   // Set macOS dock icon from base64-encoded PNG
   setDockIcon: (pngBase64: string) =>
@@ -296,30 +315,77 @@ export const bridge = {
   saveCustomPreviews: (data: Record<string, string>) =>
     invoke<void>('save_custom_previews', { data }),
 
-  // --- API Provider Credentials (TK-303) ---
+  // Pinned sessions (persisted to ~/.tokenicode/pinned.json)
+  loadPinnedSessions: () =>
+    invoke<string[]>('load_pinned_sessions').catch(() => []),
 
-  saveApiKey: (key: string) =>
-    invoke<void>('save_api_key', { key }),
+  savePinnedSessions: (data: string[]) =>
+    invoke<void>('save_pinned_sessions', { data }).catch(() => {}),
 
-  loadApiKey: () =>
-    invoke<string | null>('load_api_key'),
+  // Archived sessions (persisted to ~/.tokenicode/archived.json)
+  loadArchivedSessions: () =>
+    invoke<string[]>('load_archived_sessions').catch(() => []),
 
-  deleteApiKey: () =>
-    invoke<void>('delete_api_key'),
+  saveArchivedSessions: (data: string[]) =>
+    invoke<void>('save_archived_sessions', { data }).catch(() => {}),
 
-  testApiConnection: (baseUrl: string, apiFormat: string, model: string) =>
-    invoke<string>('test_api_connection', { baseUrl, apiFormat, model }),
+  // AI title generation (spawns separate CLI process, no channel interference)
+  generateSessionTitle: (userMessage: string, assistantMessage: string) =>
+    invoke<string>('generate_session_title', { userMessage, assistantMessage }),
 
-  // --- API Settings Backup (survives NSIS update on Windows) ---
+  // --- Provider Management ---
 
-  saveApiSettings: (settings: ApiSettingsBackup) =>
-    invoke<void>('save_api_settings', { settings }),
+  loadProviders: () =>
+    invoke<ProvidersFile>('load_providers'),
 
-  loadApiSettings: () =>
-    invoke<ApiSettingsBackup | null>('load_api_settings'),
+  saveProviders: (data: ProvidersFile) =>
+    invoke<void>('save_providers', { data }),
+
+  testProviderConnection: (baseUrl: string, apiFormat: string, apiKey: string, model: string) =>
+    invoke<string>('test_provider_connection', { baseUrl, apiFormat, apiKey, model }),
+
+  // --- SDK Control Protocol ---
+
+  /** Respond to a structured permission request from CLI */
+  respondPermission: (sessionId: string, requestId: string, allow: boolean, message?: string, toolUseId?: string, updatedInput?: Record<string, unknown>) =>
+    invoke<void>('respond_permission', { sessionId, requestId, allow, message: message ?? null, toolUseId: toolUseId ?? null, updatedInput: updatedInput ?? null }),
+
+  /** Send a runtime control command to change permission mode without restart */
+  setPermissionMode: (sessionId: string, mode: string) =>
+    invoke<void>('send_control_request', { sessionId, subtype: 'set_permission_mode', payload: { mode } }),
+
+  /** Send a runtime control command to change model without restart */
+  setModel: (sessionId: string, model: string | null) =>
+    invoke<void>('send_control_request', { sessionId, subtype: 'set_model', payload: { model } }),
+
+  /** Send a runtime interrupt command */
+  interruptSession: (sessionId: string) =>
+    invoke<void>('send_control_request', { sessionId, subtype: 'interrupt', payload: {} }),
 };
 
+// --- SDK Control Protocol Types ---
+
+export interface PermissionRequest {
+  request_id: string;
+  tool_name: string;
+  input: Record<string, unknown>;
+  description?: string;
+  tool_use_id?: string;
+}
+
 // --- Event Listeners ---
+
+/** Listen for structured permission requests from the SDK control protocol */
+export function onPermissionRequest(
+  sessionId: string,
+  callback: (req: PermissionRequest) => void,
+): Promise<UnlistenFn> {
+  const channel = `claude:permission_request:${sessionId}`;
+  return listen<PermissionRequest>(
+    channel,
+    (event) => callback(event.payload),
+  );
+}
 
 export function onClaudeStream(
   sessionId: string,

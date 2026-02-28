@@ -192,61 +192,72 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
 
       {/* Sidebar — animates to w-0 when hidden or preview mode */}
       <div
-        className="flex-shrink-0 transition-all duration-300 ease-out overflow-hidden flex"
+        className="flex-shrink-0 transition-all duration-300 ease-out overflow-hidden"
         style={{ width: showSidebar ? `${sidebarWidth}px` : '0px' }}
       >
         <div
-          className="h-full overflow-y-auto bg-bg-sidebar flex-1 min-w-0"
+          className="h-full overflow-y-auto bg-bg-sidebar"
           style={{ width: `${sidebarWidth}px` }}
         >
           {sidebar}
         </div>
-        {/* Sidebar resize handle: 1px line with wider invisible hit area */}
+      </div>
+      {/* Sidebar resize handle — outside overflow-hidden so hit area isn't clipped */}
+      {showSidebar && (
         <div
           onMouseDown={handleSidebarMouseDown}
-          className="w-px h-full resize-handle flex-shrink-0 relative bg-border-subtle"
+          className="w-[9px] -ml-1 -mr-1 h-full flex-shrink-0 relative cursor-col-resize z-10
+            flex items-center justify-center group"
         >
-          <div className="absolute inset-y-0 -left-[4px] -right-[4px] cursor-col-resize" />
+          <div className="w-px h-full bg-border-subtle group-hover:bg-accent/40 transition-colors" />
         </div>
-      </div>
+      )}
 
       {/* Main Panel — full-height, separated by vertical border lines */}
       <div className="flex-1 min-w-0 flex flex-col bg-bg-chat overflow-hidden">
         {main}
       </div>
 
-      {/* File Preview Panel — animates in/out */}
-      <div
-        className="flex-shrink-0 flex overflow-hidden transition-all duration-300 ease-out"
-        style={{ width: isFilePreviewMode ? `${previewWidth}px` : '0px' }}
-      >
-        {/* Resize handle — also serves as the divider line */}
+      {/* File Preview resize handle — outside overflow-hidden */}
+      {isFilePreviewMode && (
         <div
           onMouseDown={handleRightMouseDown}
-          className="w-px h-full resize-handle flex-shrink-0 relative bg-border-subtle"
+          className="w-[9px] -ml-1 -mr-1 h-full flex-shrink-0 relative cursor-col-resize z-10
+            flex items-center justify-center group"
         >
-          <div className="absolute inset-y-0 -left-[4px] -right-[4px] cursor-col-resize" />
+          <div className="w-px h-full bg-border-subtle group-hover:bg-accent/40 transition-colors" />
         </div>
-        <div className="flex-1 h-full overflow-hidden min-w-0 flex flex-col bg-bg-chat">
+      )}
+      {/* File Preview Panel — animates in/out */}
+      <div
+        className="flex-shrink-0 overflow-hidden transition-all duration-300 ease-out"
+        style={{ width: isFilePreviewMode ? `${previewWidth}px` : '0px' }}
+      >
+        <div className="h-full overflow-hidden flex flex-col bg-bg-chat"
+          style={{ width: `${previewWidth}px` }}>
           <FilePreview />
         </div>
       </div>
 
-      {/* Secondary Panel with resize handle — animates to w-0 when hidden or preview mode */}
+      {/* Secondary Panel resize handle — outside overflow-hidden */}
+      {secondary && showSecondary && (
+        <div
+          onMouseDown={handleRightMouseDown}
+          className="w-[9px] -ml-1 -mr-1 h-full flex-shrink-0 relative cursor-col-resize z-10
+            flex items-center justify-center group"
+        >
+          <div className="w-px h-full bg-border-subtle group-hover:bg-accent/40 transition-colors" />
+        </div>
+      )}
+      {/* Secondary Panel — animates to w-0 when hidden or preview mode */}
       {secondary && (
         <div
-          className="flex-shrink-0 transition-all duration-300 ease-out overflow-hidden flex"
+          className="flex-shrink-0 transition-all duration-300 ease-out overflow-hidden"
           style={{ width: showSecondary ? `${secondaryPanelWidth}px` : '0px' }}
         >
-          {/* Resize handle — also serves as the divider line */}
           <div
-            onMouseDown={handleRightMouseDown}
-            className="w-px h-full resize-handle flex-shrink-0 relative bg-border-subtle"
-          >
-            <div className="absolute inset-y-0 -left-[4px] -right-[4px] cursor-col-resize" />
-          </div>
-          <div
-            className="flex-1 h-full overflow-y-auto overflow-x-hidden bg-bg-sidebar min-w-0"
+            className="h-full overflow-y-auto overflow-x-hidden bg-bg-sidebar"
+            style={{ width: `${secondaryPanelWidth}px` }}
           >
             {secondary}
           </div>

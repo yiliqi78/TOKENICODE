@@ -1,5 +1,6 @@
 import { type ReactNode, useState, useRef, useEffect } from 'react';
 import { useSettingsStore, type SessionMode } from '../../stores/settingsStore';
+import { useChatStore, generateMessageId } from '../../stores/chatStore';
 import { useT } from '../../lib/i18n';
 
 const MODES: { id: SessionMode; labelKey: string; icon: ReactNode }[] = [
@@ -66,6 +67,28 @@ export function ModeSelector({ disabled = false }: { disabled?: boolean }) {
   const current = MODES.find((m) => m.id === sessionMode) || MODES[0];
   const isBypass = sessionMode === 'bypass';
 
+  const MODE_FEEDBACK: Record<SessionMode, { i18nKey: string; icon: string }> = {
+    code: { i18nKey: 'cmd.switchedToCode', icon: '⚡' },
+    ask: { i18nKey: 'cmd.switchedToAsk', icon: '💬' },
+    plan: { i18nKey: 'cmd.switchedToPlan', icon: '📋' },
+    bypass: { i18nKey: 'cmd.switchedToBypass', icon: '⭐' },
+  };
+
+  const switchMode = (mode: SessionMode) => {
+    if (mode === sessionMode) return;
+    setSessionMode(mode);
+    const fb = MODE_FEEDBACK[mode];
+    useChatStore.getState().addMessage({
+      id: generateMessageId(),
+      role: 'system',
+      type: 'text',
+      content: t(fb.i18nKey),
+      commandType: 'mode',
+      commandData: { mode, icon: fb.icon },
+      timestamp: Date.now(),
+    });
+  };
+
   return (
     <div ref={ref} className={`relative ${disabled ? 'opacity-40 pointer-events-none' : ''}`}>
       {/* Trigger button — shows current mode */}
@@ -97,7 +120,7 @@ export function ModeSelector({ disabled = false }: { disabled?: boolean }) {
             return (
               <button
                 key={mode.id}
-                onClick={() => { setSessionMode(mode.id); setOpen(false); }}
+                onClick={() => { switchMode(mode.id); setOpen(false); }}
                 className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs
                   transition-smooth cursor-pointer
                   ${isActive

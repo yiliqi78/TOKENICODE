@@ -1,7 +1,7 @@
 /**
  * useRewind — orchestration hook for the Rewind feature.
  * Manages turn parsing, kill-process, message truncation, code restore,
- * and summarization. Matches Claude Code CLI rewind behavior.
+ * and summarization. Uses CLI native checkpoint system for file restoration.
  *
  * 5 actions after selecting a turn:
  *   1. Restore code and conversation — revert both
@@ -14,7 +14,6 @@ import { useMemo, useCallback } from 'react';
 import { useChatStore, generateMessageId } from '../stores/chatStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { useSettingsStore } from '../stores/settingsStore';
-import { useSnapshotStore } from '../stores/snapshotStore';
 import { bridge } from '../lib/tauri-bridge';
 import { parseTurns, type Turn } from '../lib/turns';
 import { t } from '../lib/i18n';
@@ -22,85 +21,26 @@ import { t } from '../lib/i18n';
 export type RewindAction = 'restore_all' | 'restore_conversation' | 'restore_code' | 'summarize';
 
 /**
- * Build a retroactive code restore from message history when no snapshot exists.
- * Scans messages from `startIdx` to end for Write/Edit tool_use blocks,
- * then uses git checkout to restore edited files and deletes created files.
+ * Restore files to a CLI checkpoint via bridge.rewindFiles().
+ * Returns true if files were restored, false if no checkpoint available.
  */
-async function restoreFromMessages(
-  messages: { type: string; toolName?: string; toolInput?: any }[],
-  startIdx: number,
-  cwd: string,
-): Promise<void> {
-  const writtenFiles: string[] = [];
-  const editedFiles: string[] = [];
+async function restoreFilesViaCheckpoint(turn: Turn): Promise<boolean> {
+  if (!turn.checkpointUuid) return false;
 
-  for (let i = startIdx; i < messages.length; i++) {
-    const msg = messages[i];
-    if (msg.type !== 'tool_use' || !msg.toolName) continue;
+  const { sessionMeta } = useChatStore.getState();
+  const stdinId = sessionMeta.stdinId;
+  const sessionId = sessionMeta.sessionId;
+  const cwd = useSettingsStore.getState().workingDirectory;
+  if (!sessionId || !cwd) return false;
 
-    const fp = msg.toolInput?.file_path as string | undefined;
-    if (!fp) continue;
-
-    if (msg.toolName === 'Write') {
-      writtenFiles.push(fp);
-    } else if (msg.toolName === 'Edit') {
-      editedFiles.push(fp);
-    }
-  }
-
-  const writtenSet = new Set(writtenFiles);
-  const allModified = new Set([...writtenFiles, ...editedFiles]);
-
-  // Check which files are tracked by git (existed before Claude touched them).
-  // Tracked files should be restored via git checkout, NOT deleted.
-  const trackedFiles = new Set<string>();
   try {
-    const lsOutput = await bridge.runGitCommand(cwd, ['ls-files']);
-    for (const line of lsOutput.split('\n')) {
-      const trimmed = line.trim();
-      if (trimmed) {
-        const abs = cwd.endsWith('/') ? `${cwd}${trimmed}` : `${cwd}/${trimmed}`;
-        trackedFiles.add(abs);
-        trackedFiles.add(trimmed); // also keep relative path for matching
-      }
-    }
-  } catch {
-    // Not a git repo — treat all written files as edits (don't delete anything)
-    for (const fp of allModified) {
-      try {
-        await bridge.runGitCommand(cwd, ['checkout', 'HEAD', '--', fp]);
-      } catch { /* skip */ }
-    }
-    return;
-  }
-
-  // Separate truly new files (created by Claude, not in git) from existing ones
-  const newFiles: string[] = [];
-  const existingFiles: string[] = [];
-
-  for (const fp of allModified) {
-    if (trackedFiles.has(fp)) {
-      existingFiles.push(fp);
-    } else if (writtenSet.has(fp)) {
-      // Only delete files that were written (not just edited) AND not tracked
-      newFiles.push(fp);
-    } else {
-      existingFiles.push(fp);
-    }
-  }
-
-  // 1. Restore existing files via git checkout
-  for (const fp of existingFiles) {
-    try {
-      await bridge.runGitCommand(cwd, ['checkout', 'HEAD', '--', fp]);
-    } catch {
-      // File may have been staged differently — skip
-    }
-  }
-
-  // 2. Delete only truly new files (created by Claude, never existed in git)
-  if (newFiles.length > 0) {
-    await bridge.restoreSnapshot({}, newFiles).catch(() => {});
+    // Primary: SDK control protocol via stdin (fast, in-process)
+    // Fallback: spawn new CLI process (slow, full initialization)
+    await bridge.rewindFiles(stdinId || '', turn.checkpointUuid, sessionId, cwd);
+    return true;
+  } catch (err) {
+    console.error('[rewind] rewindFiles failed:', err);
+    return false;
   }
 }
 
@@ -158,43 +98,41 @@ export function useRewind() {
       return;
     }
 
-    // 1. Kill current CLI process
+    // For file-restore actions, send rewind via stdin BEFORE killing the process
+    // (SDK control protocol is fast and needs the process alive)
+    const needsFileRestore = action === 'restore_all' || action === 'restore_code';
+    let fileRestoreOk = false;
+    if (needsFileRestore && turn.checkpointUuid) {
+      try {
+        fileRestoreOk = await restoreFilesViaCheckpoint(turn);
+      } catch { /* handled below */ }
+    }
+
+    // Kill CLI process after file restore (or immediately for non-file actions)
     try {
       await killProcess();
     } catch (err) {
       console.warn('[useRewind] Failed to kill process:', err);
     }
 
-    // 2. Grab original text before truncating
+    // Grab original text before truncating
     const originalUserText = state.messages[turn.startMsgIdx]?.content || '';
 
     try {
       switch (action) {
         case 'restore_all': {
-          // Restore both code and conversation
-          const hasSnapshot = useSnapshotStore.getState().getSnapshot(turn.userMessageId);
-          if (hasSnapshot) {
-            try {
-              await useSnapshotStore.getState().restoreToSnapshot(turn.userMessageId);
-            } catch {
-              // Snapshot restore failed — try message-based fallback
-              const cwd = useSettingsStore.getState().workingDirectory;
-              if (cwd) await restoreFromMessages(state.messages, turn.startMsgIdx, cwd).catch(() => {});
-            }
-          } else {
-            // No snapshot (history conversation) — restore from message history
-            const cwd = useSettingsStore.getState().workingDirectory;
-            if (cwd) await restoreFromMessages(state.messages, turn.startMsgIdx, cwd).catch(() => {});
-          }
           useChatStore.getState().rewindToTurn(turn.startMsgIdx);
           resetSession();
           useChatStore.getState().setInputDraft(originalUserText);
 
+          const successMsg = fileRestoreOk
+            ? t('rewind.successAll').replace('{n}', String(turn.index))
+            : t('rewind.successAllNoFiles').replace('{n}', String(turn.index));
           useChatStore.getState().addMessage({
             id: generateMessageId(),
             role: 'system',
             type: 'text',
-            content: t('rewind.successAll').replace('{n}', String(turn.index)),
+            content: successMsg,
             commandType: 'action',
             commandData: { action: 'rewind', turnIndex: turn.index, mode: 'restore_all' },
             timestamp: Date.now(),
@@ -203,7 +141,7 @@ export function useRewind() {
         }
 
         case 'restore_conversation': {
-          // Only restore conversation (keep code as-is)
+          // Only restore conversation (keep code as-is) — instant, no CLI call
           useChatStore.getState().rewindToTurn(turn.startMsgIdx);
           resetSession();
           useChatStore.getState().setInputDraft(originalUserText);
@@ -221,28 +159,18 @@ export function useRewind() {
         }
 
         case 'restore_code': {
-          // Only restore code (keep conversation intact)
-          const hasCodeSnapshot = useSnapshotStore.getState().getSnapshot(turn.userMessageId);
-          if (hasCodeSnapshot) {
-            try {
-              await useSnapshotStore.getState().restoreToSnapshot(turn.userMessageId);
-            } catch {
-              const cwd = useSettingsStore.getState().workingDirectory;
-              if (cwd) await restoreFromMessages(state.messages, turn.startMsgIdx, cwd).catch(() => {});
-            }
-          } else {
-            const cwd = useSettingsStore.getState().workingDirectory;
-            if (cwd) await restoreFromMessages(state.messages, turn.startMsgIdx, cwd).catch(() => {});
-          }
           // Don't truncate messages — keep full conversation
           resetSession();
           useChatStore.getState().setInputDraft(originalUserText);
 
+          const codeMsg = fileRestoreOk
+            ? t('rewind.successCode').replace('{n}', String(turn.index))
+            : t('rewind.codeRestoreFailed');
           useChatStore.getState().addMessage({
             id: generateMessageId(),
             role: 'system',
             type: 'text',
-            content: t('rewind.successCode').replace('{n}', String(turn.index)),
+            content: codeMsg,
             commandType: 'action',
             commandData: { action: 'rewind', turnIndex: turn.index, mode: 'restore_code' },
             timestamp: Date.now(),

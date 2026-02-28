@@ -85,14 +85,19 @@ export function QuestionCard({ message, floating }: Props) {
     ? !!otherText[currentIdx]?.trim()
     : (selectedMap[currentIdx]?.size || 0) > 0;
 
-  const handleConfirm = useCallback(() => {
-    if (isFullyResolved) return;
+  const interactionState = message.interactionState ?? (isFullyResolved ? 'resolved' : 'pending');
+  const isSending = interactionState === 'sending';
+  const isFailed = interactionState === 'failed';
+
+  const handleConfirm = useCallback(async () => {
+    if (isFullyResolved || isSending) return;
     const answerText = getCurrentAnswer();
     setAnsweredMap((prev) => ({ ...prev, [currentIdx]: answerText }));
 
     const isLast = currentIdx >= questions.length - 1;
     if (isLast) {
-      const stdinId = useChatStore.getState().sessionMeta.stdinId;
+      const { sessionMeta, setInteractionState, setSessionStatus, setActivityStatus } = useChatStore.getState();
+      const stdinId = sessionMeta.stdinId;
       if (!stdinId) return;
       const answers: Record<string, string> = {};
       questions.forEach((q, qIdx) => {
@@ -108,30 +113,37 @@ export function QuestionCard({ message, floating }: Props) {
           }
         }
       });
-      bridge.sendStdin(stdinId, JSON.stringify({ answers }));
-      useChatStore.getState().updateMessage(message.id, { resolved: true });
-      useChatStore.setState({ partialText: '', partialThinking: '' });
-      useChatStore.getState().setSessionStatus('running');
-      useChatStore.getState().setActivityStatus({ phase: 'thinking' });
+      setInteractionState(message.id, 'sending');
+      try {
+        await bridge.sendStdin(stdinId, JSON.stringify({ answers }));
+        setInteractionState(message.id, 'resolved');
+        useChatStore.setState({ partialText: '', partialThinking: '' });
+        setSessionStatus('running');
+        setActivityStatus({ phase: 'thinking' });
+      } catch (err) {
+        setInteractionState(message.id, 'failed', String(err));
+      }
     } else {
       setCurrentIdx(currentIdx + 1);
     }
-  }, [isFullyResolved, currentIdx, questions, selectedMap, useOther, otherText, message.id, getCurrentAnswer]);
+  }, [isFullyResolved, isSending, currentIdx, questions, selectedMap, useOther, otherText, message.id, getCurrentAnswer]);
 
   const handleSkip = useCallback(async () => {
-    if (isFullyResolved) return;
-    const stdinId = useChatStore.getState().sessionMeta.stdinId;
+    if (isFullyResolved || isSending) return;
+    const { sessionMeta, setInteractionState, setSessionStatus, setActivityStatus } = useChatStore.getState();
+    const stdinId = sessionMeta.stdinId;
     if (!stdinId) return;
+    setInteractionState(message.id, 'sending');
     try {
       await bridge.sendStdin(stdinId, JSON.stringify({ answers: {} }));
-      useChatStore.getState().updateMessage(message.id, { resolved: true });
+      setInteractionState(message.id, 'resolved');
       useChatStore.setState({ partialText: '', partialThinking: '' });
-      useChatStore.getState().setSessionStatus('running');
-      useChatStore.getState().setActivityStatus({ phase: 'thinking' });
-    } catch {
-      // sendStdin failure — leave unresolved so user can retry
+      setSessionStatus('running');
+      setActivityStatus({ phase: 'thinking' });
+    } catch (err) {
+      setInteractionState(message.id, 'failed', String(err));
     }
-  }, [isFullyResolved, message.id]);
+  }, [isFullyResolved, isSending, message.id]);
 
   return (
     <div className={`${floating ? '' : 'ml-11'} animate-scale-in ${isFullyResolved ? 'opacity-80' : ''}`}>
@@ -278,23 +290,36 @@ export function QuestionCard({ message, floating }: Props) {
               </div>
             )}
 
+            {/* Error state */}
+            {isFailed && message.interactionError && (
+              <div className="mb-2 text-[11px] text-error bg-error/5 rounded-lg px-2.5 py-1.5
+                border border-error/20">
+                {message.interactionError}
+              </div>
+            )}
+
             {/* Action buttons */}
             <div className="flex items-center gap-2">
               <button
                 onClick={handleConfirm}
-                disabled={!hasCurrentSelection}
-                className="px-4 py-1.5 rounded-lg text-xs font-semibold
+                disabled={!hasCurrentSelection || isSending}
+                className={`px-4 py-1.5 rounded-lg text-xs font-semibold
                   bg-accent text-text-inverse hover:bg-accent-hover
                   transition-smooth cursor-pointer shadow-sm
-                  disabled:opacity-30 disabled:cursor-not-allowed"
+                  disabled:opacity-30 disabled:cursor-not-allowed
+                  ${isSending ? 'animate-pulse-soft' : ''}`}
               >
-                {currentIdx >= questions.length - 1 ? t('msg.questionSubmit') : t('msg.questionNext')}
+                {isSending
+                  ? 'Sending...'
+                  : currentIdx >= questions.length - 1 ? t('msg.questionSubmit') : t('msg.questionNext')}
               </button>
               <button
                 onClick={handleSkip}
+                disabled={isSending}
                 className="px-3 py-1.5 rounded-lg text-xs font-medium
                   text-text-tertiary hover:text-text-primary
-                  hover:bg-bg-tertiary transition-smooth cursor-pointer"
+                  hover:bg-bg-tertiary transition-smooth cursor-pointer
+                  disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 {t('msg.questionSkip')}
               </button>

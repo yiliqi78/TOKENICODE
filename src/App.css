@@ -447,6 +447,16 @@ input, textarea, [contenteditable="true"],
   animation: fade-in 0.15s ease-out;
 }
 
+/* Title update animation (AI-generated title) */
+@keyframes title-update {
+  0% { opacity: 0.3; transform: translateY(4px); }
+  50% { opacity: 0.8; }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.animate-title-update {
+  animation: title-update 0.5s ease-out;
+}
+
 /* ================================================================
    Prose / Typography overrides — map to theme CSS vars
    ================================================================ */

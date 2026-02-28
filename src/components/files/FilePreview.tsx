@@ -1,6 +1,6 @@
 import { useMemo, useCallback, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import CodeMirror from '@uiw/react-codemirror';
-import { vscodeDark, vscodeLight } from '@uiw/codemirror-theme-vscode';
 import { javascript } from '@codemirror/lang-javascript';
 import { python } from '@codemirror/lang-python';
 import { rust } from '@codemirror/lang-rust';
@@ -23,9 +23,10 @@ import { lua } from '@codemirror/legacy-modes/mode/lua';
 import { toml } from '@codemirror/legacy-modes/mode/toml';
 import { dockerFile } from '@codemirror/legacy-modes/mode/dockerfile';
 import { useFileStore } from '../../stores/fileStore';
-import { useSettingsStore } from '../../stores/settingsStore';
 import { bridge } from '../../lib/tauri-bridge';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
+import { FileIcon } from '../shared/FileIcon';
+import { tokenicodeTheme, tokenicodeHighlight } from '../../lib/codemirror-theme';
 import { useT } from '../../lib/i18n';
 
 /* ================================================================
@@ -39,23 +40,6 @@ function getExt(path: string): string {
 
 function getFileName(path: string): string {
   return path.split(/[\\/]/).pop() || path;
-}
-
-function getFileIcon(ext: string): string {
-  const map: Record<string, string> = {
-    md: '\ud83d\udcdd', mdx: '\ud83d\udcdd',
-    ts: '\ud83d\udfe6', tsx: '\u269b\ufe0f',
-    js: '\ud83d\udfe8', jsx: '\u269b\ufe0f',
-    rs: '\ud83e\udda0', py: '\ud83d\udc0d',
-    go: '\ud83d\udc39', java: '\u2615',
-    json: '\ud83d\udce6', yaml: '\u2699\ufe0f', yml: '\u2699\ufe0f', toml: '\u2699\ufe0f',
-    css: '\ud83c\udfa8', scss: '\ud83c\udfa8', less: '\ud83c\udfa8',
-    html: '\ud83c\udf10', svg: '\ud83d\uddbc\ufe0f',
-    txt: '\ud83d\udcc4', log: '\ud83d\udcc4',
-    sh: '\ud83d\udcbb', bash: '\ud83d\udcbb', zsh: '\ud83d\udcbb',
-    png: '\ud83d\uddbc\ufe0f', jpg: '\ud83d\uddbc\ufe0f', jpeg: '\ud83d\uddbc\ufe0f', gif: '\ud83d\uddbc\ufe0f', webp: '\ud83d\uddbc\ufe0f',
-  };
-  return map[ext] || '\ud83d\udcc4';
 }
 
 /** Return CodeMirror language extension for the given file extension */
@@ -131,6 +115,10 @@ export function FilePreview() {
   const isSaving = useFileStore((s) => s.isSaving);
   const changedFiles = useFileStore((s) => s.changedFiles);
   const reloadContent = useFileStore((s) => s.reloadContent);
+  const showUnsavedDialog = useFileStore((s) => s.showUnsavedDialog);
+  const confirmDiscard = useFileStore((s) => s.confirmDiscard);
+  const confirmSaveAndSwitch = useFileStore((s) => s.confirmSaveAndSwitch);
+  const cancelNavigation = useFileStore((s) => s.cancelNavigation);
 
   // Auto-refresh preview when the selected file is modified externally
   const reloadRef = useRef(reloadContent);
@@ -142,15 +130,6 @@ export function FilePreview() {
       reloadRef.current();
     }
   }, [selectedFile, changedFiles]);
-
-  const appTheme = useSettingsStore((s) => s.theme);
-  const isDark = useMemo(() => {
-    if (appTheme === 'dark') return true;
-    if (appTheme === 'light') return false;
-    return typeof window !== 'undefined'
-      ? window.matchMedia('(prefers-color-scheme: dark)').matches
-      : false;
-  }, [appTheme]);
 
   const ext = useMemo(() => selectedFile ? getExt(selectedFile) : '', [selectedFile]);
   const fileName = useMemo(() => selectedFile ? getFileName(selectedFile) : '', [selectedFile]);
@@ -211,17 +190,17 @@ export function FilePreview() {
   if (!selectedFile) return null;
 
   return (
-    <div className="flex flex-col h-full bg-bg-chat" onKeyDown={handleKeyDown}>
+    <div className="flex flex-col h-full bg-bg-primary" onKeyDown={handleKeyDown}>
       {/* Header bar — pt-6 for macOS traffic lights, z-10 above iframe content */}
       <div className="flex items-center justify-between px-3 pt-6 pb-2
         border-b border-border-subtle bg-bg-secondary/50 flex-shrink-0 relative z-10">
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <span className="text-sm flex-shrink-0">{getFileIcon(ext)}</span>
-          <span className="text-xs font-medium text-text-primary truncate">
+          <FileIcon name={fileName} size={16} className="flex-shrink-0 text-text-muted" />
+          <span className="text-[13px] font-medium text-text-primary truncate">
             {fileName}
           </span>
           {lineCount > 0 && (
-            <span className="text-[10px] text-text-muted flex-shrink-0">
+            <span className="text-xs text-text-muted flex-shrink-0">
               {lineCount} {t('files.lineCount')}
             </span>
           )}
@@ -233,7 +212,7 @@ export function FilePreview() {
             <div className="flex items-center gap-1 animate-fade-in">
               <button
                 onClick={discardEdits}
-                className="px-2 py-0.5 rounded-md text-[10px] font-medium
+                className="px-2.5 py-1 rounded-lg text-xs font-medium
                   text-text-muted hover:text-text-primary hover:bg-bg-tertiary
                   transition-smooth"
               >
@@ -242,7 +221,7 @@ export function FilePreview() {
               <button
                 onClick={saveFile}
                 disabled={isSaving}
-                className="px-2.5 py-0.5 rounded-md text-[10px] font-medium
+                className="px-2.5 py-1 rounded-lg text-xs font-medium
                   bg-accent text-text-inverse hover:bg-accent-hover
                   transition-smooth disabled:opacity-50"
               >
@@ -258,7 +237,7 @@ export function FilePreview() {
                 <button
                   key={tab.id}
                   onClick={() => setPreviewMode(tab.id)}
-                  className={`px-3 py-1.5 rounded-lg text-[11px] font-medium
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium
                     transition-smooth cursor-pointer
                     ${previewMode === tab.id
                       ? 'bg-bg-card text-accent shadow-sm'
@@ -353,7 +332,7 @@ export function FilePreview() {
         ) : isAudio && selectedFile && fileContent ? (
           /* Audio preview: icon + native <audio> with base64 data URL */
           <div className="flex flex-col items-center justify-center h-full gap-4 p-4">
-            <div className="text-4xl">{getFileIcon(ext)}</div>
+            <FileIcon name={fileName} size={48} className="text-text-tertiary" />
             <audio
               src={fileContent}
               controls
@@ -363,7 +342,7 @@ export function FilePreview() {
         ) : isBinary ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center space-y-3">
-              <div className="text-3xl">{getFileIcon(ext)}</div>
+              <FileIcon name={fileName} size={40} className="text-text-tertiary" />
               <div className="text-xs text-text-muted">{t('files.binaryFile')}</div>
               {selectedFile && (
                 <button
@@ -386,8 +365,8 @@ export function FilePreview() {
           /* Edit mode: CodeMirror 6 editor */
           <CodeMirror
             value={editContent ?? fileContent ?? ''}
-            extensions={[...(Array.isArray(langExtension) ? langExtension : [langExtension]), EditorView.lineWrapping]}
-            theme={isDark ? vscodeDark : vscodeLight}
+            extensions={[...(Array.isArray(langExtension) ? langExtension : [langExtension]), EditorView.lineWrapping, tokenicodeHighlight]}
+            theme={tokenicodeTheme}
             onChange={(value) => setEditContent(value)}
             height="100%"
             style={{ height: '100%', fontSize: '13px' }}
@@ -453,8 +432,8 @@ export function FilePreview() {
           /* Source view: read-only CodeMirror */
           <CodeMirror
             value={fileContent}
-            extensions={[...(Array.isArray(langExtension) ? langExtension : [langExtension]), EditorView.lineWrapping]}
-            theme={isDark ? vscodeDark : vscodeLight}
+            extensions={[...(Array.isArray(langExtension) ? langExtension : [langExtension]), EditorView.lineWrapping, tokenicodeHighlight]}
+            theme={tokenicodeTheme}
             editable={false}
             readOnly={true}
             height="100%"
@@ -473,6 +452,44 @@ export function FilePreview() {
           </div>
         )}
       </div>
+
+      {/* Unsaved changes dialog */}
+      {showUnsavedDialog && createPortal(
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40"
+          onClick={cancelNavigation}>
+          <div className="bg-bg-card border border-border-subtle rounded-xl p-5
+            shadow-lg max-w-sm w-full mx-4 animate-fade-in"
+            onClick={(e) => e.stopPropagation()}>
+            <p className="text-sm text-text-primary mb-1 font-medium">
+              {t('files.unsavedTitle')}
+            </p>
+            <p className="text-xs text-text-muted mb-4">
+              {t('files.unsavedMessage')}
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={confirmDiscard}
+                className="px-3 py-1.5 text-xs rounded-lg bg-bg-secondary
+                  text-text-muted hover:bg-bg-tertiary transition-smooth cursor-pointer">
+                {t('files.discardChanges')}
+              </button>
+              <button
+                onClick={cancelNavigation}
+                className="px-3 py-1.5 text-xs rounded-lg bg-bg-secondary
+                  text-text-muted hover:bg-bg-tertiary transition-smooth cursor-pointer">
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={confirmSaveAndSwitch}
+                className="px-3 py-1.5 text-xs rounded-lg bg-accent
+                  text-text-inverse hover:bg-accent-hover transition-smooth cursor-pointer">
+                {t('files.saveAndSwitch')}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

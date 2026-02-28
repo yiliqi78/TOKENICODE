@@ -37,6 +37,8 @@ export const MessageBubble = memo(function MessageBubble({ message, isFirstInGro
   if (message.type === 'tool_use') return <ToolUseMsg message={message} />;
   if (message.type === 'thinking') return <ThinkingMsg message={message} />;
   if (message.type === 'tool_result') return <ToolResultMsg message={message} />;
+  // Unresolved permission cards are rendered as floating overlays above InputBar
+  if (message.type === 'permission' && !message.resolved && message.interactionState !== 'resolved') return null;
   if (message.type === 'permission') return <PermissionCard message={message} />;
   if (message.type === 'plan') return <PlanMsg message={message} />;
   return <AssistantMsg message={message} isFirstInGroup={isFirstInGroup} />;
@@ -403,9 +405,14 @@ function AssistantMsg({ message, isFirstInGroup = true }: Props) {
     <div className="flex gap-3">
       {/* Avatar: show only for the first message in a consecutive group */}
       {isFirstInGroup ? (
-        <div className="w-8 h-8 rounded-[10px] bg-accent
-          flex items-center justify-center flex-shrink-0 text-text-inverse
-          text-xs font-bold shadow-md mt-0.5">C</div>
+        <div className="w-8 h-8 rounded-[10px] bg-black dark:bg-white
+          flex items-center justify-center flex-shrink-0 shadow-md mt-0.5 overflow-hidden">
+          <svg width="32" height="32" viewBox="0 0 171 171" fill="none">
+            <path d="M66.79 58.73L40.33 85.19L66.79 111.66L57.53 120.92L21.8 85.19L57.53 49.47Z" className="fill-white dark:fill-black" />
+            <path d="M111.5 49.47L147.22 85.19L111.5 120.92L102.24 111.66L128.7 85.19L102.24 58.73Z" className="fill-white dark:fill-black" />
+            <path d="M90.01 39.92L102.01 39.92L79.24 129.92L67.24 129.92L79.24 81.92Z" fill="var(--color-icon-slash)" />
+          </svg>
+        </div>
       ) : (
         <div className="w-8 flex-shrink-0" />
       )}
@@ -421,14 +428,30 @@ function AssistantMsg({ message, isFirstInGroup = true }: Props) {
    Enhanced display for Edit/Write/Read with diff stats, file icons
    ================================================================ */
 
-/** Compute line diff stats from Edit tool input */
+/** Compute line diff stats from Edit tool input (common prefix/suffix algorithm) */
 function computeEditDiff(input: any): { added: number; removed: number } | null {
   if (!input?.old_string || !input?.new_string) return null;
-  const oldLines = input.old_string.split('\n').length;
-  const newLines = input.new_string.split('\n').length;
+  const oldLines: string[] = input.old_string.split('\n');
+  const newLines: string[] = input.new_string.split('\n');
+
+  // Find common prefix
+  let prefixLen = 0;
+  while (prefixLen < oldLines.length && prefixLen < newLines.length
+         && oldLines[prefixLen] === newLines[prefixLen]) {
+    prefixLen++;
+  }
+
+  // Find common suffix (from remaining after prefix)
+  let suffixLen = 0;
+  while (suffixLen < oldLines.length - prefixLen
+         && suffixLen < newLines.length - prefixLen
+         && oldLines[oldLines.length - 1 - suffixLen] === newLines[newLines.length - 1 - suffixLen]) {
+    suffixLen++;
+  }
+
   return {
-    added: Math.max(0, newLines),
-    removed: Math.max(0, oldLines),
+    added: Math.max(0, newLines.length - prefixLen - suffixLen),
+    removed: Math.max(0, oldLines.length - prefixLen - suffixLen),
   };
 }
 
@@ -683,6 +706,46 @@ export const ToolUseMsg = memo(function ToolUseMsg({ message }: Props) {
     );
   };
 
+  /** Render a Write tool diff — all lines shown as additions (blue) */
+  const renderWriteDiff = () => {
+    if (!input?.content) return null;
+    const allLines = input.content.split('\n');
+    const maxDisplay = 20;
+    const displayLines = allLines.slice(0, maxDisplay);
+    const remaining = allLines.length - maxDisplay;
+
+    return (
+      <div key="write-diff" className="rounded-lg border border-border-subtle overflow-hidden
+        max-h-48 overflow-y-auto">
+        {displayLines.map((line: string, i: number) => (
+          <div key={i}
+            className="flex items-start gap-0 text-[11px] font-mono leading-relaxed
+              bg-blue-500/8 dark:bg-blue-500/10">
+            <span className="flex-shrink-0 w-8 text-right pr-2 text-blue-400/60
+              select-none border-r border-blue-500/10">
+              {i + 1}
+            </span>
+            <span className="flex-shrink-0 w-5 text-center text-blue-400 select-none">+</span>
+            <span className="text-blue-600 dark:text-blue-400 whitespace-pre-wrap break-all
+              flex-1 px-1">{line}</span>
+          </div>
+        ))}
+        {remaining > 0 && (
+          <div className="px-2 py-1 text-[10px] text-text-tertiary font-mono
+            bg-blue-500/5 border-t border-blue-500/10">
+            ... +{remaining} more lines
+          </div>
+        )}
+        {input.file_path && (
+          <div className="px-2 py-1 border-t border-border-subtle/50
+            text-[10px] text-text-tertiary font-mono truncate">
+            {input.file_path}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderExpandedContent = () => {
     const sections: React.ReactNode[] = [];
 
@@ -700,6 +763,9 @@ export const ToolUseMsg = memo(function ToolUseMsg({ message }: Props) {
       } else if (toolName === 'Edit' && (input?.old_string || input?.new_string)) {
         const diffView = renderEditDiff();
         if (diffView) sections.push(diffView);
+      } else if (toolName === 'Write' && input?.content) {
+        const writeDiffView = renderWriteDiff();
+        if (writeDiffView) sections.push(writeDiffView);
       } else {
         sections.push(
           <pre key="input" className="text-[11px] text-text-tertiary

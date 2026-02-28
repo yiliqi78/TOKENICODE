@@ -1,21 +1,18 @@
 mod commands;
+mod protocol;
 
 use commands::{ProcessManager, SessionInfo, StartSessionParams, ManagedProcess, StdinManager};
+// protocol module kept for ControlRequest (send_control_request) and tests
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::{AppHandle, Emitter, State, Manager};
+use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use std::process::Stdio;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 use std::collections::HashMap;
-use std::io::Write as IoWrite;
-use sha2::{Sha256, Digest};
 use futures_util::StreamExt;
-use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
-use aes_gcm::aead::Aead;
-use rand::RngCore;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -404,6 +401,48 @@ fn login_shell_extra_path() -> &'static str {
     })
 }
 
+/// Capture proxy-related environment variables from the user's login shell.
+/// GUI apps launched from Finder/Dock don't inherit shell env vars (including
+/// proxy settings), which causes API requests to fail in regions that require
+/// a proxy to reach Anthropic's API.
+#[cfg(not(target_os = "windows"))]
+fn login_shell_proxy_env() -> &'static HashMap<String, String> {
+    static CACHE: std::sync::OnceLock<HashMap<String, String>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        // Print proxy-related vars in key=value format, one per line.
+        // Must use -ic (interactive) instead of -l (login) because proxy vars
+        // are typically set in .zshrc/.bashrc which are only sourced for
+        // interactive shells, not non-interactive login shells.
+        let script = r#"for v in https_proxy http_proxy all_proxy no_proxy HTTPS_PROXY HTTP_PROXY ALL_PROXY NO_PROXY; do eval "val=\$$v"; if [ -n "$val" ]; then echo "$v=$val"; fi; done"#;
+        let output = std::process::Command::new(&shell)
+            .args(["-ic", script])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output();
+        let mut map = HashMap::new();
+        if let Ok(o) = output {
+            if o.status.success() {
+                let text = String::from_utf8_lossy(&o.stdout);
+                for line in text.lines() {
+                    if let Some((k, v)) = line.split_once('=') {
+                        let k = k.trim();
+                        let v = v.trim();
+                        if !k.is_empty() && !v.is_empty() {
+                            map.insert(k.to_string(), v.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        if !map.is_empty() {
+            eprintln!("login shell proxy env captured: {:?}", map.keys().collect::<Vec<_>>());
+        }
+        map
+    })
+}
+
 /// Build an enriched PATH that includes common binary locations
 fn build_enriched_path() -> String {
     let current = std::env::var("PATH").unwrap_or_default();
@@ -591,242 +630,118 @@ fn safe_data_dir() -> Result<std::path::PathBuf, String> {
         .ok_or_else(|| "Cannot determine home directory".to_string())
 }
 
-/// Legacy path (may be wiped on Windows update)
-fn legacy_credentials_path() -> Result<std::path::PathBuf, String> {
-    Ok(app_data_dir()?.join("credentials.enc"))
+// ================================================================
+// Provider system — multi-provider API config stored as plaintext JSON
+// ================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelMapping {
+    tier: String,
+    provider_model: String,
 }
 
-/// Primary path for encrypted credentials (safe from NSIS cleanup)
-fn credentials_path() -> Result<std::path::PathBuf, String> {
-    Ok(safe_data_dir()?.join("credentials.enc"))
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ApiProvider {
+    id: String,
+    name: String,
+    base_url: String,
+    api_format: String,
+    api_key: Option<String>,
+    model_mappings: Vec<ModelMapping>,
+    extra_env: Option<HashMap<String, String>>,
+    preset: Option<String>,
+    created_at: u64,
+    updated_at: u64,
 }
 
-/// Derive a machine-specific 256-bit key for credential encryption.
-/// Uses hostname + username as entropy source.
-fn derive_encryption_key() -> [u8; 32] {
-    let hostname = hostname::get()
-        .map(|h| h.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "tokenicode".to_string());
-    let username = std::env::var("USER")
-        .or_else(|_| std::env::var("USERNAME"))
-        .unwrap_or_else(|_| "default".to_string());
-    let mut hasher = Sha256::new();
-    hasher.update(format!("tokenicode-cred:{}:{}", hostname, username));
-    hasher.finalize().into()
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProvidersFile {
+    version: u32,
+    active_provider_id: Option<String>,
+    providers: Vec<ApiProvider>,
 }
 
-/// Encrypt and store an API key to disk.
-/// Dual-write: primary to ~/.tokenicode/ (safe), fallback to legacy app data dir.
-fn encrypt_and_save(plaintext: &str) -> Result<(), String> {
-    let key_bytes = derive_encryption_key();
-    let cipher = Aes256Gcm::new_from_slice(&key_bytes)
-        .map_err(|e| format!("Cipher init error: {}", e))?;
+impl Default for ProvidersFile {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            active_provider_id: None,
+            providers: vec![],
+        }
+    }
+}
 
-    let mut nonce_bytes = [0u8; 12];
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
+fn providers_path() -> Result<std::path::PathBuf, String> {
+    Ok(safe_data_dir()?.join("providers.json"))
+}
 
-    let ciphertext = cipher.encrypt(nonce, plaintext.as_bytes())
-        .map_err(|e| format!("Encryption error: {}", e))?;
+#[tauri::command]
+fn load_providers() -> Result<ProvidersFile, String> {
+    let path = providers_path()?;
+    if !path.exists() {
+        return Ok(ProvidersFile::default());
+    }
+    let data = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Cannot read providers: {}", e))?;
+    serde_json::from_str(&data)
+        .map_err(|e| format!("Cannot parse providers: {}", e))
+}
 
-    // Store as: 12-byte nonce || ciphertext
-    let mut data = Vec::with_capacity(12 + ciphertext.len());
-    data.extend_from_slice(&nonce_bytes);
-    data.extend_from_slice(&ciphertext);
-
-    // Primary: write to ~/.tokenicode/credentials.enc (safe from NSIS cleanup)
-    let path = credentials_path()?;
+#[tauri::command]
+fn save_providers(data: ProvidersFile) -> Result<(), String> {
+    let path = providers_path()?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Cannot create data dir: {}", e))?;
+            .map_err(|e| format!("Cannot create dir: {}", e))?;
     }
-    std::fs::write(&path, &data)
-        .map_err(|e| format!("Cannot write credentials: {}", e))?;
-
-    // Legacy fallback: also write to old location (best-effort, for backward compat)
-    if let Ok(legacy_path) = legacy_credentials_path() {
-        if let Some(parent) = legacy_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::write(&legacy_path, &data);
-    }
-
+    let json = serde_json::to_string_pretty(&data)
+        .map_err(|e| format!("Serialize error: {}", e))?;
+    std::fs::write(&path, json)
+        .map_err(|e| format!("Write error: {}", e))?;
     Ok(())
 }
 
-/// Load and decrypt an API key from disk.
-/// Reads from safe path first; if missing, migrates from legacy path.
-fn load_and_decrypt() -> Result<Option<String>, String> {
-    let safe_path = credentials_path()?;
-    let legacy_path = legacy_credentials_path().ok();
-
-    // Determine which file to read
-    let read_path = if safe_path.exists() {
-        safe_path
-    } else if let Some(ref lp) = legacy_path {
-        if lp.exists() {
-            // Migrate: copy from legacy to safe location
-            if let Ok(legacy_data) = std::fs::read(lp) {
-                if let Some(parent) = safe_path.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                let _ = std::fs::write(&safe_path, &legacy_data);
-                eprintln!("Migrated credentials.enc to safe location");
-            }
-            if safe_path.exists() { safe_path } else { lp.clone() }
-        } else {
-            return Ok(None);
-        }
-    } else {
-        return Ok(None);
-    };
-
-    let data = std::fs::read(&read_path)
-        .map_err(|e| format!("Cannot read credentials: {}", e))?;
-    if data.len() < 13 {
-        // Corrupted file — delete and treat as "no key"
-        let _ = std::fs::remove_file(&read_path);
-        if let Some(ref lp) = legacy_path { let _ = std::fs::remove_file(lp); }
-        eprintln!("[TOKENICODE] Deleted corrupted credentials.enc (too short)");
-        return Ok(None);
-    }
-
-    let key_bytes = derive_encryption_key();
-    let cipher = Aes256Gcm::new_from_slice(&key_bytes)
-        .map_err(|e| format!("Cipher init error: {}", e))?;
-
-    let nonce = Nonce::from_slice(&data[..12]);
-    match cipher.decrypt(nonce, &data[12..]) {
-        Ok(plaintext) => {
-            String::from_utf8(plaintext)
-                .map(Some)
-                .map_err(|e| format!("Invalid UTF-8 in credentials: {}", e))
-        }
-        Err(_) => {
-            // Decryption failed — likely credentials.enc synced from another machine
-            // (different hostname → different encryption key). Delete the unusable
-            // file so the user can re-enter their key cleanly.
-            let _ = std::fs::remove_file(&read_path);
-            if let Some(ref lp) = legacy_path { let _ = std::fs::remove_file(lp); }
-            eprintln!(
-                "[TOKENICODE] Deleted credentials.enc — decryption failed \
-                 (likely synced from another machine with a different hostname). \
-                 Please re-enter your API key in Settings."
-            );
-            Ok(None)
-        }
-    }
-}
-
-/// Collect all ANTHROPIC_* env var keys that Claude CLI's settings.json sets.
-/// These must be cleared from the child process so TOKENICODE's injected values win.
-#[allow(dead_code)]
-fn anthropic_env_keys_from_cli_settings() -> Vec<String> {
-    let home = dirs::home_dir().unwrap_or_default();
-    let settings_path = home.join(".claude").join("settings.json");
-    let Ok(content) = std::fs::read_to_string(&settings_path) else {
-        return vec![];
-    };
-    let Ok(mut root) = serde_json::from_str::<serde_json::Value>(&content) else {
-        return vec![];
-    };
-    let Some(env_obj) = root.get_mut("env").and_then(|v| v.as_object_mut()) else {
-        return vec![];
-    };
-    env_obj.keys()
-        .filter(|k| k.starts_with("ANTHROPIC_"))
-        .cloned()
-        .collect()
-}
-
-/// When TOKENICODE overrides API settings, strip all ANTHROPIC_* entries from
-/// Claude CLI's `~/.claude/settings.json` env section so they don't shadow
-/// the env vars we inject into the child process.  Returns the removed entries
-/// for optional later restoration.
-fn strip_anthropic_env_from_cli_settings() -> Vec<(String, serde_json::Value)> {
-    let home = dirs::home_dir().unwrap_or_default();
-    let settings_path = home.join(".claude").join("settings.json");
-    let Ok(content) = std::fs::read_to_string(&settings_path) else {
-        return vec![];
-    };
-    let Ok(mut root) = serde_json::from_str::<serde_json::Value>(&content) else {
-        return vec![];
-    };
-    let Some(env_obj) = root.get_mut("env").and_then(|v| v.as_object_mut()) else {
-        return vec![];
-    };
-    let keys: Vec<String> = env_obj.keys()
-        .filter(|k| k.starts_with("ANTHROPIC_"))
-        .cloned()
-        .collect();
-    if keys.is_empty() {
-        return vec![];
-    }
-    let removed: Vec<(String, serde_json::Value)> = keys.iter()
-        .filter_map(|k| env_obj.remove(k).map(|v| (k.clone(), v)))
-        .collect();
-    // Write back (best-effort)
-    if let Ok(json) = serde_json::to_string_pretty(&root) {
-        let _ = std::fs::write(&settings_path, json);
-    }
-    removed
-}
-
-/// Restore previously stripped ANTHROPIC_* entries to settings.json env section.
-#[allow(dead_code)]
-fn restore_anthropic_env_to_cli_settings(entries: &[(String, serde_json::Value)]) {
-    if entries.is_empty() { return; }
-    let home = dirs::home_dir().unwrap_or_default();
-    let settings_path = home.join(".claude").join("settings.json");
-    let Ok(content) = std::fs::read_to_string(&settings_path) else { return };
-    let Ok(mut root) = serde_json::from_str::<serde_json::Value>(&content) else { return };
-    let env_obj = root.as_object_mut()
-        .and_then(|r| {
-            if !r.contains_key("env") {
-                r.insert("env".to_string(), serde_json::json!({}));
-            }
-            r.get_mut("env").and_then(|v| v.as_object_mut())
-        });
-    let Some(env_obj) = env_obj else { return };
-    for (k, v) in entries {
-        env_obj.insert(k.clone(), v.clone());
-    }
-    if let Ok(json) = serde_json::to_string_pretty(&root) {
-        let _ = std::fs::write(&settings_path, json);
-    }
-}
-
-/// Resolve custom_env map, substituting USE_STORED_KEY sentinel with real API key.
-fn resolve_custom_env(custom_env: Option<&HashMap<String, String>>) -> Result<HashMap<String, String>, String> {
-    let Some(env) = custom_env else {
-        return Ok(HashMap::new());
-    };
-    let mut resolved = HashMap::with_capacity(env.len());
-    for (key, value) in env {
-        if value == "USE_STORED_KEY" {
-            let real_key = load_and_decrypt()?
-                .ok_or_else(|| "API key not configured. Please set it in Settings → API Provider.".to_string())?;
-            resolved.insert(key.clone(), real_key);
-        } else {
-            resolved.insert(key.clone(), value.clone());
-        }
-    }
-    Ok(resolved)
-}
-
-/// Test API connection by sending a minimal request to the configured endpoint.
 #[tauri::command]
-async fn test_api_connection(base_url: String, api_format: String, model: String) -> Result<String, String> {
-    let api_key = load_and_decrypt()?
-        .ok_or_else(|| "API key not configured".to_string())?;
+async fn test_provider_connection(base_url: String, api_format: String, api_key: String, model: String) -> Result<String, String> {
+    // Build client with proxy from login shell if not in current env (GUI apps lack shell proxy vars)
+    let client = {
+        let mut builder = reqwest::Client::builder();
+        #[cfg(not(target_os = "windows"))]
+        {
+            let proxy_env = login_shell_proxy_env();
+            // reqwest reads https_proxy/http_proxy from env by default, but GUI apps don't have them.
+            // If current env lacks proxy but login shell has it, configure explicitly.
+            let has_proxy = std::env::var("https_proxy").is_ok()
+                || std::env::var("HTTPS_PROXY").is_ok()
+                || std::env::var("http_proxy").is_ok()
+                || std::env::var("HTTP_PROXY").is_ok()
+                || std::env::var("all_proxy").is_ok()
+                || std::env::var("ALL_PROXY").is_ok();
+            if !has_proxy {
+                // Try https_proxy / HTTPS_PROXY first, then all_proxy / ALL_PROXY
+                let proxy_url = proxy_env.get("https_proxy")
+                    .or_else(|| proxy_env.get("HTTPS_PROXY"))
+                    .or_else(|| proxy_env.get("all_proxy"))
+                    .or_else(|| proxy_env.get("ALL_PROXY"))
+                    .or_else(|| proxy_env.get("http_proxy"))
+                    .or_else(|| proxy_env.get("HTTP_PROXY"));
+                if let Some(url) = proxy_url {
+                    if let Ok(proxy) = reqwest::Proxy::all(url) {
+                        builder = builder.proxy(proxy);
+                    }
+                }
+            }
+        }
+        builder.build().unwrap_or_else(|_| reqwest::Client::new())
+    };
 
-    let test_model = model;
-    let client = reqwest::Client::new();
-
-    let (url, resp_result) = if api_format == "openai" {
+    let (_url, resp_result) = if api_format == "openai" {
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
         let body = serde_json::json!({
-            "model": test_model,
+            "model": model,
             "max_tokens": 1,
             "messages": [{"role": "user", "content": "hi"}]
         });
@@ -841,7 +756,7 @@ async fn test_api_connection(base_url: String, api_format: String, model: String
     } else {
         let url = format!("{}/v1/messages", base_url.trim_end_matches('/'));
         let body = serde_json::json!({
-            "model": test_model,
+            "model": model,
             "max_tokens": 1,
             "messages": [{"role": "user", "content": "hi"}]
         });
@@ -865,83 +780,65 @@ async fn test_api_connection(base_url: String, api_format: String, model: String
     } else if status == 401 {
         Err(format!("AUTH_ERROR: HTTP {} — {}", status, text.chars().take(500).collect::<String>()))
     } else {
-        // Any non-401 server response proves endpoint + key are reachable.
-        // 400/403/429/etc. are typically model/quota/format issues, not connection problems.
         Ok(format!("OK ({})", status))
     }
 }
 
-#[tauri::command]
-fn save_api_key(key: String) -> Result<(), String> {
-    encrypt_and_save(&key)
-}
+/// Resolve provider env vars and CLI args from a provider_id.
+/// Returns (extra_env, keys_to_remove, extra_args).
+fn resolve_provider_env(provider_id: Option<&str>) -> Result<(HashMap<String, String>, Vec<String>, Vec<String>), String> {
+    let Some(pid) = provider_id else {
+        return Ok((HashMap::new(), vec![], vec![]));
+    };
 
-#[tauri::command]
-fn load_api_key() -> Result<Option<String>, String> {
-    load_and_decrypt()
-}
+    let providers_file = load_providers()?;
+    let provider = providers_file.providers.iter()
+        .find(|p| p.id == pid)
+        .ok_or_else(|| format!("Provider '{}' not found", pid))?;
 
-#[tauri::command]
-fn delete_api_key() -> Result<(), String> {
-    // Delete from safe location
-    let path = credentials_path()?;
-    if path.exists() {
-        std::fs::remove_file(&path)
-            .map_err(|e| format!("Cannot delete credentials: {}", e))?;
+    let mut env = HashMap::new();
+
+    // Set base URL
+    if !provider.base_url.is_empty() {
+        env.insert("ANTHROPIC_BASE_URL".to_string(), provider.base_url.clone());
     }
-    // Delete from legacy location (best-effort)
-    if let Ok(legacy_path) = legacy_credentials_path() {
-        if legacy_path.exists() {
-            let _ = std::fs::remove_file(&legacy_path);
+
+    // Set API key (plaintext, no encryption).
+    // Only set ANTHROPIC_API_KEY — do NOT set ANTHROPIC_AUTH_TOKEN.
+    // AUTH_TOKEN triggers OAuth/Bearer auth in the CLI, which third-party
+    // providers don't support. API_KEY uses the correct x-api-key header.
+    if let Some(ref key) = provider.api_key {
+        if !key.is_empty() {
+            env.insert("ANTHROPIC_API_KEY".to_string(), key.clone());
         }
     }
-    Ok(())
-}
 
-// --- API settings backup (survives NSIS update) ---
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ApiSettings {
-    api_provider_mode: String,
-    custom_provider_name: String,
-    custom_provider_base_url: String,
-    custom_provider_model_mappings: Vec<ApiModelMapping>,
-    custom_provider_api_format: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ApiModelMapping {
-    tier: String,
-    provider_model: String,
-}
-
-#[tauri::command]
-fn save_api_settings(settings: ApiSettings) -> Result<(), String> {
-    let path = safe_data_dir()?.join("api_settings.json");
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Cannot create dir: {}", e))?;
+    // Merge extra_env (empty string = delete from child process env)
+    let mut keys_to_remove = Vec::new();
+    if let Some(ref extra) = provider.extra_env {
+        for (k, v) in extra {
+            if v.is_empty() {
+                keys_to_remove.push(k.clone());
+            } else {
+                env.insert(k.clone(), v.clone());
+            }
+        }
     }
-    let json = serde_json::to_string_pretty(&settings)
-        .map_err(|e| format!("Serialize error: {}", e))?;
-    std::fs::write(&path, json)
-        .map_err(|e| format!("Write error: {}", e))?;
-    Ok(())
-}
 
-#[tauri::command]
-fn load_api_settings() -> Result<Option<ApiSettings>, String> {
-    let path = safe_data_dir()?.join("api_settings.json");
-    if !path.exists() {
-        return Ok(None);
-    }
-    let data = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Cannot read settings: {}", e))?;
-    serde_json::from_str(&data)
-        .map(Some)
-        .map_err(|e| format!("Cannot parse settings: {}", e))
+    // Remove inherited ANTHROPIC_* vars that we don't explicitly set
+    let inherited_removals: Vec<String> = std::env::vars()
+        .filter(|(k, _)| k.starts_with("ANTHROPIC_") && !env.contains_key(k))
+        .map(|(k, _)| k)
+        .collect();
+    keys_to_remove.extend(inherited_removals);
+
+    // No extra CLI args needed — env vars set on the process take precedence.
+    // Previously we used --setting-sources project,local to skip user settings,
+    // but that broke directories without .claude/ (e.g. empty/new folders) because
+    // the CLI lost workspace trust and other user-level config.
+    let extra_args: Vec<String> = vec![];
+
+    Ok((env, keys_to_remove, extra_args))
 }
 
 #[tauri::command]
@@ -966,6 +863,7 @@ async fn start_claude_session(
         "--output-format".to_string(), "stream-json".to_string(),
         "--verbose".to_string(),
         "--include-partial-messages".to_string(),
+        "--replay-user-messages".to_string(),
     ];
 
     // Resume an existing CLI session if requested
@@ -986,16 +884,18 @@ async fn start_claude_session(
         }
     }
 
-    // GUI wrapper cannot handle CLI stdin permission prompts, so always skip.
-    // The frontend sessionMode ('code'/'ask'/'plan'/'bypass') is a UI concept only.
-    args.push("--dangerously-skip-permissions".to_string());
-
-    // Session mode: ask, plan, or auto (default)
-    if let Some(ref mode) = params.session_mode {
-        if mode == "ask" || mode == "plan" {
-            args.push("--mode".to_string());
-            args.push(mode.clone());
-        }
+    // Permission mode: use SDK control protocol for structured permission requests,
+    // or bypass permissions entirely (legacy behavior).
+    let permission_mode = params.permission_mode.as_deref().unwrap_or("bypassPermissions");
+    if permission_mode == "bypassPermissions" {
+        // Legacy: skip all permission checks
+        args.push("--dangerously-skip-permissions".to_string());
+    } else {
+        // SDK control protocol: structured permission requests via stdout/stdin
+        args.push("--permission-mode".to_string());
+        args.push(permission_mode.to_string());
+        args.push("--permission-prompt-tool".to_string());
+        args.push("stdio".to_string());
     }
 
     // Extended thinking + effort level
@@ -1020,30 +920,12 @@ async fn start_claude_session(
     // Build an enriched PATH for the child process
     let enriched_path = build_enriched_path();
 
-    // Resolve custom environment variables for API provider override (TK-303)
-    let mut resolved_env = resolve_custom_env(params.custom_env.as_ref())?;
+    // Resolve provider environment variables from provider_id
+    let (mut resolved_env, inherited_keys_to_remove, provider_extra_args) =
+        resolve_provider_env(params.provider_id.as_deref())?;
 
-    // When TOKENICODE injects custom API env vars, we must prevent conflicts from
-    // two sources: (1) shell-inherited env vars and (2) Claude CLI's own
-    // ~/.claude/settings.json `env` section.  Both can shadow our values.
-    // Collect the keys to env_remove from the child process, and strip them from
-    // settings.json so Claude CLI doesn't re-apply them after startup.
-    let has_custom_api_env = resolved_env.contains_key("ANTHROPIC_BASE_URL")
-        || resolved_env.contains_key("ANTHROPIC_API_KEY");
-    let _stripped_settings = if has_custom_api_env {
-        strip_anthropic_env_from_cli_settings()
-    } else {
-        vec![]
-    };
-    let inherited_keys_to_remove: Vec<String> = if has_custom_api_env {
-        // Remove all ANTHROPIC_* from parent env that we don't explicitly set
-        std::env::vars()
-            .filter(|(k, _)| k.starts_with("ANTHROPIC_") && !resolved_env.contains_key(k))
-            .map(|(k, _)| k)
-            .collect()
-    } else {
-        vec![]
-    };
+    // Append provider-specific CLI args (e.g. --setting-sources project,local)
+    args.extend(provider_extra_args);
 
     // Inject effort level env var for non-off thinking levels
     if thinking_level != "off" {
@@ -1058,6 +940,14 @@ async fn start_claude_session(
     // when generating large files (e.g. HTML presentations).
     resolved_env.entry("CLAUDE_CODE_MAX_OUTPUT_TOKENS".to_string())
         .or_insert_with(|| "64000".to_string());
+
+    // Enable CLI-managed file checkpoints for rewind functionality.
+    // With --replay-user-messages, user messages in stream output carry a uuid
+    // that identifies the checkpoint. The rewind_files command uses these UUIDs.
+    resolved_env.insert(
+        "CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING".to_string(),
+        "1".to_string(),
+    );
 
     // On Windows, auto-detect git-bash and inject CLAUDE_CODE_GIT_BASH_PATH
     // so Claude Code CLI can find bash.exe without user manual configuration.
@@ -1075,6 +965,20 @@ async fn start_claude_session(
                      or install Git for Windows manually: https://git-scm.com/downloads/win"
                     .to_string()
                 );
+            }
+        }
+    }
+
+    // Inject proxy env vars from login shell if not already in the process environment.
+    // GUI apps launched from Finder/Dock don't inherit shell proxy settings, causing
+    // API calls to fail in regions that require a proxy (e.g. China → Anthropic API).
+    #[cfg(not(target_os = "windows"))]
+    {
+        let proxy_env = login_shell_proxy_env();
+        for (k, v) in proxy_env {
+            // Only inject if neither the resolved_env nor the current process env has it
+            if !resolved_env.contains_key(k) && std::env::var(k).is_err() {
+                resolved_env.insert(k.clone(), v.clone());
             }
         }
     }
@@ -1218,6 +1122,7 @@ async fn start_claude_session(
     };
 
     let pid = child.id().unwrap_or(0);
+    eprintln!("[TOKENICODE] CLI spawned: pid={}, permission_mode={}, args={:?}", pid, permission_mode, &args);
 
     // Capture stdin and store in StdinManager for sending follow-up messages
     let stdin = child.stdin.take()
@@ -1247,28 +1152,129 @@ async fn start_claude_session(
         Ok(())
     }
 
-    // Spawn stdout reader — streams NDJSON to frontend
+    // Spawn stdout reader — streams NDJSON to frontend, intercepts control_request
     let app_clone = app.clone();
     let sid_clone = sid.clone();
+    let stdin_clone = stdin_mgr.inner().clone();
+    let is_bypass = permission_mode == "bypassPermissions";
     tokio::spawn(async move {
-        let event_name = format!("claude:stream:{}", sid_clone);
+        let stream_event = format!("claude:stream:{}", sid_clone);
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
         while let Ok(Some(line)) = lines.next_line().await {
-            if let Ok(json) = serde_json::from_str::<Value>(&line) {
-                let _ = emit_to_frontend(&app_clone, &event_name, json);
+            // Parse every line as a JSON Value first (avoids serde enum pitfalls)
+            let json = match serde_json::from_str::<Value>(&line) {
+                Ok(v) => v,
+                Err(_) => continue, // skip non-JSON lines
+            };
+
+            // Intercept control_request messages for SDK protocol routing
+            if !is_bypass {
+                if let Some("control_request") = json.get("type").and_then(|v| v.as_str()) {
+                    // Extract request_id (handle both snake_case and camelCase)
+                    let request_id = json.get("request_id")
+                        .or_else(|| json.get("requestId"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string();
+
+                    if let Some(request) = json.get("request") {
+                        let subtype = request.get("subtype").and_then(|v| v.as_str()).unwrap_or_default();
+                        match subtype {
+                            "can_use_tool" => {
+                                let tool_name = request.get("tool_name")
+                                    .or_else(|| request.get("toolName"))
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or_default()
+                                    .to_string();
+                                let input = request.get("input").cloned().unwrap_or(Value::Null);
+                                let description = request.get("description")
+                                    .and_then(|v| v.as_str())
+                                    .map(String::from);
+                                let tool_use_id = request.get("tool_use_id")
+                                    .or_else(|| request.get("toolUseId"))
+                                    .and_then(|v| v.as_str())
+                                    .map(String::from);
+
+                                eprintln!("[TOKENICODE] permission request: tool={} request_id={}", tool_name, request_id);
+
+                                // Emit as a special stream message (reuses the working stream channel)
+                                let perm_payload = serde_json::json!({
+                                    "type": "tokenicode_permission_request",
+                                    "request_id": request_id,
+                                    "tool_name": tool_name,
+                                    "input": input,
+                                    "description": description,
+                                    "tool_use_id": tool_use_id,
+                                });
+                                let _ = emit_to_frontend(&app_clone, &stream_event, perm_payload);
+                                continue; // Don't forward to stream as normal msg
+                            }
+                            "hook_callback" => {
+                                // Auto-allow hook callbacks (TOKENICODE doesn't manage hooks)
+                                let auto_resp = serde_json::json!({
+                                    "type": "control_response",
+                                    "response": {
+                                        "subtype": "success",
+                                        "request_id": request_id,
+                                        "response": { "behavior": "allow" }
+                                    }
+                                });
+                                let _ = stdin_clone.send(&sid_clone, &auto_resp.to_string()).await;
+                                continue;
+                            }
+                            other => {
+                                // Unknown control request subtype — auto-allow to not block CLI
+                                eprintln!("[TOKENICODE] control_request/{}: auto-allowing (request_id={})", other, request_id);
+                                let auto_resp = serde_json::json!({
+                                    "type": "control_response",
+                                    "response": {
+                                        "subtype": "success",
+                                        "request_id": request_id,
+                                        "response": { "behavior": "allow" }
+                                    }
+                                });
+                                let _ = stdin_clone.send(&sid_clone, &auto_resp.to_string()).await;
+                                continue;
+                            }
+                        }
+                    } else {
+                        eprintln!("[TOKENICODE] control_request missing 'request' field: {}", &line[..line.len().min(200)]);
+                        // Auto-allow to avoid blocking CLI
+                        let auto_resp = serde_json::json!({
+                            "type": "control_response",
+                            "response": {
+                                "subtype": "success",
+                                "request_id": request_id,
+                                "response": { "behavior": "allow" }
+                            }
+                        });
+                        let _ = stdin_clone.send(&sid_clone, &auto_resp.to_string()).await;
+                        continue;
+                    }
+                }
             }
+
+            // Normal message — forward to frontend stream
+            let _ = emit_to_frontend(&app_clone, &stream_event, json);
         }
         // Emit process_exit on the stream channel (primary detection)
         let _ = emit_to_frontend(
             &app_clone,
-            &event_name,
+            &stream_event,
             serde_json::json!({"type": "process_exit"}),
         );
         // Also emit on the dedicated exit channel (backup detection via onSessionExit)
         let _ = emit_to_frontend(
             &app_clone,
             &format!("claude:exit:{}", sid_clone),
+            serde_json::json!(null),
+        );
+
+        // Notify frontend that session list may have changed
+        let _ = emit_to_frontend(
+            &app_clone,
+            "sessions:changed",
             serde_json::json!(null),
         );
     });
@@ -1330,6 +1336,87 @@ async fn send_raw_stdin(
     message: String,
 ) -> Result<(), String> {
     stdin_mgr.send(&session_id, &message).await
+}
+
+/// Respond to a structured permission request from the SDK control protocol.
+/// Called by the frontend when the user approves or denies a tool use.
+///
+/// IMPORTANT: The SDK always sends `updatedInput` with the original tool input when allowing.
+/// CLI internally relies on this field. For deny, only `message` is included.
+/// Format mirrors exactly what the SDK constructs (from reverse-engineered source).
+#[tauri::command]
+async fn respond_permission(
+    stdin_mgr: State<'_, StdinManager>,
+    session_id: String,
+    request_id: String,
+    allow: bool,
+    message: Option<String>,
+    tool_use_id: Option<String>,
+    updated_input: Option<Value>,
+) -> Result<(), String> {
+    let mut inner = serde_json::Map::new();
+    if allow {
+        inner.insert("behavior".into(), Value::String("allow".into()));
+        // SDK always includes updatedInput with the original tool input on allow
+        inner.insert("updatedInput".into(), updated_input.unwrap_or(Value::Object(serde_json::Map::new())));
+    } else {
+        inner.insert("behavior".into(), Value::String("deny".into()));
+        inner.insert("message".into(), Value::String(
+            message.unwrap_or_else(|| "User denied this operation".into()),
+        ));
+    }
+    if let Some(ref tuid) = tool_use_id {
+        inner.insert("toolUseID".into(), Value::String(tuid.clone()));
+    }
+
+    let resp = serde_json::json!({
+        "type": "control_response",
+        "response": {
+            "subtype": "success",
+            "request_id": request_id,
+            "response": inner,
+        }
+    });
+    let json_str = resp.to_string();
+    stdin_mgr.send(&session_id, &json_str).await
+}
+
+/// Send a runtime control request to the CLI (set_permission_mode, set_model, interrupt).
+#[tauri::command]
+async fn send_control_request(
+    stdin_mgr: State<'_, StdinManager>,
+    session_id: String,
+    subtype: String,
+    payload: Value,
+) -> Result<(), String> {
+    use protocol::ControlRequest;
+    let req = match subtype.as_str() {
+        "interrupt" => ControlRequest::interrupt(),
+        "set_permission_mode" => {
+            let mode = payload.get("mode")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing 'mode' in payload")?
+                .to_string();
+            ControlRequest::set_permission_mode(mode)
+        }
+        "set_model" => {
+            let model = payload.get("model")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            ControlRequest::set_model(model)
+        }
+        "rewind_files" => {
+            let user_message_id = payload.get("user_message_id")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing 'user_message_id' in payload")?
+                .to_string();
+            ControlRequest::rewind_files(user_message_id)
+        }
+        other => return Err(format!("Unknown control request subtype: {}", other)),
+    };
+    let json_str = serde_json::to_string(&req)
+        .map_err(|e| format!("Failed to serialize control request: {}", e))?;
+    stdin_mgr.send(&session_id, &json_str).await
 }
 
 #[tauri::command]
@@ -1966,6 +2053,12 @@ async fn delete_file(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn create_directory(path: String) -> Result<(), String> {
+    std::fs::create_dir_all(&path)
+        .map_err(|e| format!("Cannot create directory: {}", e))
+}
+
+#[tauri::command]
 async fn export_session_markdown(path: String, output_path: String) -> Result<(), String> {
     use std::io::{BufRead, Write};
     let file = std::fs::File::open(&path)
@@ -2139,7 +2232,7 @@ async fn watch_directory(
     state: State<'_, WatcherManager>,
     path: String,
 ) -> Result<(), String> {
-    use notify::{Watcher, RecursiveMode, Config, Event, EventKind};
+    use notify::{Watcher, RecursiveMode, Event, EventKind};
 
     // Stop existing watcher for this path if any
     {
@@ -2610,36 +2703,30 @@ async fn list_all_commands(cwd: Option<String>) -> Result<Vec<UnifiedCommand>, S
 
     // 1. Built-in commands: (name, description, has_args, execution)
     // execution: "ui" = handled in frontend, "cli" = run as separate CLI process, "session" = needs active CLI session
-    let builtins: [(&str, &str, bool, &str); 29] = [
+    let builtins: [(&str, &str, bool, &str); 23] = [
         ("/ask", "Ask a question without making changes", false, "ui"),
         ("/bug", "Report a bug with Claude Code", false, "ui"),
         ("/clear", "Clear conversation history", false, "ui"),
         ("/code", "Switch to code mode (default)", false, "ui"),
         ("/compact", "Compact conversation to reduce context", false, "session"),
-        ("/config", "Open settings panel", false, "ui"),
         ("/context", "Manage context files and directories", false, "session"),
         ("/cost", "Show session cost and token usage", false, "ui"),
         ("/doctor", "Check Claude Code health status", false, "session"),
-        ("/exit", "Close the application", false, "ui"),
         ("/export", "Export conversation to markdown", true, "ui"),
         ("/help", "Show available commands", false, "ui"),
         ("/init", "Initialize project configuration", false, "session"),
         ("/mcp", "Manage MCP server connections", false, "session"),
         ("/memory", "View or edit MEMORY.md files", false, "session"),
-        ("/model", "Switch the AI model", false, "ui"),
         ("/permissions", "View and manage tool permissions", false, "session"),
         ("/plan", "Enter plan mode for complex tasks", false, "ui"),
         ("/rename", "Rename the current session", true, "ui"),
-        ("/resume", "Resume a previous session", true, "ui"),
         ("/rewind", "Rewind conversation to a previous turn", false, "ui"),
         ("/stats", "Show session statistics", false, "session"),
-        ("/status", "Show session status", false, "ui"),
         ("/statusline", "Configure status line display", false, "session"),
         ("/tasks", "View running background tasks", false, "session"),
         ("/teleport", "Teleport context to a new session", false, "session"),
-        ("/theme", "Toggle light/dark/system theme", false, "ui"),
         ("/todos", "View todo items from the session", false, "session"),
-        ("/usage", "Show detailed token usage breakdown", false, "session"),
+        ("/usage", "Show detailed token usage breakdown", false, "ui"),
     ];
     for (name, desc, has_args, execution) in &builtins {
         commands.push(UnifiedCommand {
@@ -2876,44 +2963,40 @@ async fn run_git_command(cwd: String, args: Vec<String>) -> Result<String, Strin
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
-/// Read multiple files and return their contents as a map.
-/// Used by the snapshot system to capture file states before each turn.
+/// Rewind files to a CLI checkpoint via `claude --resume <session_id> --rewind-files <uuid>`.
+/// This delegates file restoration to the CLI's native checkpoint system.
 #[tauri::command]
-async fn snapshot_files(paths: Vec<String>) -> Result<HashMap<String, String>, String> {
-    let mut result = HashMap::new();
-    for path in &paths {
-        match tokio::fs::read_to_string(path).await {
-            Ok(content) => { result.insert(path.clone(), content); }
-            Err(_) => { /* File doesn't exist yet — skip */ }
-        }
-    }
-    Ok(result)
-}
+async fn rewind_files(session_id: String, checkpoint_uuid: String, cwd: String) -> Result<String, String> {
+    let claude_bin = find_claude_binary().unwrap_or_else(|| {
+        #[cfg(target_os = "windows")]
+        { "claude.cmd".to_string() }
+        #[cfg(not(target_os = "windows"))]
+        { "claude".to_string() }
+    });
 
-/// Restore files from a snapshot map. Files in the map are overwritten.
-/// Files that existed in the snapshot but not in `deleted_paths` are restored.
-/// Files in `deleted_paths` are removed (they were created during the turn).
-#[tauri::command]
-async fn restore_snapshot(
-    snapshot: HashMap<String, String>,
-    created_paths: Vec<String>,
-) -> Result<(), String> {
-    // 1. Restore files from snapshot
-    for (path, content) in &snapshot {
-        if let Some(parent) = std::path::Path::new(path).parent() {
-            tokio::fs::create_dir_all(parent).await
-                .map_err(|e| format!("Failed to create dir: {}", e))?;
-        }
-        tokio::fs::write(path, content).await
-            .map_err(|e| format!("Failed to restore {}: {}", path, e))?;
-    }
+    let enriched_path = build_enriched_path();
 
-    // 2. Remove files that were created during the turn
-    for path in &created_paths {
-        let _ = tokio::fs::remove_file(path).await; // ignore errors if already gone
-    }
+    let output = tokio::process::Command::new(&claude_bin)
+        .args(&[
+            "--resume", &session_id,
+            "--rewind-files", &checkpoint_uuid,
+        ])
+        .current_dir(&cwd)
+        .env("PATH", &enriched_path)
+        .env("CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING", "1")
+        .env_remove("CLAUDECODE")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run claude --rewind-files: {}", e))?;
 
-    Ok(())
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!("rewind_files failed: {}", stderr))
+    }
 }
 
 // ── Setup: CLI Detection, Installation & Login ──────────────────────────────
@@ -3819,7 +3902,7 @@ async fn download_with_progress(
 fn extract_node_archive(
     data: &[u8],
     ext: &str,
-    archive_name: &str,
+    _archive_name: &str,
     install_dir: &std::path::Path,
 ) -> Result<(), String> {
     match ext {
@@ -4083,6 +4166,158 @@ async fn save_custom_previews(data: Value) -> Result<(), String> {
         .map_err(|e| format!("Failed to write session names: {}", e))
 }
 
+fn tokenicode_data_path(filename: &str) -> Result<std::path::PathBuf, String> {
+    let home = dirs::home_dir().ok_or("Cannot find home dir")?;
+    let dir = home.join(".tokenicode");
+    if !dir.exists() {
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("Failed to create .tokenicode dir: {}", e))?;
+    }
+    Ok(dir.join(filename))
+}
+
+/// Load pinned session IDs from disk.
+#[tauri::command]
+async fn load_pinned_sessions() -> Result<Value, String> {
+    let path = tokenicode_data_path("pinned.json")?;
+    if !path.exists() {
+        return Ok(serde_json::json!([]));
+    }
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read pinned sessions: {}", e))?;
+    serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse pinned sessions: {}", e))
+}
+
+/// Save pinned session IDs to disk.
+#[tauri::command]
+async fn save_pinned_sessions(data: Value) -> Result<(), String> {
+    let path = tokenicode_data_path("pinned.json")?;
+    let content = serde_json::to_string_pretty(&data)
+        .map_err(|e| format!("Failed to serialize pinned sessions: {}", e))?;
+    std::fs::write(&path, content)
+        .map_err(|e| format!("Failed to write pinned sessions: {}", e))
+}
+
+/// Load archived session IDs from disk.
+#[tauri::command]
+async fn load_archived_sessions() -> Result<Value, String> {
+    let path = tokenicode_data_path("archived.json")?;
+    if !path.exists() {
+        return Ok(serde_json::json!([]));
+    }
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read archived sessions: {}", e))?;
+    serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse archived sessions: {}", e))
+}
+
+/// Save archived session IDs to disk.
+#[tauri::command]
+async fn save_archived_sessions(data: Value) -> Result<(), String> {
+    let path = tokenicode_data_path("archived.json")?;
+    let content = serde_json::to_string_pretty(&data)
+        .map_err(|e| format!("Failed to serialize archived sessions: {}", e))?;
+    std::fs::write(&path, content)
+        .map_err(|e| format!("Failed to write archived sessions: {}", e))
+}
+
+/// Generate a short AI title for a session by spawning a separate Claude CLI process.
+/// Uses Haiku model for fast, cheap title generation. Completely isolated from the
+/// main conversation channel — spawns a new process that exits after one response.
+#[tauri::command]
+async fn generate_session_title(
+    user_message: String,
+    assistant_message: String,
+) -> Result<String, String> {
+    // Safe UTF-8 truncation (don't slice mid-character)
+    fn safe_truncate(s: &str, max_bytes: usize) -> &str {
+        if s.len() <= max_bytes { return s; }
+        let mut end = max_bytes;
+        while end > 0 && !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        &s[..end]
+    }
+
+    let user_msg = safe_truncate(&user_message, 500);
+    let asst_msg = safe_truncate(&assistant_message, 500);
+
+    let prompt = format!(
+        "Generate a very short title (5-10 words, in the same language as the conversation) for this conversation. Reply with ONLY the title text, no quotes, no extra text, no explanation.\n\nUser: {}\n\nAssistant: {}",
+        user_msg, asst_msg
+    );
+
+    // Resolve claude binary
+    let claude_bin = find_claude_binary()
+        .ok_or_else(|| "Claude CLI not found".to_string())?;
+
+    let enriched_path = build_enriched_path();
+
+    // Spawn a one-shot CLI process: -p for single prompt, --output-format json for structured output
+    let args = vec![
+        "-p".to_string(), prompt,
+        "--model".to_string(), "claude-haiku-4-5-20251001".to_string(),
+        "--output-format".to_string(), "json".to_string(),
+        "--max-turns".to_string(), "1".to_string(),
+        "--dangerously-skip-permissions".to_string(),
+    ];
+
+    let mut cmd = tokio::process::Command::new(&claude_bin);
+    cmd.args(&args)
+        .env("PATH", &enriched_path)
+        .env_remove("CLAUDECODE")       // Allow nested CLI launch
+        .env_remove("CLAUDE_CODE_ENTRY") // Remove any other nesting guards
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    // Inject proxy env vars from login shell for GUI apps
+    #[cfg(not(target_os = "windows"))]
+    {
+        let proxy_env = login_shell_proxy_env();
+        for (k, v) in proxy_env {
+            if std::env::var(k).is_err() {
+                cmd.env(k, v);
+            }
+        }
+    }
+
+    let output = cmd.spawn()
+        .map_err(|e| format!("Failed to spawn claude for title gen: {}", e))?
+        .wait_with_output()
+        .await
+        .map_err(|e| format!("Failed to wait for title gen process: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Title gen process failed: {}", stderr.chars().take(200).collect::<String>()));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Parse JSON output — Claude CLI --output-format json returns:
+    // { "type": "result", "result": "the title text", ... }
+    if let Ok(json) = serde_json::from_str::<Value>(stdout.trim()) {
+        let title = json.get("result")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .trim_matches('"')
+            .to_string();
+        if title.is_empty() {
+            return Err("Empty title generated".to_string());
+        }
+        return Ok(title);
+    }
+
+    // Fallback: if not valid JSON, try to use raw stdout as title
+    let raw = stdout.trim().trim_matches('"').to_string();
+    if raw.is_empty() || raw.len() > 200 {
+        return Err("Could not parse title from CLI output".to_string());
+    }
+    Ok(raw)
+}
+
 /// Open a native terminal window to run `claude login`.
 /// On macOS: uses osascript to open Terminal.app.
 /// On Linux: tries common terminal emulators.
@@ -4209,6 +4444,20 @@ pub fn run() {
             // titleBarStyle: "Overlay" in tauri.conf.json handles macOS traffic lights
             // and native titlebar drag/double-click-to-maximize automatically.
 
+            // Propagate proxy env vars from login shell to the process environment
+            // so that ALL HTTP clients (including the updater plugin) can reach
+            // external services through the proxy.
+            #[cfg(not(target_os = "windows"))]
+            {
+                let proxy_env = login_shell_proxy_env();
+                for (k, v) in proxy_env {
+                    if std::env::var(k).is_err() {
+                        // SAFETY: called once during single-threaded setup
+                        unsafe { std::env::set_var(k, v); }
+                    }
+                }
+            }
+
             // Register updater plugin (desktop only)
             #[cfg(desktop)]
             app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
@@ -4233,6 +4482,7 @@ pub fn run() {
             copy_file,
             rename_file,
             delete_file,
+            create_directory,
             open_in_vscode,
             reveal_in_finder,
             open_with_default_app,
@@ -4253,8 +4503,7 @@ pub fn run() {
             toggle_skill_enabled,
             list_all_commands,
             run_git_command,
-            snapshot_files,
-            restore_snapshot,
+            rewind_files,
             set_dock_icon,
             run_claude_command,
             check_claude_cli,
@@ -4266,12 +4515,16 @@ pub fn run() {
             open_terminal_login,
             load_custom_previews,
             save_custom_previews,
-            save_api_key,
-            load_api_key,
-            delete_api_key,
-            test_api_connection,
-            save_api_settings,
-            load_api_settings,
+            load_pinned_sessions,
+            save_pinned_sessions,
+            load_archived_sessions,
+            save_archived_sessions,
+            generate_session_title,
+            load_providers,
+            save_providers,
+            test_provider_connection,
+            respond_permission,
+            send_control_request,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

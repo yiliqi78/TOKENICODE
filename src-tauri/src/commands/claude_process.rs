@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, Command};
+use tokio::io::AsyncWriteExt;
+use tokio::process::{Child, ChildStdin};
 use tokio::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -12,6 +12,7 @@ pub struct SessionInfo {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct ManagedProcess {
     pub child: Child,
     pub session_id: String,
@@ -23,7 +24,7 @@ pub struct ProcessManager {
 }
 
 /// Manages stdin handles for sending user responses to Claude processes
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct StdinManager {
     handles: Arc<Mutex<HashMap<String, ChildStdin>>>,
 }
@@ -94,7 +95,12 @@ pub struct StartSessionParams {
     pub thinking_level: Option<String>,
     /// Session mode: "ask", "plan", or "auto" (default).
     pub session_mode: Option<String>,
-    /// Custom environment variables for API provider override.
-    /// Used by TK-303 to inject ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN, etc.
-    pub custom_env: Option<HashMap<String, String>>,
+    /// Active provider ID from providers.json.
+    /// When set, the provider's env vars are injected into the CLI process.
+    pub provider_id: Option<String>,
+    /// Permission mode for CLI. Maps from frontend session modes:
+    ///   "acceptEdits" (code mode) | "default" (ask mode) | "plan" | "bypassPermissions" (bypass)
+    /// When not "bypassPermissions", enables --permission-prompt-tool stdio for structured
+    /// permission requests via the SDK control protocol.
+    pub permission_mode: Option<String>,
 }

@@ -27,7 +27,7 @@ export function SecondaryPanel() {
             <button
               key={tab.id}
               onClick={() => setTab(tab.id)}
-              className={`px-2.5 py-1.5 rounded-lg text-sm font-medium
+              className={`px-2.5 py-1.5 rounded-lg text-[13px] font-medium
                 transition-smooth flex items-center gap-1.5 whitespace-nowrap flex-shrink-0
                 ${activeTab === tab.id
                   ? 'bg-accent/10 text-accent'

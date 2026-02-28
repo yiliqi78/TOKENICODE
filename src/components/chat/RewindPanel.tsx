@@ -62,27 +62,26 @@ export function RewindPanel({ onClose }: RewindPanelProps) {
   }, [onClose]);
 
   // --- Action definitions ---
-  const actions: { label: string; action: RewindAction | 'cancel' }[] = [
-    { label: t('rewind.restoreAll'), action: 'restore_all' },
+  const hasCheckpoint = !!selectedTurn?.checkpointUuid;
+  const actions: { label: string; action: RewindAction | 'cancel'; disabled?: boolean; hint?: string }[] = [
+    { label: t('rewind.restoreAll'), action: 'restore_all', disabled: !hasCheckpoint, hint: !hasCheckpoint ? t('rewind.noCheckpoint') : undefined },
     { label: t('rewind.restoreConversation'), action: 'restore_conversation' },
-    { label: t('rewind.restoreCode'), action: 'restore_code' },
+    { label: t('rewind.restoreCode'), action: 'restore_code', disabled: !hasCheckpoint, hint: !hasCheckpoint ? t('rewind.noCheckpoint') : undefined },
     { label: t('rewind.summarize'), action: 'summarize' },
     { label: t('rewind.cancel'), action: 'cancel' },
   ];
 
   // --- Execute action by index ---
-  const doAction = useCallback(async (idx: number) => {
+  const doAction = useCallback((idx: number) => {
     if (!selectedTurn) return;
     const a = actions[idx];
-    if (!a) return;
+    if (!a || a.disabled) return;
 
-    if (a.action === 'cancel') {
-      onClose();
-      return;
-    }
-
-    await executeRewind(selectedTurn, a.action);
+    // Close panel immediately for snappy UX, then run rewind async
     onClose();
+    if (a.action !== 'cancel') {
+      executeRewind(selectedTurn, a.action);
+    }
   }, [selectedTurn, executeRewind, onClose]);
 
   // --- Keyboard navigation (capture phase to intercept before InputBar) ---
@@ -226,32 +225,40 @@ export function RewindPanel({ onClose }: RewindPanelProps) {
                 : actionIndex === i;
               const isCancel = a.action === 'cancel';
               const isPrimary = i === 1; // "Restore conversation" is highlighted
+              const isDisabled = !!a.disabled;
 
               return (
                 <button
                   key={i}
-                  onClick={() => doAction(i)}
+                  onClick={() => !isDisabled && doAction(i)}
                   onMouseEnter={() => setHoveredActionIdx(i)}
+                  disabled={isDisabled}
+                  title={a.hint}
                   className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg
                     text-xs transition-smooth
-                    ${isPrimary
-                      ? isActive
-                        ? 'font-medium text-accent bg-accent/15 border border-accent/30 ring-1 ring-accent/20'
-                        : 'font-medium text-accent bg-accent/10 border border-accent/20'
-                      : isCancel
+                    ${isDisabled
+                      ? 'opacity-40 cursor-not-allowed text-text-muted'
+                      : isPrimary
                         ? isActive
-                          ? 'text-text-primary bg-bg-tertiary ring-1 ring-border-focus'
-                          : 'text-text-muted'
-                        : isActive
-                          ? 'text-text-primary bg-bg-secondary ring-1 ring-border-focus'
-                          : 'text-text-muted'
+                          ? 'font-medium text-accent bg-accent/15 border border-accent/30 ring-1 ring-accent/20'
+                          : 'font-medium text-accent bg-accent/10 border border-accent/20'
+                        : isCancel
+                          ? isActive
+                            ? 'text-text-primary bg-bg-tertiary ring-1 ring-border-focus'
+                            : 'text-text-muted'
+                          : isActive
+                            ? 'text-text-primary bg-bg-secondary ring-1 ring-border-focus'
+                            : 'text-text-muted'
                     }`}
                 >
-                  <span className={`w-5 text-center ${isPrimary ? '' : 'text-text-tertiary'}`}>
+                  <span className={`w-5 text-center ${isPrimary && !isDisabled ? '' : 'text-text-tertiary'}`}>
                     {i + 1}.
                   </span>
                   <span>{a.label}</span>
-                  {isPrimary && (
+                  {isDisabled && a.hint && (
+                    <span className="ml-auto text-[10px] opacity-60">{a.hint}</span>
+                  )}
+                  {isPrimary && !isDisabled && (
                     <span className="ml-auto text-[10px] opacity-60">←</span>
                   )}
                 </button>
