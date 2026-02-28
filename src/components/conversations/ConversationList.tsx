@@ -194,8 +194,10 @@ export function ConversationList() {
   const filtered = useMemo(() => {
     let result = sessions;
 
-    // Exclude archived unless toggle on
-    if (!showArchived) {
+    // Archive filter: OFF = hide archived, ON = show ONLY archived
+    if (showArchived) {
+      result = result.filter((s) => archivedSessions.has(s.id));
+    } else {
       result = result.filter((s) => !archivedSessions.has(s.id));
     }
 
@@ -543,7 +545,7 @@ export function ConversationList() {
       {/* Search + Filters */}
       <div className="px-1 mb-2">
         <div className="flex items-center gap-2">
-          <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-xl
+          <div className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 rounded-xl
             bg-bg-secondary border border-border-subtle
             focus-within:border-border-focus transition-smooth">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"

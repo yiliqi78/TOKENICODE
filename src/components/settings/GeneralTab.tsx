@@ -28,40 +28,28 @@ const COLOR_THEMES: { id: ColorTheme; labelKey: string; preview: string; preview
   },
 ];
 
-/* Mini app preview showing a simplified chat interface */
+/* Mini app preview — simplified chat interface thumbnail */
 function ThemePreview({ color }: { color: string }) {
   return (
-    <div className="w-full aspect-[4/3] rounded-md overflow-hidden border border-black/[0.06] bg-[#f8f8f8] dark:bg-[#1a1a1a] dark:border-white/[0.06] flex">
+    <div className="w-full aspect-[5/3] rounded-lg overflow-hidden border border-black/[0.06] bg-[#f5f5f5] dark:bg-[#1a1a1a] dark:border-white/[0.06] flex">
       {/* Sidebar */}
-      <div className="w-[16%] border-r border-black/[0.06] dark:border-white/[0.06] p-1 flex flex-col gap-0.5">
-        <div className="w-full h-1 rounded-full bg-black/[0.06] dark:bg-white/[0.08]" />
-        <div
-          className="w-full h-1 rounded-full"
-          style={{ background: color, opacity: 0.25 }}
-        />
-        <div className="w-full h-1 rounded-full bg-black/[0.06] dark:bg-white/[0.08]" />
+      <div className="w-[22%] border-r border-black/[0.06] dark:border-white/[0.06] p-2 flex flex-col gap-1.5">
+        <div className="w-full h-2 rounded-full bg-black/[0.07] dark:bg-white/[0.08]" />
+        <div className="w-[80%] h-2 rounded-full" style={{ background: color, opacity: 0.3 }} />
+        <div className="w-[60%] h-2 rounded-full bg-black/[0.05] dark:bg-white/[0.06]" />
       </div>
       {/* Main content */}
-      <div className="flex-1 flex flex-col p-1.5 gap-1">
-        {/* Header */}
-        <div className="flex items-center gap-0.5">
-          <div className="w-1.5 h-1.5 rounded-full" style={{ background: color, opacity: 0.5 }} />
-          <div className="flex-1 h-1 rounded-full bg-black/[0.08] dark:bg-white/[0.1]" />
-        </div>
+      <div className="flex-1 flex flex-col p-2.5 gap-2">
         {/* Messages */}
-        <div className="flex-1 flex flex-col gap-0.5 justify-center">
-          <div className="w-[70%] h-1.5 rounded-sm bg-black/[0.05] dark:bg-white/[0.06]" />
-          <div className="w-[50%] h-1.5 rounded-sm bg-black/[0.05] dark:bg-white/[0.06]" />
-          <div className="w-[80%] h-1.5 rounded-sm bg-black/[0.05] dark:bg-white/[0.06] self-end" />
-          <div className="w-[60%] h-1.5 rounded-sm bg-black/[0.05] dark:bg-white/[0.06] self-end" />
+        <div className="flex-1 flex flex-col gap-1.5 justify-center">
+          <div className="w-[65%] h-2.5 rounded bg-black/[0.06] dark:bg-white/[0.07]" />
+          <div className="w-[45%] h-2.5 rounded bg-black/[0.06] dark:bg-white/[0.07]" />
+          <div className="w-[75%] h-2.5 rounded bg-black/[0.04] dark:bg-white/[0.05] self-end" />
         </div>
         {/* Input bar */}
-        <div className="flex items-center gap-0.5">
-          <div className="flex-1 h-2 rounded-sm bg-black/[0.04] dark:bg-white/[0.06] border border-black/[0.06] dark:border-white/[0.08]" />
-          <div
-            className="w-2 h-2 rounded-sm flex-shrink-0"
-            style={{ background: color }}
-          />
+        <div className="flex items-center gap-1">
+          <div className="flex-1 h-3.5 rounded bg-black/[0.04] dark:bg-white/[0.06] border border-black/[0.06] dark:border-white/[0.08]" />
+          <div className="w-3.5 h-3.5 rounded flex-shrink-0" style={{ background: color }} />
         </div>
       </div>
     </div>
@@ -82,41 +70,30 @@ export function GeneralTab() {
   const setFontSize = useSettingsStore((s) => s.setFontSize);
 
   return (
-    <div className="flex gap-10">
-      {/* Left: Theme Color showcase */}
-      <div className="flex-1 min-w-0">
-        <h3 className="text-[13px] font-medium text-text-primary mb-4">{t('settings.colorTheme')}</h3>
-        <div className="grid grid-cols-2 gap-3">
+    <div className="space-y-6">
+      {/* Theme Color — single row of 4 */}
+      <div>
+        <h3 className="text-[13px] font-medium text-text-primary mb-3">{t('settings.colorTheme')}</h3>
+        <div className="grid grid-cols-4 gap-3">
           {COLOR_THEMES.map((ct) => (
             <button
               key={ct.id}
               onClick={() => setColorTheme(ct.id)}
-              className={`group relative rounded-xl p-2.5 pb-2 transition-smooth text-left
+              title={t(ct.labelKey)}
+              className={`group relative rounded-xl p-2 transition-smooth text-left
                 ${colorTheme === ct.id
                   ? 'ring-2 ring-accent ring-offset-2 ring-offset-bg-card bg-accent/[0.03]'
                   : 'hover:scale-[1.02] border border-border-subtle hover:border-black/10 dark:hover:border-white/10'
                 }`}
             >
-              {/* Mini UI preview */}
               <ThemePreview color={ct.preview} />
-              {/* Label */}
-              <div className="flex items-center gap-1.5 mt-2">
-                <div
-                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                  style={{ background: ct.preview }}
-                />
-                <span className={`text-xs font-medium
-                  ${colorTheme === ct.id ? 'text-accent' : 'text-text-primary'}`}>
-                  {t(ct.labelKey)}
-                </span>
-              </div>
             </button>
           ))}
         </div>
       </div>
 
-      {/* Right: Other settings */}
-      <div className="w-[220px] flex-shrink-0 space-y-6">
+      {/* Settings row */}
+      <div className="flex items-start gap-8 flex-wrap">
         {/* Appearance */}
         <div>
           <h3 className="text-[13px] font-medium text-text-primary mb-2">{t('settings.appearance')}</h3>

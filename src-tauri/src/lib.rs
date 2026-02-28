@@ -401,6 +401,48 @@ fn login_shell_extra_path() -> &'static str {
     })
 }
 
+/// Capture proxy-related environment variables from the user's login shell.
+/// GUI apps launched from Finder/Dock don't inherit shell env vars (including
+/// proxy settings), which causes API requests to fail in regions that require
+/// a proxy to reach Anthropic's API.
+#[cfg(not(target_os = "windows"))]
+fn login_shell_proxy_env() -> &'static HashMap<String, String> {
+    static CACHE: std::sync::OnceLock<HashMap<String, String>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        // Print proxy-related vars in key=value format, one per line.
+        // Must use -ic (interactive) instead of -l (login) because proxy vars
+        // are typically set in .zshrc/.bashrc which are only sourced for
+        // interactive shells, not non-interactive login shells.
+        let script = r#"for v in https_proxy http_proxy all_proxy no_proxy HTTPS_PROXY HTTP_PROXY ALL_PROXY NO_PROXY; do eval "val=\$$v"; if [ -n "$val" ]; then echo "$v=$val"; fi; done"#;
+        let output = std::process::Command::new(&shell)
+            .args(["-ic", script])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output();
+        let mut map = HashMap::new();
+        if let Ok(o) = output {
+            if o.status.success() {
+                let text = String::from_utf8_lossy(&o.stdout);
+                for line in text.lines() {
+                    if let Some((k, v)) = line.split_once('=') {
+                        let k = k.trim();
+                        let v = v.trim();
+                        if !k.is_empty() && !v.is_empty() {
+                            map.insert(k.to_string(), v.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        if !map.is_empty() {
+            eprintln!("login shell proxy env captured: {:?}", map.keys().collect::<Vec<_>>());
+        }
+        map
+    })
+}
+
 /// Build an enriched PATH that includes common binary locations
 fn build_enriched_path() -> String {
     let current = std::env::var("PATH").unwrap_or_default();
@@ -664,7 +706,37 @@ fn save_providers(data: ProvidersFile) -> Result<(), String> {
 
 #[tauri::command]
 async fn test_provider_connection(base_url: String, api_format: String, api_key: String, model: String) -> Result<String, String> {
-    let client = reqwest::Client::new();
+    // Build client with proxy from login shell if not in current env (GUI apps lack shell proxy vars)
+    let client = {
+        let mut builder = reqwest::Client::builder();
+        #[cfg(not(target_os = "windows"))]
+        {
+            let proxy_env = login_shell_proxy_env();
+            // reqwest reads https_proxy/http_proxy from env by default, but GUI apps don't have them.
+            // If current env lacks proxy but login shell has it, configure explicitly.
+            let has_proxy = std::env::var("https_proxy").is_ok()
+                || std::env::var("HTTPS_PROXY").is_ok()
+                || std::env::var("http_proxy").is_ok()
+                || std::env::var("HTTP_PROXY").is_ok()
+                || std::env::var("all_proxy").is_ok()
+                || std::env::var("ALL_PROXY").is_ok();
+            if !has_proxy {
+                // Try https_proxy / HTTPS_PROXY first, then all_proxy / ALL_PROXY
+                let proxy_url = proxy_env.get("https_proxy")
+                    .or_else(|| proxy_env.get("HTTPS_PROXY"))
+                    .or_else(|| proxy_env.get("all_proxy"))
+                    .or_else(|| proxy_env.get("ALL_PROXY"))
+                    .or_else(|| proxy_env.get("http_proxy"))
+                    .or_else(|| proxy_env.get("HTTP_PROXY"));
+                if let Some(url) = proxy_url {
+                    if let Ok(proxy) = reqwest::Proxy::all(url) {
+                        builder = builder.proxy(proxy);
+                    }
+                }
+            }
+        }
+        builder.build().unwrap_or_else(|_| reqwest::Client::new())
+    };
 
     let (_url, resp_result) = if api_format == "openai" {
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
@@ -893,6 +965,20 @@ async fn start_claude_session(
                      or install Git for Windows manually: https://git-scm.com/downloads/win"
                     .to_string()
                 );
+            }
+        }
+    }
+
+    // Inject proxy env vars from login shell if not already in the process environment.
+    // GUI apps launched from Finder/Dock don't inherit shell proxy settings, causing
+    // API calls to fail in regions that require a proxy (e.g. China → Anthropic API).
+    #[cfg(not(target_os = "windows"))]
+    {
+        let proxy_env = login_shell_proxy_env();
+        for (k, v) in proxy_env {
+            // Only inject if neither the resolved_env nor the current process env has it
+            if !resolved_env.contains_key(k) && std::env::var(k).is_err() {
+                resolved_env.insert(k.clone(), v.clone());
             }
         }
     }
@@ -4177,14 +4263,26 @@ async fn generate_session_title(
         "--dangerously-skip-permissions".to_string(),
     ];
 
-    let output = tokio::process::Command::new(&claude_bin)
-        .args(&args)
+    let mut cmd = tokio::process::Command::new(&claude_bin);
+    cmd.args(&args)
         .env("PATH", &enriched_path)
         .env_remove("CLAUDECODE")       // Allow nested CLI launch
         .env_remove("CLAUDE_CODE_ENTRY") // Remove any other nesting guards
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
+        .stderr(std::process::Stdio::piped());
+
+    // Inject proxy env vars from login shell for GUI apps
+    #[cfg(not(target_os = "windows"))]
+    {
+        let proxy_env = login_shell_proxy_env();
+        for (k, v) in proxy_env {
+            if std::env::var(k).is_err() {
+                cmd.env(k, v);
+            }
+        }
+    }
+
+    let output = cmd.spawn()
         .map_err(|e| format!("Failed to spawn claude for title gen: {}", e))?
         .wait_with_output()
         .await

@@ -36,6 +36,10 @@
       "icons/icon.ico"
     ],
     "createUpdaterArtifacts": true,
+    "resources": {
+      "resources/en.lproj": "en.lproj",
+      "resources/zh-Hans.lproj": "zh-Hans.lproj"
+    },
     "macOS": {
       "entitlements": "entitlements.plist",
       "minimumSystemVersion": "10.13"
