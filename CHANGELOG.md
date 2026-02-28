@@ -8,6 +8,12 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ## [Unreleased] - dev/core-refactor
 
+### Added
+
+- **SDK control protocol** — Replace fragile stderr regex permission detection with Claude CLI's native control protocol (`--permission-prompt-tool stdio`). Permission requests now flow as structured JSON through stdout, responses are typed allow/deny messages via stdin. Includes runtime mode/model switching without process restart.
+
+- **CLI checkpoint-based rewind** — File restoration now uses CLI native checkpoints (`--replay-user-messages`, `CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING`) instead of the custom snapshot system. Restore button shows disabled hint for historical conversations without checkpoint data.
+
 ### Improved
 
 - **Settings panel redesign** — Full restructure with left sidebar tabs (General, API Provider, CLI, MCP) and near-fullscreen layout. Each tab is now an independent component for better maintainability.
@@ -18,11 +24,23 @@ All notable changes to TOKENICODE will be documented in this file.
 
 - **Provider system extraction** — API provider management moved from settingsStore into a dedicated `providerStore` with its own tab. Supports preset selection (Anthropic Official + Custom API), JSON import/export, and connection testing.
 
+- **Stream processor extraction** — Stream parsing logic extracted from InputBar.tsx (~1100 lines) into dedicated `useStreamProcessor.ts` hook.
+
 - **Compact settings footer** — Bottom bar reduced from `h-14` to `h-10` with smaller text (`text-xs`) and muted version label.
 
-- **Provider list borders** — All provider selection items now have consistent `border-border-subtle` borders in both active and inactive states.
+### Removed
+
+- **6 redundant slash commands** — Removed `/model`, `/theme`, `/config`, `/exit`, `/resume`, `/status` from backend, frontend, and i18n. All have direct UI equivalents (model selector, theme toggle, settings panel, window close, sidebar sessions).
+
+- **Legacy snapshot system** — Deleted `snapshotStore.ts` and all snapshot-related backend commands (`snapshot_files`, `restore_snapshot`). File restoration is now handled by CLI native checkpoints.
 
 ---
+
+### 新增
+
+- **SDK 控制协议** — 用 Claude CLI 原生控制协议（`--permission-prompt-tool stdio`）替代脆弱的 stderr 正则权限检测。权限请求通过 stdout 以结构化 JSON 传递，响应为 stdin 的类型化 allow/deny 消息。支持运行时切换模式/模型无需重启进程。
+
+- **基于 CLI 检查点的回退** — 文件恢复改用 CLI 原生检查点（`--replay-user-messages`、`CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING`），替代自建快照系统。历史对话无检查点数据时恢复按钮显示禁用提示。
 
 ### 改进
 
@@ -34,9 +52,15 @@ All notable changes to TOKENICODE will be documented in this file.
 
 - **Provider 系统独立** — API 提供商管理从 settingsStore 抽离至独立的 `providerStore`，拥有专属标签页。支持预设选择（Anthropic 官方 + 自定义 API）、JSON 导入/导出和连接测试。
 
+- **流处理器抽离** — 流解析逻辑从 InputBar.tsx（约 1100 行）抽取至独立的 `useStreamProcessor.ts` hook。
+
 - **底栏精简** — 设置面板底栏高度从 `h-14` 缩小至 `h-10`，文字降为 `text-xs`，版本号更淡。
 
-- **Provider 列表边框** — 所有提供商选择项在激活和未激活状态下均有统一的 `border-border-subtle` 边框。
+### 移除
+
+- **6 个冗余斜杠命令** — 移除 `/model`、`/theme`、`/config`、`/exit`、`/resume`、`/status` 的后端、前端和 i18n 支持。这些功能均有对应 UI 控件（模型选择器、主题切换、设置面板、窗口关闭、侧边栏会话）。
+
+- **旧版快照系统** — 删除 `snapshotStore.ts` 及所有快照相关后端命令（`snapshot_files`、`restore_snapshot`）。文件恢复已改用 CLI 原生检查点。
 
 ---
 
