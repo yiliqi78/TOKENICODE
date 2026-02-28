@@ -405,9 +405,14 @@ function AssistantMsg({ message, isFirstInGroup = true }: Props) {
     <div className="flex gap-3">
       {/* Avatar: show only for the first message in a consecutive group */}
       {isFirstInGroup ? (
-        <div className="w-8 h-8 rounded-[10px] bg-accent
-          flex items-center justify-center flex-shrink-0 text-text-inverse
-          text-xs font-bold shadow-md mt-0.5">C</div>
+        <div className="w-8 h-8 rounded-[10px] bg-black dark:bg-white
+          flex items-center justify-center flex-shrink-0 shadow-md mt-0.5 overflow-hidden">
+          <svg width="32" height="32" viewBox="0 0 171 171" fill="none">
+            <path d="M66.79 58.73L40.33 85.19L66.79 111.66L57.53 120.92L21.8 85.19L57.53 49.47Z" className="fill-white dark:fill-black" />
+            <path d="M111.5 49.47L147.22 85.19L111.5 120.92L102.24 111.66L128.7 85.19L102.24 58.73Z" className="fill-white dark:fill-black" />
+            <path d="M90.01 39.92L102.01 39.92L79.24 129.92L67.24 129.92L79.24 81.92Z" fill="var(--color-icon-slash)" />
+          </svg>
+        </div>
       ) : (
         <div className="w-8 flex-shrink-0" />
       )}

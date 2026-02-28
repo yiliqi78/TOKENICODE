@@ -148,15 +148,9 @@ export function parseAndValidate(
 }
 
 /**
- * Import a validated config as a new provider and set it active.
+ * Import a validated config as a new provider (does NOT auto-activate).
  */
 export function importAsProvider(provider: Omit<ApiProvider, 'id' | 'createdAt' | 'updatedAt'>): void {
   const store = useProviderStore.getState();
   store.addProvider(provider);
-  // Set the newly added provider as active
-  const { providers } = useProviderStore.getState();
-  const added = providers[providers.length - 1];
-  if (added) {
-    store.setActive(added.id);
-  }
 }
