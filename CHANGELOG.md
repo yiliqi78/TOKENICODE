@@ -14,6 +14,8 @@ All notable changes to TOKENICODE will be documented in this file.
 
 - **CLI checkpoint-based rewind** — File restoration now uses CLI native checkpoints (`--replay-user-messages`, `CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING`) instead of the custom snapshot system. Restore button shows disabled hint for historical conversations without checkpoint data.
 
+- **`/usage` command** — Handle `/usage` in the UI layer instead of forwarding to CLI (which returns "Unknown skill" in stream-json mode). Official Anthropic accounts see session token summary + hint to use terminal for full quota; third-party API providers see detailed token breakdown (per-turn + cumulative + cost).
+
 ### Improved
 
 - **Settings panel redesign** — Full restructure with left sidebar tabs (General, API Provider, CLI, MCP) and near-fullscreen layout. Each tab is now an independent component for better maintainability.
@@ -41,6 +43,8 @@ All notable changes to TOKENICODE will be documented in this file.
 - **SDK 控制协议** — 用 Claude CLI 原生控制协议（`--permission-prompt-tool stdio`）替代脆弱的 stderr 正则权限检测。权限请求通过 stdout 以结构化 JSON 传递，响应为 stdin 的类型化 allow/deny 消息。支持运行时切换模式/模型无需重启进程。
 
 - **基于 CLI 检查点的回退** — 文件恢复改用 CLI 原生检查点（`--replay-user-messages`、`CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING`），替代自建快照系统。历史对话无检查点数据时恢复按钮显示禁用提示。
+
+- **`/usage` 命令** — 在 UI 层处理 `/usage`（CLI 在 stream-json 模式下会返回 "Unknown skill"）。官方 Anthropic 账号显示会话 token 概览 + 终端查看提示；第三方 API 显示详细 token 分解（逐轮 + 累计 + 费用）。
 
 ### 改进
 

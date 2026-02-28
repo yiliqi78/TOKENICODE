@@ -2625,7 +2625,7 @@ async fn list_all_commands(cwd: Option<String>) -> Result<Vec<UnifiedCommand>, S
         ("/tasks", "View running background tasks", false, "session"),
         ("/teleport", "Teleport context to a new session", false, "session"),
         ("/todos", "View todo items from the session", false, "session"),
-        ("/usage", "Show detailed token usage breakdown", false, "session"),
+        ("/usage", "Show detailed token usage breakdown", false, "ui"),
     ];
     for (name, desc, has_args, execution) in &builtins {
         commands.push(UnifiedCommand {
