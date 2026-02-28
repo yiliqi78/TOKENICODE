@@ -54,8 +54,8 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERFMkFFQkY4OTZENTc2NTYKUldSV2R0V1crT3NxM3VQdFJCMmlmOURGTW1WZWlMQk9YeWVFV3VxQVB2WnJtWXRpVUxWTGxobU4K",
       "endpoints": [
-        "https://gitee.com/yiliqiseven/TOKENICODE/raw/main/latest-gitee.json",
-        "https://github.com/yiliqi78/TOKENICODE/releases/latest/download/latest.json"
+        "https://github.com/yiliqi78/TOKENICODE/releases/latest/download/latest.json",
+        "https://gitee.com/yiliqiseven/TOKENICODE/raw/main/latest-gitee.json"
       ]
     }
   }

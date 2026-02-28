@@ -4444,6 +4444,20 @@ pub fn run() {
             // titleBarStyle: "Overlay" in tauri.conf.json handles macOS traffic lights
             // and native titlebar drag/double-click-to-maximize automatically.
 
+            // Propagate proxy env vars from login shell to the process environment
+            // so that ALL HTTP clients (including the updater plugin) can reach
+            // external services through the proxy.
+            #[cfg(not(target_os = "windows"))]
+            {
+                let proxy_env = login_shell_proxy_env();
+                for (k, v) in proxy_env {
+                    if std::env::var(k).is_err() {
+                        // SAFETY: called once during single-threaded setup
+                        unsafe { std::env::set_var(k, v); }
+                    }
+                }
+            }
+
             // Register updater plugin (desktop only)
             #[cfg(desktop)]
             app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
