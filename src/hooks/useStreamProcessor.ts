@@ -3,7 +3,6 @@ import { useChatStore, generateMessageId, type ChatMessage } from '../stores/cha
 import { useSettingsStore, mapSessionModeToPermissionMode } from '../stores/settingsStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { useAgentStore, resolveAgentId, getAgentDepth } from '../stores/agentStore';
-import { useSnapshotStore } from '../stores/snapshotStore';
 import { bridge, onClaudeStream, onClaudeStderr } from '../lib/tauri-bridge';
 import { buildCustomEnvVars, envFingerprint, resolveModelForProvider } from '../lib/api-provider';
 
@@ -724,10 +723,6 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
                 timestamp: Date.now(),
               });
 
-              // Track file creation for snapshot-based code restore
-              if (block.name === 'Write' && block.input?.file_path) {
-                useSnapshotStore.getState().recordCreatedFile(block.input.file_path);
-              }
             }
           } else if (block.type === 'thinking') {
             // Complete thinking block arrived — clear streaming thinking text.

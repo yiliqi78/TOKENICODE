@@ -255,14 +255,6 @@ export const bridge = {
   runGitCommand: (cwd: string, args: string[]) =>
     invoke<string>('run_git_command', { cwd, args }),
 
-  // File snapshot — capture file contents before a turn for code restore
-  snapshotFiles: (paths: string[]) =>
-    invoke<Record<string, string>>('snapshot_files', { paths }),
-
-  // Restore file snapshot — write files back from snapshot, delete created files
-  restoreSnapshot: (snapshot: Record<string, string>, createdPaths: string[]) =>
-    invoke<void>('restore_snapshot', { snapshot, createdPaths }),
-
   // Rewind files to a CLI checkpoint (delegates to `claude --rewind-files`)
   rewindFiles: (sessionId: string, checkpointUuid: string, cwd: string) =>
     invoke<string>('rewind_files', { sessionId, checkpointUuid, cwd }),

@@ -17,7 +17,6 @@ import { useCommandStore } from '../../stores/commandStore';
 import { buildCustomEnvVars, envFingerprint, resolveModelForProvider } from '../../lib/api-provider';
 import { stripAnsi } from '../../lib/strip-ansi';
 import { usePlanPanelStore } from './ChatPanel';
-import { useSnapshotStore } from '../../stores/snapshotStore';
 import { PlanReviewCard } from './PlanReviewCard';
 import { PermissionCard } from './PermissionCard';
 import { QuestionCard } from './QuestionCard';
@@ -669,12 +668,6 @@ export function InputBar() {
     setSessionStatus('running');
     setSessionMeta({ turnStartTime: Date.now(), inputTokens: 0, outputTokens: 0 });
     useChatStore.getState().setActivityStatus({ phase: 'thinking' });
-
-    // Capture file snapshot for code restore (non-blocking — don't await)
-    const userMsgId = useChatStore.getState().messages[useChatStore.getState().messages.length - 1]?.id;
-    if (workingDirectory && userMsgId) {
-      useSnapshotStore.getState().captureSnapshot(userMsgId, workingDirectory);
-    }
 
     // Initialize agent tracking — clear previous turn's agents (they may be from a
     // different project/session) and create a fresh main agent for this turn.

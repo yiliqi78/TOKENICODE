@@ -3051,46 +3051,6 @@ async fn run_git_command(cwd: String, args: Vec<String>) -> Result<String, Strin
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
-/// Read multiple files and return their contents as a map.
-/// Used by the snapshot system to capture file states before each turn.
-#[tauri::command]
-async fn snapshot_files(paths: Vec<String>) -> Result<HashMap<String, String>, String> {
-    let mut result = HashMap::new();
-    for path in &paths {
-        match tokio::fs::read_to_string(path).await {
-            Ok(content) => { result.insert(path.clone(), content); }
-            Err(_) => { /* File doesn't exist yet — skip */ }
-        }
-    }
-    Ok(result)
-}
-
-/// Restore files from a snapshot map. Files in the map are overwritten.
-/// Files that existed in the snapshot but not in `deleted_paths` are restored.
-/// Files in `deleted_paths` are removed (they were created during the turn).
-#[tauri::command]
-async fn restore_snapshot(
-    snapshot: HashMap<String, String>,
-    created_paths: Vec<String>,
-) -> Result<(), String> {
-    // 1. Restore files from snapshot
-    for (path, content) in &snapshot {
-        if let Some(parent) = std::path::Path::new(path).parent() {
-            tokio::fs::create_dir_all(parent).await
-                .map_err(|e| format!("Failed to create dir: {}", e))?;
-        }
-        tokio::fs::write(path, content).await
-            .map_err(|e| format!("Failed to restore {}: {}", path, e))?;
-    }
-
-    // 2. Remove files that were created during the turn
-    for path in &created_paths {
-        let _ = tokio::fs::remove_file(path).await; // ignore errors if already gone
-    }
-
-    Ok(())
-}
-
 /// Rewind files to a CLI checkpoint via `claude --resume <session_id> --rewind-files <uuid>`.
 /// This delegates file restoration to the CLI's native checkpoint system.
 #[tauri::command]
@@ -4463,8 +4423,6 @@ pub fn run() {
             toggle_skill_enabled,
             list_all_commands,
             run_git_command,
-            snapshot_files,
-            restore_snapshot,
             rewind_files,
             set_dock_icon,
             run_claude_command,
