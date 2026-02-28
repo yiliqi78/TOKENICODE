@@ -731,11 +731,13 @@ fn resolve_provider_env(provider_id: Option<&str>) -> Result<(HashMap<String, St
         env.insert("ANTHROPIC_BASE_URL".to_string(), provider.base_url.clone());
     }
 
-    // Set API key (plaintext, no encryption)
+    // Set API key (plaintext, no encryption).
+    // Only set ANTHROPIC_API_KEY — do NOT set ANTHROPIC_AUTH_TOKEN.
+    // AUTH_TOKEN triggers OAuth/Bearer auth in the CLI, which third-party
+    // providers don't support. API_KEY uses the correct x-api-key header.
     if let Some(ref key) = provider.api_key {
         if !key.is_empty() {
             env.insert("ANTHROPIC_API_KEY".to_string(), key.clone());
-            env.insert("ANTHROPIC_AUTH_TOKEN".to_string(), key.clone());
         }
     }
 
@@ -758,11 +760,11 @@ fn resolve_provider_env(provider_id: Option<&str>) -> Result<(HashMap<String, St
         .collect();
     keys_to_remove.extend(inherited_removals);
 
-    // Add --setting-sources to skip user-level settings.json env conflicts
-    let extra_args = vec![
-        "--setting-sources".to_string(),
-        "project,local".to_string(),
-    ];
+    // No extra CLI args needed — env vars set on the process take precedence.
+    // Previously we used --setting-sources project,local to skip user settings,
+    // but that broke directories without .claude/ (e.g. empty/new folders) because
+    // the CLI lost workspace trust and other user-level config.
+    let extra_args: Vec<String> = vec![];
 
     Ok((env, keys_to_remove, extra_args))
 }
@@ -1180,6 +1182,13 @@ async fn start_claude_session(
         let _ = emit_to_frontend(
             &app_clone,
             &format!("claude:exit:{}", sid_clone),
+            serde_json::json!(null),
+        );
+
+        // Notify frontend that session list may have changed
+        let _ = emit_to_frontend(
+            &app_clone,
+            "sessions:changed",
             serde_json::json!(null),
         );
     });
@@ -1955,6 +1964,12 @@ async fn delete_file(path: String) -> Result<(), String> {
     // Move to system trash/recycle bin (recoverable) instead of permanent delete
     trash::delete(&path)
         .map_err(|e| format!("Cannot move to trash: {}", e))
+}
+
+#[tauri::command]
+async fn create_directory(path: String) -> Result<(), String> {
+    std::fs::create_dir_all(&path)
+        .map_err(|e| format!("Cannot create directory: {}", e))
 }
 
 #[tauri::command]
@@ -4065,6 +4080,179 @@ async fn save_custom_previews(data: Value) -> Result<(), String> {
         .map_err(|e| format!("Failed to write session names: {}", e))
 }
 
+fn tokenicode_data_path(filename: &str) -> Result<std::path::PathBuf, String> {
+    let home = dirs::home_dir().ok_or("Cannot find home dir")?;
+    let dir = home.join(".tokenicode");
+    if !dir.exists() {
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("Failed to create .tokenicode dir: {}", e))?;
+    }
+    Ok(dir.join(filename))
+}
+
+/// Load pinned session IDs from disk.
+#[tauri::command]
+async fn load_pinned_sessions() -> Result<Value, String> {
+    let path = tokenicode_data_path("pinned.json")?;
+    if !path.exists() {
+        return Ok(serde_json::json!([]));
+    }
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read pinned sessions: {}", e))?;
+    serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse pinned sessions: {}", e))
+}
+
+/// Save pinned session IDs to disk.
+#[tauri::command]
+async fn save_pinned_sessions(data: Value) -> Result<(), String> {
+    let path = tokenicode_data_path("pinned.json")?;
+    let content = serde_json::to_string_pretty(&data)
+        .map_err(|e| format!("Failed to serialize pinned sessions: {}", e))?;
+    std::fs::write(&path, content)
+        .map_err(|e| format!("Failed to write pinned sessions: {}", e))
+}
+
+/// Load archived session IDs from disk.
+#[tauri::command]
+async fn load_archived_sessions() -> Result<Value, String> {
+    let path = tokenicode_data_path("archived.json")?;
+    if !path.exists() {
+        return Ok(serde_json::json!([]));
+    }
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read archived sessions: {}", e))?;
+    serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse archived sessions: {}", e))
+}
+
+/// Save archived session IDs to disk.
+#[tauri::command]
+async fn save_archived_sessions(data: Value) -> Result<(), String> {
+    let path = tokenicode_data_path("archived.json")?;
+    let content = serde_json::to_string_pretty(&data)
+        .map_err(|e| format!("Failed to serialize archived sessions: {}", e))?;
+    std::fs::write(&path, content)
+        .map_err(|e| format!("Failed to write archived sessions: {}", e))
+}
+
+/// Generate a short AI title for a session using the active provider.
+#[tauri::command]
+async fn generate_session_title(
+    provider_id: Option<String>,
+    user_message: String,
+    assistant_message: String,
+) -> Result<String, String> {
+    // Truncate inputs to avoid sending too much data
+    let user_msg = if user_message.len() > 500 { &user_message[..500] } else { &user_message };
+    let asst_msg = if assistant_message.len() > 500 { &assistant_message[..500] } else { &assistant_message };
+
+    let prompt = format!(
+        "Generate a very short title (5-10 words, in the same language as the conversation) for this conversation. Reply with ONLY the title, no quotes or extra text.\n\nUser: {}\n\nAssistant: {}",
+        user_msg, asst_msg
+    );
+
+    // Try to find the provider config
+    let home = dirs::home_dir().ok_or("Cannot find home dir")?;
+    let providers_path = home.join(".tokenicode").join("providers.json");
+
+    if !providers_path.exists() {
+        return Err("No providers configured".to_string());
+    }
+
+    let providers_content = std::fs::read_to_string(&providers_path)
+        .map_err(|e| format!("Failed to read providers: {}", e))?;
+    let providers: Value = serde_json::from_str(&providers_content)
+        .map_err(|e| format!("Failed to parse providers: {}", e))?;
+
+    // Find the target provider
+    let provider_list = providers.get("providers")
+        .and_then(|v| v.as_array())
+        .ok_or("No providers array")?;
+
+    let provider = if let Some(pid) = &provider_id {
+        provider_list.iter().find(|p| p.get("id").and_then(|v| v.as_str()) == Some(pid))
+    } else {
+        // Use the default (first enabled) provider
+        provider_list.iter().find(|p| p.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false))
+    }.ok_or("No matching provider found")?;
+
+    let base_url = provider.get("baseUrl").and_then(|v| v.as_str()).unwrap_or("");
+    let api_key = provider.get("apiKey").and_then(|v| v.as_str()).unwrap_or("");
+    let api_type = provider.get("type").and_then(|v| v.as_str()).unwrap_or("anthropic");
+
+    if base_url.is_empty() || api_key.is_empty() {
+        return Err("Provider not fully configured".to_string());
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+    if api_type == "openai" || api_type == "openai-compatible" {
+        let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+        let body = serde_json::json!({
+            "model": provider.get("model").and_then(|v| v.as_str()).unwrap_or("gpt-4o-mini"),
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 50,
+            "temperature": 0.3
+        });
+        let resp = client.post(&url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {}", e))?;
+        let json: Value = resp.json().await
+            .map_err(|e| format!("Failed to parse response: {}", e))?;
+        let title = json.get("choices")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("message"))
+            .and_then(|m| m.get("content"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .trim_matches('"')
+            .to_string();
+        if title.is_empty() {
+            return Err("Empty title generated".to_string());
+        }
+        Ok(title)
+    } else {
+        // Anthropic API
+        let url = format!("{}/v1/messages", base_url.trim_end_matches('/'));
+        let body = serde_json::json!({
+            "model": provider.get("model").and_then(|v| v.as_str()).unwrap_or("claude-haiku-4-5-20251001"),
+            "max_tokens": 50,
+            "messages": [{"role": "user", "content": prompt}]
+        });
+        let resp = client.post(&url)
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {}", e))?;
+        let json: Value = resp.json().await
+            .map_err(|e| format!("Failed to parse response: {}", e))?;
+        let title = json.get("content")
+            .and_then(|c| c.get(0))
+            .and_then(|b| b.get("text"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .trim_matches('"')
+            .to_string();
+        if title.is_empty() {
+            return Err("Empty title generated".to_string());
+        }
+        Ok(title)
+    }
+}
+
 /// Open a native terminal window to run `claude login`.
 /// On macOS: uses osascript to open Terminal.app.
 /// On Linux: tries common terminal emulators.
@@ -4215,6 +4403,7 @@ pub fn run() {
             copy_file,
             rename_file,
             delete_file,
+            create_directory,
             open_in_vscode,
             reveal_in_finder,
             open_with_default_app,
@@ -4247,6 +4436,11 @@ pub fn run() {
             open_terminal_login,
             load_custom_previews,
             save_custom_previews,
+            load_pinned_sessions,
+            save_pinned_sessions,
+            load_archived_sessions,
+            save_archived_sessions,
+            generate_session_title,
             load_providers,
             save_providers,
             test_provider_connection,

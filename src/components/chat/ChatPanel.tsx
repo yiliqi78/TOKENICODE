@@ -18,7 +18,6 @@ import { envFingerprint, resolveModelForProvider } from '../../lib/api-provider'
 import { useProviderStore } from '../../stores/providerStore';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
 import { SetupWizard } from '../setup/SetupWizard';
-import { endTreeDrag } from '../../lib/drag-state';
 
 /** Shared plan panel toggle — used by ChatPanel (panel) and InputBar (button) */
 export const usePlanPanelStore = create<{
@@ -326,20 +325,6 @@ export function ChatPanel() {
 
   // Listen for internal file tree drag-drop (mouse-based, not HTML5 drag-and-drop)
   // HTML5 drag events don't work in Tauri because dragDropEnabled: true intercepts them.
-  // Always insert as inline file chip in the editor.
-  useEffect(() => {
-    const onTreeDrop = () => {
-      const treePath = endTreeDrag();
-      if (!treePath) return;
-
-      window.dispatchEvent(new CustomEvent('tokenicode:tree-file-inline', { detail: treePath }));
-    };
-    window.addEventListener('tree-drag-drop', onTreeDrop);
-    return () => {
-      window.removeEventListener('tree-drag-drop', onTreeDrop);
-    };
-  }, []);
-
   // Listen for file-chip click → open file in secondary panel's file browser
   useEffect(() => {
     const onOpenFile = (e: Event) => {

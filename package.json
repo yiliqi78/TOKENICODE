@@ -48,6 +48,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@lezer/highlight": "^1.2.3",
     "@tailwindcss/vite": "^4.1.18",
     "@tauri-apps/cli": "^2",
     "@types/react": "^19.1.8",

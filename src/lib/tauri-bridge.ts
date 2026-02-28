@@ -205,6 +205,9 @@ export const bridge = {
   deleteFile: (path: string) =>
     invoke<void>('delete_file', { path }),
 
+  createDirectory: (path: string) =>
+    invoke<void>('create_directory', { path }),
+
   getHomeDir: () =>
     invoke<string>('get_home_dir'),
 
@@ -311,6 +314,24 @@ export const bridge = {
 
   saveCustomPreviews: (data: Record<string, string>) =>
     invoke<void>('save_custom_previews', { data }),
+
+  // Pinned sessions (persisted to ~/.tokenicode/pinned.json)
+  loadPinnedSessions: () =>
+    invoke<string[]>('load_pinned_sessions').catch(() => []),
+
+  savePinnedSessions: (data: string[]) =>
+    invoke<void>('save_pinned_sessions', { data }).catch(() => {}),
+
+  // Archived sessions (persisted to ~/.tokenicode/archived.json)
+  loadArchivedSessions: () =>
+    invoke<string[]>('load_archived_sessions').catch(() => []),
+
+  saveArchivedSessions: (data: string[]) =>
+    invoke<void>('save_archived_sessions', { data }).catch(() => {}),
+
+  // AI title generation
+  generateSessionTitle: (providerId: string | null, userMessage: string, assistantMessage: string) =>
+    invoke<string>('generate_session_title', { providerId, userMessage, assistantMessage }),
 
   // --- Provider Management ---
 

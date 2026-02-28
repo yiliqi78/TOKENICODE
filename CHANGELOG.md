@@ -16,6 +16,34 @@ All notable changes to TOKENICODE will be documented in this file.
 
 - **`/usage` command** — Handle `/usage` in the UI layer instead of forwarding to CLI (which returns "Unknown skill" in stream-json mode). Official Anthropic accounts see session token summary + hint to use terminal for full quota; third-party API providers see detailed token breakdown (per-turn + cumulative + cost).
 
+- **Session list: pin & archive** — Sessions can be pinned (shown at top of group with pin icon) and archived (hidden by default, shown as semi-transparent when toggle is on). Both states persisted to `~/.tokenicode/pinned.json` and `archived.json`.
+
+- **Session list: undo delete** — Single session deletion uses a 5-second undo toast instead of an immediate destructive action. Bulk deletion still uses a confirmation dialog.
+
+- **Session list: batch operations** — Multi-select mode via project right-click → "Select". Checkbox selection with bottom toolbar for batch delete/archive/cancel.
+
+- **Session list: date separators** — Sessions within each project group are divided by Today / Yesterday / This Week / Earlier labels.
+
+- **Session list: smart collapse (TK-310)** — Only the project group containing the currently selected session auto-expands. Manual expand/collapse states are preserved across selection changes.
+
+- **Session list: running filter** — Toggle button next to search bar to show only actively running sessions.
+
+- **AI title generation (TK-001)** — After the first assistant reply completes, the app calls the configured API provider to generate a short title (5-10 words). Falls back silently on failure. Backend command `generate_session_title` supports both Anthropic and OpenAI-compatible APIs.
+
+- **Event-driven session refresh** — Backend emits `sessions:changed` event on process exit. Frontend listens and refreshes immediately. Polling interval extended from 10s to 30s as fallback.
+
+- **File explorer: new file/folder** — Right-click on directories shows "New File" and "New Folder" options with inline name input.
+
+- **File explorer: flat search results** — Search now shows a flat list of matching files with relative path context, instead of filtering the tree.
+
+- **File explorer: SVG file icons** — Replaced emoji file icons (`📁`, `🟦`, `🦀`, etc.) with a dedicated `FileIcon` SVG component supporting 20+ file types with proper colors.
+
+- **File explorer: drag & drop improvements** — `endTreeDrag` handler for proper cleanup; improved drag state management.
+
+- **Write tool diff view** — Tool use cards for the `Write` tool now show file content as blue-highlighted additions (matching Edit tool's diff view style), instead of raw JSON.
+
+- **ConfirmDialog shared component** — Reusable confirmation dialog (`src/components/shared/ConfirmDialog.tsx`) with danger/default variants. Used by both FileExplorer and ConversationList.
+
 ### Improved
 
 - **Settings panel redesign** — Full restructure with left sidebar tabs (General, API Provider, CLI, MCP) and near-fullscreen layout. Each tab is now an independent component for better maintainability.
@@ -29,6 +57,22 @@ All notable changes to TOKENICODE will be documented in this file.
 - **Stream processor extraction** — Stream parsing logic extracted from InputBar.tsx (~1100 lines) into dedicated `useStreamProcessor.ts` hook.
 
 - **Compact settings footer** — Bottom bar reduced from `h-14` to `h-10` with smaller text (`text-xs`) and muted version label.
+
+- **Session list architecture** — ConversationList (834 → ~400 core lines) split into `SessionGroup`, `SessionItem`, `SessionContextMenu`. Session deserialization extracted to `session-loader.ts` (215 lines).
+
+- **Current session info card** — Compressed from 3-line card (~80px) to single-line: `[●] Claude ↑1.2k ↓3.4k` (~36px).
+
+- **ExportMenu SVG icons** — Replaced emoji (`📝`, `📋`) with inline SVG document/clipboard icons.
+
+- **File explorer context menu** — Larger tap targets (`py-2`, `text-[13px]`), improved change badge sizing.
+
+### Fixed
+
+- **Bulk delete executes before confirmation** — `window.confirm()` was unreliable in Tauri WebView (sometimes returned true without showing). Replaced with custom `<ConfirmDialog>`.
+
+- **Single delete has no confirmation** — Previously deleted immediately on right-click → Delete. Now uses undo toast with 5-second recovery window.
+
+- **Hardcoded Chinese in delete dialog** — `"删除全部任务"` replaced with `t('conv.deleteAll')`.
 
 ### Removed
 
@@ -46,6 +90,34 @@ All notable changes to TOKENICODE will be documented in this file.
 
 - **`/usage` 命令** — 在 UI 层处理 `/usage`（CLI 在 stream-json 模式下会返回 "Unknown skill"）。官方 Anthropic 账号显示会话 token 概览 + 终端查看提示；第三方 API 显示详细 token 分解（逐轮 + 累计 + 费用）。
 
+- **会话列表：置顶和归档** — 会话可置顶（在项目组顶部显示，带 pin 图标）和归档（默认隐藏，开启 toggle 后半透明显示）。状态持久化到 `~/.tokenicode/pinned.json` 和 `archived.json`。
+
+- **会话列表：撤销删除** — 单个会话删除改为 5 秒撤销 toast，不再立即执行破坏性操作。批量删除仍使用确认弹窗。
+
+- **会话列表：批量操作** — 通过项目右键「选择」进入多选模式。复选框选择，底部工具栏提供批量删除/归档/取消。
+
+- **会话列表：日期分隔** — 项目组内按 今天/昨天/本周/更早 分组显示分隔标签。
+
+- **会话列表：智能折叠（TK-310）** — 仅自动展开包含当前选中会话的项目组。手动展开/折叠状态在切换会话时保持不变。
+
+- **会话列表：运行中筛选** — 搜索栏旁新增 toggle 按钮，仅显示正在运行的会话。
+
+- **AI 标题生成（TK-001）** — 首轮助手回复完成后，调用已配置的 API 生成简短标题（5-10 字）。失败时静默回退。后端 `generate_session_title` 命令支持 Anthropic 和 OpenAI 兼容 API。
+
+- **事件驱动会话刷新** — 后端在进程退出时发送 `sessions:changed` 事件，前端监听后立即刷新。轮询间隔从 10 秒延长至 30 秒作为备用。
+
+- **文件浏览器：新建文件/文件夹** — 目录右键新增「新建文件」和「新建文件夹」选项，内联输入名称。
+
+- **文件浏览器：平铺搜索结果** — 搜索现在显示匹配文件的平铺列表（含相对路径上下文），而非过滤树形结构。
+
+- **文件浏览器：SVG 文件图标** — emoji 文件图标（`📁`、`🟦`、`🦀` 等）替换为专用 `FileIcon` SVG 组件，支持 20+ 文件类型和对应颜色。
+
+- **文件浏览器：拖放改进** — 新增 `endTreeDrag` 处理器做清理；改进拖拽状态管理。
+
+- **Write 工具 diff 视图** — Write 工具卡片现在以蓝色高亮显示文件内容作为新增行（与 Edit 工具的 diff 视图风格一致），不再显示原始 JSON。
+
+- **ConfirmDialog 共享组件** — 可复用确认弹窗（`src/components/shared/ConfirmDialog.tsx`），支持 danger/default 变体。被 FileExplorer 和 ConversationList 共用。
+
 ### 改进
 
 - **设置面板重新设计** — 全面重构，采用左侧标签栏（通用、API 提供商、CLI 管理、MCP 服务器）+ 近全屏布局。各标签页拆分为独立组件，便于维护。
@@ -59,6 +131,22 @@ All notable changes to TOKENICODE will be documented in this file.
 - **流处理器抽离** — 流解析逻辑从 InputBar.tsx（约 1100 行）抽取至独立的 `useStreamProcessor.ts` hook。
 
 - **底栏精简** — 设置面板底栏高度从 `h-14` 缩小至 `h-10`，文字降为 `text-xs`，版本号更淡。
+
+- **会话列表架构重构** — ConversationList（834 → ~400 行核心逻辑）拆分为 `SessionGroup`、`SessionItem`、`SessionContextMenu`。会话反序列化抽取至 `session-loader.ts`（215 行）。
+
+- **当前会话信息卡** — 从 3 行卡片（约 80px）压缩为单行：`[●] Claude ↑1.2k ↓3.4k`（约 36px）。
+
+- **ExportMenu SVG 图标** — emoji（`📝`、`📋`）替换为内联 SVG 文档/剪贴板图标。
+
+- **文件浏览器右键菜单** — 加大点击区域（`py-2`、`text-[13px]`），改进变更标记尺寸。
+
+### 修复
+
+- **批量删除在确认前执行** — `window.confirm()` 在 Tauri WebView 中不可靠（有时不弹窗直接返回 true）。替换为自定义 `<ConfirmDialog>`。
+
+- **单个删除无确认** — 此前右键「删除」立即执行。现在改为 undo toast，提供 5 秒恢复窗口。
+
+- **删除弹窗硬编码中文** — `"删除全部任务"` 替换为 `t('conv.deleteAll')`。
 
 ### 移除
 

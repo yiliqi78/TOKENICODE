@@ -145,11 +145,17 @@ export function ProviderManager({ alwaysExpanded = false }: { alwaysExpanded?: b
                     }`}
                 >
                   {p.name || t('provider.unnamed')}
-                  {p.baseUrl && (
-                    <span className="text-xs text-text-tertiary ml-2">
-                      {new URL(p.baseUrl).hostname}
-                    </span>
-                  )}
+                  {p.baseUrl && (() => {
+                    try {
+                      return (
+                        <span className="text-xs text-text-tertiary ml-2">
+                          {new URL(p.baseUrl).hostname}
+                        </span>
+                      );
+                    } catch {
+                      return null;
+                    }
+                  })()}
                 </button>
                 <button
                   onClick={() => setEditingId(editingId === p.id ? null : p.id)}

@@ -701,6 +701,46 @@ export const ToolUseMsg = memo(function ToolUseMsg({ message }: Props) {
     );
   };
 
+  /** Render a Write tool diff — all lines shown as additions (blue) */
+  const renderWriteDiff = () => {
+    if (!input?.content) return null;
+    const allLines = input.content.split('\n');
+    const maxDisplay = 20;
+    const displayLines = allLines.slice(0, maxDisplay);
+    const remaining = allLines.length - maxDisplay;
+
+    return (
+      <div key="write-diff" className="rounded-lg border border-border-subtle overflow-hidden
+        max-h-48 overflow-y-auto">
+        {displayLines.map((line: string, i: number) => (
+          <div key={i}
+            className="flex items-start gap-0 text-[11px] font-mono leading-relaxed
+              bg-blue-500/8 dark:bg-blue-500/10">
+            <span className="flex-shrink-0 w-8 text-right pr-2 text-blue-400/60
+              select-none border-r border-blue-500/10">
+              {i + 1}
+            </span>
+            <span className="flex-shrink-0 w-5 text-center text-blue-400 select-none">+</span>
+            <span className="text-blue-600 dark:text-blue-400 whitespace-pre-wrap break-all
+              flex-1 px-1">{line}</span>
+          </div>
+        ))}
+        {remaining > 0 && (
+          <div className="px-2 py-1 text-[10px] text-text-tertiary font-mono
+            bg-blue-500/5 border-t border-blue-500/10">
+            ... +{remaining} more lines
+          </div>
+        )}
+        {input.file_path && (
+          <div className="px-2 py-1 border-t border-border-subtle/50
+            text-[10px] text-text-tertiary font-mono truncate">
+            {input.file_path}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderExpandedContent = () => {
     const sections: React.ReactNode[] = [];
 
@@ -718,6 +758,9 @@ export const ToolUseMsg = memo(function ToolUseMsg({ message }: Props) {
       } else if (toolName === 'Edit' && (input?.old_string || input?.new_string)) {
         const diffView = renderEditDiff();
         if (diffView) sections.push(diffView);
+      } else if (toolName === 'Write' && input?.content) {
+        const writeDiffView = renderWriteDiff();
+        if (writeDiffView) sections.push(writeDiffView);
       } else {
         sections.push(
           <pre key="input" className="text-[11px] text-text-tertiary

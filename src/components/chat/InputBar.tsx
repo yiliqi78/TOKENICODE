@@ -350,6 +350,8 @@ export function InputBar() {
   const handleSubmitRef = useRef<() => void>(() => {});
   // Ref to always point to the latest handleStderrLine (used by retry logic in handleStreamMessage)
   const handleStderrLineRef = useRef<(line: string, sid: string) => void>(() => {});
+  /** Last non-empty stderr line — shown to user if process exits without response */
+  const lastStderrRef = useRef('');
   /** Tracks whether auto-compact has been triggered in this session to avoid repeat fires */
   const autoCompactFiredRef = useRef(false);
   /** Tracks ExitPlanMode in current turn for Code mode auto-restart */
@@ -364,6 +366,7 @@ export function InputBar() {
     silentRestartRef,
     handleSubmitRef,
     handleStderrLineRef,
+    lastStderrRef,
     setInputSync,
   });
 
@@ -719,6 +722,7 @@ export function InputBar() {
     setSessionStatus('running');
     setSessionMeta({ turnStartTime: Date.now(), inputTokens: 0, outputTokens: 0 });
     useChatStore.getState().setActivityStatus({ phase: 'thinking' });
+    lastStderrRef.current = ''; // Clear stale stderr before new turn
 
     // Initialize agent tracking — clear previous turn's agents (they may be from a
     // different project/session) and create a fresh main agent for this turn.
@@ -954,6 +958,12 @@ export function InputBar() {
     // Strip ANSI escape codes so regex matching works on raw text
     const clean = stripAnsi(line).trim();
     console.log('[TOKENICODE:stderr]', clean);
+
+    // Track last non-trivial stderr line for error reporting on unexpected exit
+    if (clean && !/^\s*$/.test(clean)) {
+      lastStderrRef.current = clean;
+    }
+
     const { addMessage } = useChatStore.getState();
 
     // Detect ExitPlanMode prompt — create plan_review card as fallback (Plan mode only).

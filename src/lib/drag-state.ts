@@ -1,5 +1,9 @@
 /**
- * Shared drag state for internal file tree → chat drop.
+ * Shared drag state for internal file tree drag.
+ *
+ * Supports two drop targets:
+ *   1. A folder in the file tree → move file into that folder
+ *   2. Anywhere else → insert file path as chat inline chip
  *
  * Uses mousedown/mousemove/mouseup instead of HTML5 drag-and-drop because
  * Tauri's built-in drag handler (dragDropEnabled: true by default) intercepts
@@ -15,8 +19,40 @@ let _lastDragY = 0;
 
 /** Ghost element shown during drag */
 let _ghostEl: HTMLDivElement | null = null;
+/** Safety timeout to auto-remove ghost if endTreeDrag is never called */
+let _ghostTimeout: ReturnType<typeof setTimeout> | null = null;
+/** Currently highlighted drop-target folder button */
+let _highlightedDir: HTMLElement | null = null;
 
-export function startTreeDrag(path: string, isDir = false) {
+const DRAG_HIGHLIGHT = 'ring-2 ring-accent/50 bg-accent/8';
+
+/** Clear folder drop-target highlight */
+function clearDirHighlight() {
+  if (_highlightedDir) {
+    DRAG_HIGHLIGHT.split(' ').forEach((c) => _highlightedDir!.classList.remove(c));
+    _highlightedDir = null;
+  }
+}
+
+/** Remove ghost element from DOM (idempotent) */
+function removeGhost() {
+  if (_ghostTimeout) {
+    clearTimeout(_ghostTimeout);
+    _ghostTimeout = null;
+  }
+  clearDirHighlight();
+  if (_ghostEl) {
+    _ghostEl.remove();
+    _ghostEl = null;
+  }
+  // Also clean up any orphaned ghosts (defensive)
+  document.querySelectorAll('#tree-drag-ghost').forEach((el) => el.remove());
+}
+
+export function startTreeDrag(path: string, _isDir = false) {
+  // Clean up any lingering ghost from a previous drag
+  removeGhost();
+
   _pendingTreeDragPath = path;
   _treeDragActive = true;
 
@@ -24,7 +60,7 @@ export function startTreeDrag(path: string, isDir = false) {
   _ghostEl = document.createElement('div');
   _ghostEl.id = 'tree-drag-ghost';
   const name = path.split(/[\\/]/).pop() || path;
-  _ghostEl.textContent = `${isDir ? '📁' : '📄'} ${name}`;
+  _ghostEl.textContent = name;
   Object.assign(_ghostEl.style, {
     position: 'fixed',
     pointerEvents: 'none',
@@ -40,6 +76,13 @@ export function startTreeDrag(path: string, isDir = false) {
     whiteSpace: 'nowrap',
   });
   document.body.appendChild(_ghostEl);
+
+  // Safety net: auto-remove ghost after 5 seconds even if mouseup never fires
+  _ghostTimeout = setTimeout(() => {
+    removeGhost();
+    _pendingTreeDragPath = null;
+    _treeDragActive = false;
+  }, 5000);
 }
 
 export function moveTreeDrag(x: number, y: number) {
@@ -50,16 +93,55 @@ export function moveTreeDrag(x: number, y: number) {
     _ghostEl.style.top = `${y}px`;
     _ghostEl.style.opacity = '1';
   }
+
+  // Highlight folder under cursor as drop target
+  const el = document.elementFromPoint(x, y);
+  const dirBtn = el?.closest('[data-dir-path]') as HTMLElement | null;
+  if (dirBtn && dirBtn.getAttribute('data-dir-path') !== _pendingTreeDragPath) {
+    if (dirBtn !== _highlightedDir) {
+      clearDirHighlight();
+      _highlightedDir = dirBtn;
+      DRAG_HIGHLIGHT.split(' ').forEach((c) => dirBtn.classList.add(c));
+    }
+  } else {
+    clearDirHighlight();
+  }
 }
 
-export function endTreeDrag(): string | null {
+export interface TreeDragResult {
+  sourcePath: string;
+  /** If dropped on a folder in the tree, the folder path */
+  targetFolder: string | null;
+  /** Whether the drop point is inside the file tree area */
+  droppedInTree: boolean;
+}
+
+export function endTreeDrag(): TreeDragResult | null {
   const path = _pendingTreeDragPath;
   _pendingTreeDragPath = null;
 
-  // Remove ghost
-  if (_ghostEl) {
-    _ghostEl.remove();
-    _ghostEl = null;
+  // ALWAYS remove ghost first — this is the #1 priority
+  removeGhost();
+
+  // Detect drop target
+  let targetFolder: string | null = null;
+  let droppedInTree = false;
+  try {
+    const el = document.elementFromPoint(_lastDragX, _lastDragY);
+    if (el) {
+      // Check if drop point is inside the file tree area
+      droppedInTree = !!el.closest('[data-file-tree]');
+      // Check if over a folder node
+      const dirBtn = el.closest('[data-dir-path]') as HTMLElement | null;
+      if (dirBtn) {
+        const dirPath = dirBtn.getAttribute('data-dir-path');
+        if (dirPath && dirPath !== path) {
+          targetFolder = dirPath;
+        }
+      }
+    }
+  } catch {
+    // Detection failed — treat as non-folder drop
   }
 
   // Keep _treeDragActive true briefly so onDragDropEvent can check it
@@ -69,7 +151,7 @@ export function endTreeDrag(): string | null {
     _treeDragActive = false;
   }
 
-  return path;
+  return path ? { sourcePath: path, targetFolder, droppedInTree } : null;
 }
 
 export function isTreeDragActive(): boolean {

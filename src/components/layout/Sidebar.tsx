@@ -88,31 +88,28 @@ export function Sidebar() {
         {t('sidebar.newChat')}
       </button>
 
-      {/* Current Session */}
+      {/* Current Session — compressed single-line card */}
       {sessionMeta.sessionId && (
-        <div className="p-3 rounded-xl bg-bg-secondary border border-border-subtle mb-3">
-          <div className="text-[12px] font-medium text-text-tertiary uppercase
-            tracking-wider mb-1.5">{t('sidebar.currentSession')}</div>
-          <div className="text-sm font-medium text-text-primary truncate">
+        <div className="px-3 py-2 rounded-xl bg-bg-secondary border border-border-subtle mb-3
+          flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full flex-shrink-0 transition-smooth
+            ${sessionStatus === 'running'
+              ? 'bg-success shadow-[0_0_8px_var(--color-accent-glow)] animate-pulse-soft'
+              : sessionStatus === 'completed' ? 'bg-success'
+              : sessionStatus === 'error' ? 'bg-error'
+              : 'bg-text-tertiary'}`} />
+          <span className="text-xs font-medium text-text-primary truncate">
             {sessionMeta.model ? getModelDisplayName(sessionMeta.model) : 'Claude'}
-          </div>
-          <div className="flex items-center gap-2 mt-1.5">
-            <span className={`w-2 h-2 rounded-full flex-shrink-0 transition-smooth
-              ${sessionStatus === 'running'
-                ? 'bg-success shadow-[0_0_8px_var(--color-accent-glow)] animate-pulse-soft'
-                : sessionStatus === 'completed' ? 'bg-success'
-                : sessionStatus === 'error' ? 'bg-error'
-                : 'bg-text-tertiary'}`} />
-            {(sessionMeta.totalInputTokens || sessionMeta.totalOutputTokens
-              || sessionMeta.inputTokens || sessionMeta.outputTokens) ? (
-              <span className="text-[10px] text-text-tertiary font-mono flex items-center gap-1.5">
-                <span title="Total input tokens (session)">↑{formatTokenCount(sessionMeta.totalInputTokens || sessionMeta.inputTokens || 0)}</span>
-                <span title="Total output tokens (session)">↓{formatTokenCount(sessionMeta.totalOutputTokens || sessionMeta.outputTokens || 0)}</span>
-              </span>
-            ) : (
-              <span className="text-[10px] text-text-tertiary capitalize">{sessionStatus}</span>
-            )}
-          </div>
+          </span>
+          {(sessionMeta.totalInputTokens || sessionMeta.totalOutputTokens
+            || sessionMeta.inputTokens || sessionMeta.outputTokens) ? (
+            <span className="text-[10px] text-text-tertiary font-mono flex items-center gap-1 ml-auto flex-shrink-0">
+              <span>↑{formatTokenCount(sessionMeta.totalInputTokens || sessionMeta.inputTokens || 0)}</span>
+              <span>↓{formatTokenCount(sessionMeta.totalOutputTokens || sessionMeta.outputTokens || 0)}</span>
+            </span>
+          ) : (
+            <span className="text-[10px] text-text-tertiary capitalize ml-auto flex-shrink-0">{sessionStatus}</span>
+          )}
         </div>
       )}
       </div>

@@ -17,6 +17,8 @@ export interface StreamProcessorConfig {
   silentRestartRef: MutableRefObject<boolean>;
   handleSubmitRef: MutableRefObject<() => void>;
   handleStderrLineRef: MutableRefObject<(line: string, sid: string) => void>;
+  /** Last stderr error line — displayed to user if process exits without response */
+  lastStderrRef: MutableRefObject<string>;
   setInputSync: (text: string) => void;
 }
 
@@ -33,6 +35,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
     silentRestartRef,
     handleSubmitRef,
     handleStderrLineRef,
+    lastStderrRef,
     setInputSync,
   } = config;
 
@@ -1119,6 +1122,36 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         useSessionStore.getState().fetchSessions();
         setTimeout(() => useSessionStore.getState().fetchSessions(), 1000);
 
+        // --- AI Title Generation (TK-001): on first successful turn, generate a title ---
+        if (msg.subtype === 'success') {
+          const currentMessages = useChatStore.getState().messages;
+          const assistantTextMsgs = currentMessages.filter(
+            (m) => m.role === 'assistant' && m.type === 'text' && m.content,
+          );
+          const userTextMsgs = currentMessages.filter(
+            (m) => m.role === 'user' && m.type === 'text' && m.content,
+          );
+          // Only on first turn (1 assistant text response)
+          if (assistantTextMsgs.length === 1 && userTextMsgs.length >= 1) {
+            const sessionId = useChatStore.getState().sessionMeta.sessionId;
+            const customPreviews = useSessionStore.getState().customPreviews;
+            // Skip if user already set a custom name
+            if (sessionId && !customPreviews[sessionId]) {
+              const userMsg = userTextMsgs[0].content;
+              const assistantMsg = assistantTextMsgs[0].content;
+              bridge.generateSessionTitle(null, userMsg, assistantMsg)
+                .then((title) => {
+                  if (title) {
+                    useSessionStore.getState().setCustomPreview(sessionId, title);
+                  }
+                })
+                .catch(() => {
+                  // Silently ignore — keep original preview
+                });
+            }
+          }
+        }
+
         // --- Auto-compact: when input tokens exceed 160K (80% of 200K context),
         // automatically send /compact to prevent context overflow on the next turn.
         // Fires at most once per session to avoid infinite loops.
@@ -1177,6 +1210,33 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
       case 'process_exit': {
         // The CLI process has exited — clear the stdin handle but keep sessionId for resume
         clearPartial();
+
+        // If the session was running and no assistant messages were received,
+        // the process failed at startup. Show the last stderr error to the user.
+        const { sessionStatus: exitStatus, messages: exitMsgs } = useChatStore.getState();
+        if (exitStatus === 'running') {
+          const hasAssistantReply = exitMsgs.some(
+            (m) => m.role === 'assistant' && (m.type === 'text' || m.type === 'tool_use'),
+          );
+          if (!hasAssistantReply && lastStderrRef.current) {
+            // Detect macOS TCC permission errors and provide actionable guidance
+            const stderr = lastStderrRef.current;
+            const isTccError = /unexpected|operation not permitted|permission denied/i.test(stderr);
+            const cwd = useSettingsStore.getState().workingDirectory || '';
+            const isProtectedDir = /\/(Desktop|Downloads|Documents)\//i.test(cwd);
+            const hint = isTccError && isProtectedDir
+              ? '\n\n此目录可能受 macOS 隐私保护限制。请在「系统设置 → 隐私与安全性 → 完全磁盘访问权限」中授权，或选择其他目录。'
+              : '';
+            addMessage({
+              id: generateMessageId(),
+              role: 'system',
+              type: 'text',
+              content: `CLI error: ${stderr}${hint}`,
+              timestamp: Date.now(),
+            });
+          }
+        }
+
         setSessionStatus('idle');
         setSessionMeta({ stdinId: undefined });
         useChatStore.getState().clearPendingMessages();

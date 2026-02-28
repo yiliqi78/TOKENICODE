@@ -8,6 +8,7 @@ const messages: Record<Locale, Record<string, string>> = {
   zh: {
     // Common
     'common.cancel': '取消',
+    'common.confirm': '确认',
 
     // Sidebar
     'sidebar.hide': '收起侧栏',
@@ -77,6 +78,21 @@ const messages: Record<Locale, Record<string, string>> = {
     'conv.export': '导出',
     'conv.newChat': '新建任务',
     'conv.renamePrompt': '输入新名称',
+    'conv.deleteConfirm': '确定删除此任务吗？',
+    'conv.deleteConfirmDetail': '此操作不可撤销。',
+    'conv.deleteAll': '删除全部任务',
+    'conv.deleteAllConfirm': '确定删除「{project}」下的全部 {count} 个任务吗？',
+    'conv.deleteAllConfirmDetail': '此操作不可撤销。',
+    'conv.undoDelete': '已删除「{name}」',
+    'conv.undo': '撤销',
+    'conv.pin': '置顶',
+    'conv.unpin': '取消置顶',
+    'conv.archive': '归档',
+    'conv.unarchive': '取消归档',
+    'conv.showArchived': '显示归档',
+    'conv.filterRunning': '仅显示运行中',
+    'conv.selectMode': '选择',
+    'conv.selected': '已选 {n} 个',
 
     // ExportMenu
     'export.title': '导出任务',
@@ -119,6 +135,13 @@ const messages: Record<Locale, Record<string, string>> = {
     'files.saving': '保存中...',
     'files.discard': '放弃',
     'files.unsavedChanges': '未保存的更改',
+    'files.unsavedTitle': '未保存的更改',
+    'files.unsavedMessage': '当前文件有未保存的更改，是否保存后切换？',
+    'files.saveAndSwitch': '保存并切换',
+    'files.discardChanges': '放弃更改',
+    'files.newFile': '新建文件',
+    'files.newFolder': '新建文件夹',
+    'files.dropHere': '拖放文件到项目',
     'files.openExternal': '在系统查看器中打开',
     'files.insertToChat': '插入到聊天',
     'files.copyPath': '复制路径',
@@ -587,6 +610,7 @@ const messages: Record<Locale, Record<string, string>> = {
   en: {
     // Common
     'common.cancel': 'Cancel',
+    'common.confirm': 'Confirm',
 
     // Sidebar
     'sidebar.hide': 'Hide sidebar',
@@ -656,6 +680,21 @@ const messages: Record<Locale, Record<string, string>> = {
     'conv.export': 'Export',
     'conv.newChat': 'New Task',
     'conv.renamePrompt': 'Enter new name',
+    'conv.deleteConfirm': 'Delete this task?',
+    'conv.deleteConfirmDetail': 'This action cannot be undone.',
+    'conv.deleteAll': 'Delete All Tasks',
+    'conv.deleteAllConfirm': 'Delete all {count} tasks in "{project}"?',
+    'conv.deleteAllConfirmDetail': 'This action cannot be undone.',
+    'conv.undoDelete': 'Deleted "{name}"',
+    'conv.undo': 'Undo',
+    'conv.pin': 'Pin',
+    'conv.unpin': 'Unpin',
+    'conv.archive': 'Archive',
+    'conv.unarchive': 'Unarchive',
+    'conv.showArchived': 'Show Archived',
+    'conv.filterRunning': 'Show Running Only',
+    'conv.selectMode': 'Select',
+    'conv.selected': '{n} selected',
 
     // ExportMenu
     'export.title': 'Export task',
@@ -698,6 +737,13 @@ const messages: Record<Locale, Record<string, string>> = {
     'files.saving': 'Saving...',
     'files.discard': 'Discard',
     'files.unsavedChanges': 'Unsaved changes',
+    'files.unsavedTitle': 'Unsaved Changes',
+    'files.unsavedMessage': 'This file has unsaved changes. Save before switching?',
+    'files.saveAndSwitch': 'Save & Switch',
+    'files.discardChanges': 'Discard',
+    'files.newFile': 'New File',
+    'files.newFolder': 'New Folder',
+    'files.dropHere': 'Drop files into project',
     'files.openExternal': 'Open in system viewer',
     'files.insertToChat': 'Insert to chat',
     'files.copyPath': 'Copy path',
