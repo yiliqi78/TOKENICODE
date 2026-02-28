@@ -263,6 +263,10 @@ export const bridge = {
   restoreSnapshot: (snapshot: Record<string, string>, createdPaths: string[]) =>
     invoke<void>('restore_snapshot', { snapshot, createdPaths }),
 
+  // Rewind files to a CLI checkpoint (delegates to `claude --rewind-files`)
+  rewindFiles: (sessionId: string, checkpointUuid: string, cwd: string) =>
+    invoke<string>('rewind_files', { sessionId, checkpointUuid, cwd }),
+
   // Set macOS dock icon from base64-encoded PNG
   setDockIcon: (pngBase64: string) =>
     invoke<void>('set_dock_icon', { pngBase64 }),

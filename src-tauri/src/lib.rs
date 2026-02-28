@@ -967,6 +967,7 @@ async fn start_claude_session(
         "--output-format".to_string(), "stream-json".to_string(),
         "--verbose".to_string(),
         "--include-partial-messages".to_string(),
+        "--replay-user-messages".to_string(),
     ];
 
     // Resume an existing CLI session if requested
@@ -1061,6 +1062,14 @@ async fn start_claude_session(
     // when generating large files (e.g. HTML presentations).
     resolved_env.entry("CLAUDE_CODE_MAX_OUTPUT_TOKENS".to_string())
         .or_insert_with(|| "64000".to_string());
+
+    // Enable CLI-managed file checkpoints for rewind functionality.
+    // With --replay-user-messages, user messages in stream output carry a uuid
+    // that identifies the checkpoint. The rewind_files command uses these UUIDs.
+    resolved_env.insert(
+        "CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING".to_string(),
+        "1".to_string(),
+    );
 
     // On Windows, auto-detect git-bash and inject CLAUDE_CODE_GIT_BASH_PATH
     // so Claude Code CLI can find bash.exe without user manual configuration.
@@ -3082,6 +3091,41 @@ async fn restore_snapshot(
     Ok(())
 }
 
+/// Rewind files to a CLI checkpoint via `claude --resume <session_id> --rewind-files <uuid>`.
+/// This delegates file restoration to the CLI's native checkpoint system.
+#[tauri::command]
+async fn rewind_files(session_id: String, checkpoint_uuid: String, cwd: String) -> Result<String, String> {
+    let claude_bin = find_claude_binary().unwrap_or_else(|| {
+        #[cfg(target_os = "windows")]
+        { "claude.cmd".to_string() }
+        #[cfg(not(target_os = "windows"))]
+        { "claude".to_string() }
+    });
+
+    let enriched_path = build_enriched_path();
+
+    let output = tokio::process::Command::new(&claude_bin)
+        .args(&[
+            "--resume", &session_id,
+            "--rewind-files", &checkpoint_uuid,
+        ])
+        .current_dir(&cwd)
+        .env("PATH", &enriched_path)
+        .env("CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING", "1")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run claude --rewind-files: {}", e))?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!("rewind_files failed: {}", stderr))
+    }
+}
+
 // ── Setup: CLI Detection, Installation & Login ──────────────────────────────
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -4421,6 +4465,7 @@ pub fn run() {
             run_git_command,
             snapshot_files,
             restore_snapshot,
+            rewind_files,
             set_dock_icon,
             run_claude_command,
             check_claude_cli,

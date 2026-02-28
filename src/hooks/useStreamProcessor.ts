@@ -756,6 +756,17 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
 
       case 'user':
       case 'human': {
+        // Store CLI checkpoint UUID on the most recent user message (for rewind)
+        if (msg.uuid) {
+          const { messages: allMsgs, updateMessage: um2 } = useChatStore.getState();
+          for (let i = allMsgs.length - 1; i >= 0; i--) {
+            if (allMsgs[i].role === 'user') {
+              um2(allMsgs[i].id, { checkpointUuid: msg.uuid });
+              break;
+            }
+          }
+        }
+
         const userContent = msg.message?.content;
         if (Array.isArray(userContent)) {
           for (const block of userContent) {

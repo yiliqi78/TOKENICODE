@@ -74,6 +74,8 @@ export interface ChatMessage {
   commandCompleted?: boolean;
   // Sub-agent nesting depth (0 = main agent, 1+ = inside Task sub-agent)
   subAgentDepth?: number;
+  // CLI checkpoint UUID for file restoration (from --replay-user-messages)
+  checkpointUuid?: string;
 }
 
 export interface SessionMeta {
