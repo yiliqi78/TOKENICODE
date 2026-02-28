@@ -6,7 +6,7 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
-## [Unreleased] - dev/core-refactor
+## [0.8.0] - 2026-03-01
 
 ### Added
 
@@ -81,6 +81,8 @@ All notable changes to TOKENICODE will be documented in this file.
 - **Hardcoded Chinese in delete dialog** — `"删除全部任务"` replaced with `t('conv.deleteAll')`.
 
 - **GUI apps don't inherit proxy env vars** — macOS GUI apps launched from Finder/Dock get a minimal environment from `launchd`, missing proxy settings (`https_proxy`, etc.) defined in `.zshrc`. This caused 403 "Request not allowed" errors in regions requiring a proxy to reach Anthropic's API. Fixed by capturing proxy vars from an interactive shell (`zsh -ic`) via `login_shell_proxy_env()` and injecting them into CLI child processes and the reqwest HTTP client.
+
+- **Updater endpoint order** — Swapped from Gitee-first to GitHub-first. When GitHub is unreachable (e.g., in China without proxy), updater automatically falls back to Gitee. Proxy env vars are also propagated to the process level so the updater plugin's HTTP client can reach GitHub through proxy.
 
 ### Removed
 
@@ -163,6 +165,8 @@ All notable changes to TOKENICODE will be documented in this file.
 - **删除弹窗硬编码中文** — `"删除全部任务"` 替换为 `t('conv.deleteAll')`。
 
 - **GUI 应用不继承代理环境变量** — macOS 从 Finder/Dock 启动的 GUI 应用从 `launchd` 获取最小化环境，缺少 `.zshrc` 中定义的代理设置（`https_proxy` 等）。在需要代理才能访问 Anthropic API 的地区会导致 403 "Request not allowed" 错误。通过 `login_shell_proxy_env()` 从交互式 shell（`zsh -ic`）捕获代理变量，注入 CLI 子进程和 reqwest HTTP 客户端。
+
+- **更新检测通路** — 从 Gitee 优先改为 GitHub 优先。GitHub 不可达时（如国内无代理环境）自动降级到 Gitee。代理环境变量同步传播到进程级别，使 updater 插件的 HTTP 客户端也能走代理访问 GitHub。
 
 ### 移除
 
