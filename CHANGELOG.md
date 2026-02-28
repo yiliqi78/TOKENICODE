@@ -44,6 +44,12 @@ All notable changes to TOKENICODE will be documented in this file.
 
 - **ConfirmDialog shared component** — Reusable confirmation dialog (`src/components/shared/ConfirmDialog.tsx`) with danger/default variants. Used by both FileExplorer and ConversationList.
 
+- **Provider preset menu** — Unified "Add" button with portal popup showing 6 presets (Anthropic, DeepSeek, 智谱 GLM, Qwen Coder, Kimi k2, MiniMax) in 2×3 grid, plus custom config and JSON import. Already-added presets greyed out with badge.
+
+- **Card quick-test** — Provider card test button runs independently without opening the edit form. Success state shows response time in ms (e.g. `326ms`) instead of generic "Connected" text.
+
+- **AI reply avatar** — Chat avatar changed from accent-colored "C" letter to the TOKENICODE `</>` logo SVG. Adapts to light/dark mode and all color themes via `--color-icon-slash` CSS variable.
+
 ### Improved
 
 - **Settings panel redesign** — Full restructure with left sidebar tabs (General, API Provider, CLI, MCP) and near-fullscreen layout. Each tab is now an independent component for better maintainability.
@@ -52,7 +58,7 @@ All notable changes to TOKENICODE will be documented in this file.
 
 - **Theme color showcase** — Color theme selector now shows mini UI preview cards (2×2 grid) with a simplified chat interface mockup, replacing plain color circles. Right side stacks appearance, language, font size, and model selectors vertically.
 
-- **Provider system extraction** — API provider management moved from settingsStore into a dedicated `providerStore` with its own tab. Supports preset selection (Anthropic Official + Custom API), JSON import/export, and connection testing.
+- **Provider system overhaul** — ProviderManager (556 lines) split into 4 focused components: ProviderCard (card with active dot, hostname, format label, quick-test, export, trash-delete), ProviderForm (inline edit with SVG eye icons, test at top, auto-save resets test), AddProviderMenu (portal popup). Presets updated: removed openrouter/bedrock/vertex, added Qwen Coder/MiniMax, updated Kimi k2. Custom API defaults to Anthropic format. Import no longer auto-activates. Delete uses inline confirmation bar.
 
 - **Stream processor extraction** — Stream parsing logic extracted from InputBar.tsx (~1100 lines) into dedicated `useStreamProcessor.ts` hook.
 
@@ -118,6 +124,12 @@ All notable changes to TOKENICODE will be documented in this file.
 
 - **ConfirmDialog 共享组件** — 可复用确认弹窗（`src/components/shared/ConfirmDialog.tsx`），支持 danger/default 变体。被 FileExplorer 和 ConversationList 共用。
 
+- **提供商预设菜单** — 统一「新增」按钮 + Portal 弹出菜单，2×3 网格展示 6 个预设（Anthropic、DeepSeek、智谱 GLM、Qwen Coder、Kimi k2、MiniMax），下方有自定义配置和 JSON 导入。已添加的预设灰显带标记。
+
+- **卡片快捷测试** — 提供商卡片的测试按钮独立运行，不展开编辑表单。成功时显示响应时间（如 `326ms`），替代泛泛的「连接成功」。
+
+- **AI 回复头像** — 聊天头像从 accent 色 "C" 字母改为 TOKENICODE `</>` logo SVG。通过 `--color-icon-slash` CSS 变量自动适配亮/暗模式和所有主题色。
+
 ### 改进
 
 - **设置面板重新设计** — 全面重构，采用左侧标签栏（通用、API 提供商、CLI 管理、MCP 服务器）+ 近全屏布局。各标签页拆分为独立组件，便于维护。
@@ -126,7 +138,7 @@ All notable changes to TOKENICODE will be documented in this file.
 
 - **主题颜色展示卡片** — 颜色选择器改为 2×2 迷你界面预览卡片，展示简化的聊天界面轮廓，替代原先的纯色圆点。右侧竖排放置外观、语言、字体大小、默认模型。
 
-- **Provider 系统独立** — API 提供商管理从 settingsStore 抽离至独立的 `providerStore`，拥有专属标签页。支持预设选择（Anthropic 官方 + 自定义 API）、JSON 导入/导出和连接测试。
+- **Provider 系统大修** — ProviderManager（556 行）拆分为 4 个组件：ProviderCard（卡片，含激活点、hostname、格式标签、快捷测试、导出、垃圾桶删除）、ProviderForm（内联编辑，SVG 眼睛图标、测试在顶部、auto-save 重置测试状态）、AddProviderMenu（Portal 弹出菜单）。预设更新：移除 openrouter/bedrock/vertex，新增 Qwen Coder/MiniMax，更新 Kimi k2。自定义 API 默认 Anthropic 格式。导入不再自动激活。删除使用内联确认条。
 
 - **流处理器抽离** — 流解析逻辑从 InputBar.tsx（约 1100 行）抽取至独立的 `useStreamProcessor.ts` hook。
 
