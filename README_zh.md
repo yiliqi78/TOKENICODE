@@ -31,7 +31,7 @@
 
 <div align="center">
 
-![主界面](screenshots/main-interface.png)
+![主界面](screenshots/main-interface.png?v=2)
 
 </div>
 
@@ -188,34 +188,34 @@ TOKENICODE v0.8.0 采用 Claude CLI 原生控制协议处理权限：
 ## 截图
 
 **主界面** — 侧栏、对话、文件浏览器三栏布局
-![主界面](screenshots/main-interface.png)
+![主界面](screenshots/main-interface.png?v=2)
 
 **流式对话** — 实时思考、输出和工具执行
-![流式对话](screenshots/streaming-chat.png)
+![流式对话](screenshots/streaming-chat.png?v=2)
 
 **会话管理** — 置顶、归档、日期分组、批量操作
-![会话管理](screenshots/文件管理.png)
+![会话管理](screenshots/文件管理.png?v=2)
 
 **文件浏览器** — SVG 图标、变更标记、扁平搜索
-![文件浏览器](screenshots/file-explorer.png)
+![文件浏览器](screenshots/file-explorer.png?v=2)
 
 **文件编辑** — 内置 CodeMirror 编辑器，语法高亮
-![文件编辑](screenshots/file-editing.png)
+![文件编辑](screenshots/file-editing.png?v=2)
 
 **计划模式** — SDK 权限审批卡片
-![计划模式](screenshots/plan-mode.png)
+![计划模式](screenshots/plan-mode.png?v=2)
 
 **代理活动** — 实时监控子代理任务
-![代理活动](screenshots/Agents.png)
+![代理活动](screenshots/Agents.png?v=2)
 
 **技能管理** — 右键菜单操作技能
-![技能管理](screenshots/skills.png)
+![技能管理](screenshots/skills.png?v=2)
 
 **HTML 预览** — HTML 文件实时预览
-![HTML 预览](screenshots/html-preview.png)
+![HTML 预览](screenshots/html-preview.png?v=2)
 
 **设置** — 四标签页布局，主题预览卡片
-![设置](screenshots/settings.png)
+![设置](screenshots/settings.png?v=2)
 
 ## 参与贡献
 

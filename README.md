@@ -31,7 +31,7 @@
 
 <div align="center">
 
-![Main Interface](screenshots/main-interface.png)
+![Main Interface](screenshots/main-interface.png?v=2)
 
 </div>
 
@@ -188,34 +188,34 @@ Manage Claude Code skills (edit, enable/disable, right-click context menu) and M
 ## Screenshots
 
 **Main Interface** — Three-panel layout with sidebar, chat, and file explorer
-![Main Interface](screenshots/main-interface.png)
+![Main Interface](screenshots/main-interface.png?v=2)
 
 **Streaming Chat** — Real-time thinking, writing, and tool execution
-![Streaming Chat](screenshots/streaming-chat.png)
+![Streaming Chat](screenshots/streaming-chat.png?v=2)
 
 **Session Management** — Pin, archive, date groups, batch operations
-![Session Management](screenshots/文件管理.png)
+![Session Management](screenshots/文件管理.png?v=2)
 
 **File Explorer** — SVG icons, change markers, flat search
-![File Explorer](screenshots/file-explorer.png)
+![File Explorer](screenshots/file-explorer.png?v=2)
 
 **File Editing** — Built-in CodeMirror editor with syntax highlighting
-![File Editing](screenshots/file-editing.png)
+![File Editing](screenshots/file-editing.png?v=2)
 
 **Plan Mode** — SDK permission approval cards
-![Plan Mode](screenshots/plan-mode.png)
+![Plan Mode](screenshots/plan-mode.png?v=2)
 
 **Agent Activity** — Monitor sub-agent tasks in real-time
-![Agent Activity](screenshots/Agents.png)
+![Agent Activity](screenshots/Agents.png?v=2)
 
 **Skills Management** — Right-click context menu for skills
-![Skills](screenshots/skills.png)
+![Skills](screenshots/skills.png?v=2)
 
 **HTML Preview** — Live preview of HTML files
-![HTML Preview](screenshots/html-preview.png)
+![HTML Preview](screenshots/html-preview.png?v=2)
 
 **Settings** — Four-tab layout with theme preview cards
-![Settings](screenshots/settings.png)
+![Settings](screenshots/settings.png?v=2)
 
 ## Contributing
 
