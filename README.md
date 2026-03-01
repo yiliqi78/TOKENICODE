@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="icon/图标.svg" alt="TOKENICODE Logo" width="120" />
+<img src="public/app-icon.png" alt="TOKENICODE Logo" width="120" />
 
 # TOKENICODE
 
@@ -12,99 +12,149 @@
 [![Tauri](https://img.shields.io/badge/Tauri-2.0-FFC131?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
 
-**TOKENICODE** wraps the powerful [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) in a beautiful desktop interface — with file exploration, session management, snapshot/rewind, slash commands, and more.
+**TOKENICODE** wraps the powerful [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) in a polished desktop interface — bring your own API key, connect any provider, and get a native coding experience with file exploration, session management, and structured permission control.
 
-[**Download**](#installation) | [**Features**](#features-deep-dive)
+[**Download**](https://github.com/yiliqi78/TOKENICODE/releases) · [**Features**](#features) · [**Screenshots**](#screenshots)
 
 ---
 
-**[English](README.md)** | **[中文](README_zh.md)** | **[日本語](README_ja.md)**
+**[English](README.md)** | **[中文](README_zh.md)**
 
 </div>
 
-## Features at a Glance
+## Why TOKENICODE?
 
 | | | | |
 |:---:|:---:|:---:|:---:|
-| **Streaming Chat** | **File Explorer** | **Session Management** | **Snapshot & Rewind** |
-| Real-time NDJSON streaming with thinking, writing, and tool-use indicators | Browse, preview, and edit project files with syntax highlighting | Persistent sessions with search, rename, export, and resume | Snapshot files before changes and roll back to any conversation turn |
-| **Slash Commands** | **Command Palette** | **i18n** | **Themes** |
-| Full Claude Code slash command support with autocomplete | Quick-access `Cmd+K` palette for all actions | Chinese & English with extensible translation system | Light, dark, and system themes with multiple accent colors |
+| 🔑 **Bring Your Own API** | 🇨🇳 **China-Ready** | 🛡️ **SDK Control Protocol** | 🎨 **Beautiful & Native** |
+| 6 preset providers + custom endpoints. One-click config import/export. | Gitee mirror for updates, pre-configured Chinese API providers (DeepSeek, Zhipu GLM, Qwen, Kimi, MiniMax). | Structured permission approval — 4 work modes (code / ask / plan / bypass) with typed allow/deny over stdin. | Tauri 2 native desktop experience. Multiple themes × light/dark mode. |
 
-## Quick Start
+<div align="center">
+
+![Main Interface](screenshots/main-interface.png)
+
+</div>
+
+## Installation
 
 ### Prerequisites
 
-- macOS 12+, Windows 10+, or Linux (with WebKit2GTK)
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) — TOKENICODE can auto-detect, install, and authenticate it for you on first launch
 
-### Installation
-
-#### macOS
+### macOS
 
 Download the latest `.dmg` from [Releases](https://github.com/yiliqi78/TOKENICODE/releases), open it, and drag **TOKENICODE** to your Applications folder.
 
-> **"TOKENICODE is damaged and can't be opened"** — This happens because the app is not code-signed. Run the following command to fix it:
-> ```bash
-> xattr -cr /Applications/TOKENICODE.app
-> ```
+Available for both Apple Silicon (arm64) and Intel (x86_64). The app is code-signed and notarized — no extra steps needed.
 
-#### Windows
+### Windows
 
-Download the latest `.msi` or `.exe` installer from [Releases](https://github.com/yiliqi78/TOKENICODE/releases) and run it.
+Download the latest `.msi` or `.exe` installer from [Releases](https://github.com/yiliqi78/TOKENICODE/releases) and run it. Requires Windows 10 or later.
 
-#### Linux
+### Linux
 
-Download the `.AppImage`, `.deb`, or `.rpm` package from [Releases](https://github.com/yiliqi78/TOKENICODE/releases).
+Download the `.AppImage`, `.deb`, or `.rpm` package from [Releases](https://github.com/yiliqi78/TOKENICODE/releases). Requires WebKit2GTK.
 
-### First Launch
+> **China users:** If GitHub downloads are slow, grab releases from the [Gitee mirror](https://gitee.com/yiliqiseven/TOKENICODE/releases). The app also checks Gitee for updates when GitHub is unreachable.
 
-1. Open TOKENICODE
-2. If the Claude Code CLI is not installed, the setup wizard will guide you through installation and login — no terminal required
-3. Select a project folder from the welcome screen or input bar
-4. Start chatting — the Claude CLI session runs seamlessly in the background
+## Getting Started
 
-## Features Deep Dive
+1. **Open TOKENICODE** — if the Claude Code CLI is not installed, the setup wizard guides you through installation and login, no terminal required
+2. **Select a project folder** from the welcome screen or input bar
+3. **Start chatting** — the Claude CLI session runs seamlessly in the background
+4. **Configure your API** (optional) — open Settings → API Provider to add third-party keys or import a config
+
+## Features
+
+### Third-Party API Providers
+
+Use Claude through any compatible API endpoint — not just Anthropic's official API.
+
+- **6 preset providers** in a visual 2×3 grid: Anthropic, DeepSeek, Zhipu GLM, Qwen Coder, Kimi k2, MiniMax
+- **Custom endpoints** with Anthropic or OpenAI-compatible format
+- **One-click JSON import** to share configs across machines
+- **Quick connection test** with response time display (e.g. `326ms`)
+- **Per-card export** for easy backup
+
+### China-Ready
+
+TOKENICODE is designed to work well behind the Great Firewall:
+
+- **Gitee update mirror** — when GitHub is unreachable, auto-update falls back to Gitee
+- **Chinese API presets** — DeepSeek, Zhipu GLM, Qwen Coder, Kimi k2, MiniMax are pre-configured with correct endpoints
+- **Proxy auto-detection** — inherits system proxy environment variables on macOS
+- **Full Chinese UI** — switch to Chinese from Settings at any time
+
+### SDK Control Protocol
+
+TOKENICODE v0.8.0 uses Claude CLI's native control protocol for permission handling:
+
+- Permission requests flow as structured JSON through stdout
+- Responses are typed `allow` / `deny` messages via stdin
+- Switch between **code**, **ask**, **plan**, and **bypass** modes at runtime
+- Change model on-the-fly without restarting the session
 
 ### Streaming Chat
 
-Real-time conversation with Claude Code using NDJSON streaming. The UI shows distinct phases — thinking, writing, and tool execution — with animated indicators for each.
+Real-time conversation with Claude Code using NDJSON streaming. The UI shows distinct phases:
 
-### File Explorer
-
-Browse your entire project tree with expand/collapse directories. Files modified by Claude are highlighted with change markers. Double-click to open in VS Code, or preview directly in the built-in CodeMirror editor with full syntax highlighting.
-
-### Snapshot & Rewind
-
-Every time Claude modifies a file, a snapshot is taken beforehand. Use the Rewind panel to roll back to any conversation turn — restoring code, conversation, or both independently.
+- **Thinking** — spinner animation while Claude reasons
+- **Writing** — blue indicator as Claude composes its response
+- **Tool execution** — animated display of file edits, shell commands, and more
 
 ### Session Management
 
-All Claude Code sessions are persisted and searchable. Resume any previous session, rename it, export to Markdown/JSON, or reveal the session file in Finder.
+All Claude Code sessions are persisted and fully manageable:
 
-### Slash Commands
+- **Pin** sessions to the top of each project group
+- **Archive** sessions to hide them from the default view
+- **Batch operations** — multi-select for bulk delete or archive
+- **Date separators** — Today / Yesterday / This Week / Earlier
+- **Smart collapse** — only the active project group auto-expands
+- **AI title generation** — automatic short title after the first reply
+- **Undo delete** — 5-second recovery window for accidental deletions
+- **Search** with a running-sessions-only filter
+- **Export** to Markdown or JSON, rename, resume any session
 
-Full support for all Claude Code slash commands (`/ask`, `/plan`, `/compact`, `/model`, etc.) with an autocomplete popover showing built-in commands, project commands, and skills.
+### File Explorer & Editor
 
-### Command Palette
+Browse your project tree with full file management:
 
-Press `Cmd+K` to open a quick-access command palette for starting new chats, toggling panels, switching themes, and more.
+- **SVG file icons** for 20+ file types with color coding
+- **Change markers** on files modified by Claude
+- **Create new files and folders** via right-click context menu
+- **Flat search** with relative path context
+- **Built-in CodeMirror editor** with syntax highlighting for 12+ languages (Python, TypeScript, Rust, Go, Java, C++, SQL, Markdown, JSON, YAML, HTML, CSS, XML)
+- **Double-click** to open in VS Code
+
+### Checkpoints & Rewind
+
+File restoration uses Claude CLI's native checkpoint system:
+
+- Restore **code**, **conversation**, or **both** independently
+- Powered by `--replay-user-messages` and CLI file checkpointing
+- Integrated restore button in the conversation timeline
+
+### Slash Commands & Command Palette
+
+- Full Claude Code slash command support with autocomplete popover
+- Shows built-in commands, project commands, and skills
+- **Command Palette** (`Cmd+K` / `Ctrl+K`) for quick access to new chats, panel toggles, theme switching, and settings
 
 ### Agent Activity
 
-Monitor Claude's sub-agent activity in real-time. See which agents are spawning, thinking, running tools, or completed.
+Monitor Claude's sub-agents in real-time — see which agents are spawning, thinking, running tools, or completed.
 
 ### Skills & MCP
 
-Manage Claude Code skills (create, edit, enable/disable) and MCP server connections directly from the UI.
+Manage Claude Code skills (edit, enable/disable, right-click context menu) and MCP server connections directly from the UI.
 
-### File Editing
+### Customization
 
-Edit files directly in the built-in CodeMirror editor with syntax highlighting for 12+ languages. Save changes without leaving the app.
-
-### Internationalization
-
-Full Chinese and English support. All user-facing strings go through a centralized i18n system. The locale can be changed from Settings.
+- **Themes** — multiple accent colors with light, dark, and system-following modes
+- **Languages** — full Chinese and English support, switchable from Settings
+- **Font size** — adjustable with keyboard shortcuts
+- **Thinking depth** — 5-level thinking depth control
 
 ## Keyboard Shortcuts
 
@@ -120,42 +170,51 @@ Full Chinese and English support. All user-facing strings go through a centraliz
 | `Cmd+0` | Reset font size |
 | `Escape` | Close overlay / cancel |
 
-## Interface Preview
+> On Windows/Linux, replace `Cmd` with `Ctrl`.
 
-**Main Interface** — Three-panel layout
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Desktop framework | [Tauri 2](https://tauri.app) |
+| Frontend | [React 19](https://react.dev) + TypeScript 5.8 |
+| Styling | [Tailwind CSS 4](https://tailwindcss.com) |
+| State management | [Zustand 5](https://zustand.docs.pmnd.rs) (10 stores) |
+| Code editor | [CodeMirror 6](https://codemirror.net) |
+| Bundler | [Vite 7](https://vite.dev) |
+| Backend | Rust (tokio, reqwest, serde, notify) |
+| Package manager | pnpm |
+
+## Screenshots
+
+**Main Interface** — Three-panel layout with sidebar, chat, and file explorer
 ![Main Interface](screenshots/main-interface.png)
 
-**Streaming Chat** — Real-time thinking & writing
+**Streaming Chat** — Real-time thinking, writing, and tool execution
 ![Streaming Chat](screenshots/streaming-chat.png)
 
-**Session Management** — Persistent sessions with search & resume
+**Session Management** — Pin, archive, date groups, batch operations
 ![Session Management](screenshots/文件管理.png)
 
-**File Explorer** — Browse & preview with syntax highlighting
+**File Explorer** — SVG icons, change markers, flat search
 ![File Explorer](screenshots/file-explorer.png)
 
-**File Editing** — Built-in CodeMirror editor for 12+ languages
+**File Editing** — Built-in CodeMirror editor with syntax highlighting
 ![File Editing](screenshots/file-editing.png)
 
-**Slash Commands** — Autocomplete for all commands
-![Slash Commands](screenshots/slash-commands.png)
-
-**Plan Mode** — Structured implementation planning
+**Plan Mode** — SDK permission approval cards
 ![Plan Mode](screenshots/plan-mode.png)
-
-**Snapshot & Rewind** — Roll back to any turn
-![Rewind](screenshots/rewind.png)
 
 **Agent Activity** — Monitor sub-agent tasks in real-time
 ![Agent Activity](screenshots/Agents.png)
 
-**Skills Management** — Create, edit & manage skills
+**Skills Management** — Right-click context menu for skills
 ![Skills](screenshots/skills.png)
 
 **HTML Preview** — Live preview of HTML files
 ![HTML Preview](screenshots/html-preview.png)
 
-**Settings** — Themes, accent colors, i18n
+**Settings** — Four-tab layout with theme preview cards
 ![Settings](screenshots/settings.png)
 
 ## Contributing
@@ -180,6 +239,6 @@ This project is licensed under the **Apache License 2.0** — see the [LICENSE](
 
 <div align="center">
 
-**If you find TOKENICODE useful, please consider giving it a star!**
+**If you find TOKENICODE useful, please consider giving it a ⭐!**
 
 </div>

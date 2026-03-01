@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TOKENICODE — A Beautiful Desktop Client for Claude Code</title>
+  <meta name="description" content="TOKENICODE wraps Claude Code CLI in a polished desktop interface. Bring your own API key, connect any provider, get native coding experience with file exploration, session management, and structured permission control.">
+  <link rel="icon" type="image/png" href="../public/app-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* ===== Reset & Base ===== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-deep: #06080F;
+      --bg-base: #0B0F1A;
+      --bg-surface: #111827;
+      --bg-elevated: #1A2236;
+      --border: #1E293B;
+      --border-light: #2A3550;
+      --accent-blue: #3B82F6;
+      --accent-blue-light: #60A5FA;
+      --accent-green: #22C55E;
+      --accent-green-light: #4ADE80;
+      --accent-purple: #A78BFA;
+      --accent-amber: #F59E0B;
+      --text-primary: #F1F5F9;
+      --text-secondary: #94A3B8;
+      --text-muted: #64748B;
+      --font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+      --glow-blue: 0 0 60px rgba(59, 130, 246, 0.15);
+    }
+
+    html {
+      scroll-behavior: smooth;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    /* ===== Utilities ===== */
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+    a { color: inherit; text-decoration: none; }
+    .sr-only {
+      position: absolute; width: 1px; height: 1px;
+      padding: 0; margin: -1px; overflow: hidden;
+      clip: rect(0,0,0,0); border: 0;
+    }
+
+    /* ===== Navigation ===== */
+    .nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      background: rgba(6, 8, 15, 0.82);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-inner {
+      display: flex; align-items: center; justify-content: space-between;
+      height: 64px;
+    }
+    .nav-logo {
+      display: flex; align-items: center; gap: 10px;
+      font-family: var(--font-mono); font-weight: 700; font-size: 18px;
+    }
+    .nav-logo img { width: 32px; height: 32px; border-radius: 8px; }
+    .nav-links { display: flex; align-items: center; gap: 32px; list-style: none; }
+    .nav-links a {
+      font-size: 14px; font-weight: 500; color: var(--text-secondary);
+      transition: color 0.2s;
+    }
+    .nav-links a:hover, .nav-links a:focus-visible { color: var(--text-primary); }
+    .nav-cta {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 20px; border-radius: 8px;
+      background: var(--accent-blue); color: #fff !important;
+      font-weight: 600; font-size: 14px;
+      transition: background 0.2s, transform 0.15s; cursor: pointer;
+    }
+    .nav-cta:hover { background: var(--accent-blue-light); transform: translateY(-1px); }
+    .nav-cta:focus-visible { outline: 2px solid var(--accent-blue-light); outline-offset: 2px; }
+    .nav-lang {
+      display: inline-flex; align-items: center; gap: 2px;
+      padding: 4px; border-radius: 8px;
+      background: var(--bg-elevated); border: 1px solid var(--border);
+    }
+    .nav-lang button {
+      padding: 4px 10px; border-radius: 6px; border: none;
+      font-size: 12px; font-weight: 600; cursor: pointer;
+      background: transparent; color: var(--text-muted);
+      transition: all 0.15s;
+    }
+    .nav-lang button.active {
+      background: var(--accent-blue); color: #fff;
+    }
+    .nav-lang button:hover:not(.active) { color: var(--text-secondary); }
+    .nav-lang button:focus-visible { outline: 2px solid var(--accent-blue-light); outline-offset: 1px; }
+    .nav-mobile-btn {
+      display: none; background: none; border: none;
+      color: var(--text-primary); cursor: pointer; padding: 8px;
+    }
+    .nav-mobile-menu { display: none; }
+
+    /* ===== Hero ===== */
+    .hero {
+      position: relative; padding: 140px 0 80px;
+      text-align: center; overflow: hidden;
+    }
+    .hero-glow {
+      position: absolute; top: -200px; left: 50%; transform: translateX(-50%);
+      width: 800px; height: 600px;
+      background: radial-gradient(ellipse, rgba(59,130,246,0.08) 0%, rgba(139,92,246,0.04) 40%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero-content { position: relative; z-index: 1; }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 16px; border-radius: 100px;
+      background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.2);
+      font-size: 13px; font-weight: 500; color: var(--accent-blue-light);
+      margin-bottom: 28px;
+    }
+    .hero-badge-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--accent-green);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; } 50% { opacity: 0.4; }
+    }
+    .hero h1 {
+      font-size: clamp(36px, 6vw, 64px); font-weight: 700;
+      line-height: 1.1; letter-spacing: -0.02em; margin-bottom: 20px;
+    }
+    .hero h1 .gradient-text {
+      background: linear-gradient(135deg, var(--accent-blue) 0%, var(--accent-purple) 50%, var(--accent-blue-light) 100%);
+      -webkit-background-clip: text; background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero-subtitle {
+      font-size: clamp(16px, 2.2vw, 20px); color: var(--text-secondary);
+      max-width: 640px; margin: 0 auto 40px; line-height: 1.6;
+    }
+    .hero-actions {
+      display: flex; align-items: center; justify-content: center;
+      gap: 16px; flex-wrap: wrap; margin-bottom: 56px;
+    }
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 14px 28px; border-radius: 10px;
+      background: var(--accent-blue); color: #fff;
+      font-weight: 600; font-size: 16px;
+      transition: all 0.2s; cursor: pointer; border: none;
+    }
+    .btn-primary:hover { background: var(--accent-blue-light); transform: translateY(-2px); box-shadow: var(--glow-blue); }
+    .btn-primary:focus-visible { outline: 2px solid var(--accent-blue-light); outline-offset: 2px; }
+    .btn-secondary {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 14px 28px; border-radius: 10px;
+      background: var(--bg-elevated); border: 1px solid var(--border-light);
+      color: var(--text-primary); font-weight: 600; font-size: 16px;
+      transition: all 0.2s; cursor: pointer;
+    }
+    .btn-secondary:hover { background: var(--border); transform: translateY(-2px); }
+    .btn-secondary:focus-visible { outline: 2px solid var(--accent-blue-light); outline-offset: 2px; }
+    .hero-screenshot {
+      position: relative; max-width: 960px; margin: 0 auto;
+      border-radius: 12px; overflow: hidden;
+      border: 1px solid var(--border-light);
+      box-shadow: 0 40px 100px rgba(0,0,0,0.5), var(--glow-blue);
+    }
+    .hero-screenshot img { width: 100%; height: auto; display: block; }
+
+    /* ===== Pillars ===== */
+    .pillars { padding: 40px 0 80px; }
+    .pillars-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+    .pillar-card {
+      padding: 28px 24px; border-radius: 14px;
+      background: var(--bg-surface); border: 1px solid var(--border);
+      transition: border-color 0.25s, transform 0.25s;
+    }
+    .pillar-card:hover { border-color: var(--border-light); transform: translateY(-4px); }
+    .pillar-icon {
+      width: 44px; height: 44px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 16px;
+    }
+    .pillar-icon svg { width: 22px; height: 22px; }
+    .pillar-icon--blue   { background: rgba(59,130,246,0.12); color: var(--accent-blue-light); }
+    .pillar-icon--green  { background: rgba(34,197,94,0.12);  color: var(--accent-green-light); }
+    .pillar-icon--purple { background: rgba(167,139,250,0.12); color: var(--accent-purple); }
+    .pillar-icon--amber  { background: rgba(245,158,11,0.12); color: var(--accent-amber); }
+    .pillar-card h3 { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+    .pillar-card p { font-size: 14px; line-height: 1.6; color: var(--text-secondary); }
+
+    /* ===== Features ===== */
+    .features { padding: 80px 0; }
+    .section-label {
+      font-family: var(--font-mono); font-size: 13px; font-weight: 600;
+      color: var(--accent-blue); text-transform: uppercase;
+      letter-spacing: 0.06em; margin-bottom: 12px;
+    }
+    .section-title {
+      font-size: clamp(28px, 4vw, 40px); font-weight: 700;
+      letter-spacing: -0.02em; margin-bottom: 16px;
+    }
+    .section-desc {
+      font-size: 17px; color: var(--text-secondary);
+      max-width: 560px; margin-bottom: 56px;
+    }
+    .feature-row {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 60px; align-items: center; margin-bottom: 100px;
+    }
+    .feature-row:last-child { margin-bottom: 0; }
+    .feature-row--reverse .feature-text { order: 2; }
+    .feature-row--reverse .feature-visual { order: 1; }
+    .feature-text h3 {
+      font-size: 24px; font-weight: 700;
+      margin-bottom: 12px; letter-spacing: -0.01em;
+    }
+    .feature-text p {
+      font-size: 15px; color: var(--text-secondary);
+      line-height: 1.7; margin-bottom: 20px;
+    }
+    .feature-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+    .feature-tag {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 12px; border-radius: 6px;
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      font-size: 13px; color: var(--text-secondary);
+      font-family: var(--font-mono);
+    }
+    .feature-tag svg { width: 14px; height: 14px; }
+    .feature-visual {
+      border-radius: 12px; overflow: hidden;
+      border: 1px solid var(--border); background: var(--bg-surface);
+    }
+    .feature-visual img { width: 100%; height: auto; display: block; }
+
+    /* ===== Provider Chips ===== */
+    .providers-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 12px; margin-top: 24px;
+    }
+    .provider-chip {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 16px; border-radius: 10px;
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      font-size: 14px; font-weight: 500; transition: border-color 0.2s;
+    }
+    .provider-chip:hover { border-color: var(--border-light); }
+    .provider-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+    /* ===== Screenshots ===== */
+    .screenshots { padding: 80px 0; }
+    .screenshots-grid {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;
+    }
+    .screenshot-card {
+      border-radius: 12px; overflow: hidden;
+      border: 1px solid var(--border); background: var(--bg-surface);
+      transition: transform 0.3s, border-color 0.3s;
+    }
+    .screenshot-card:hover { transform: translateY(-4px); border-color: var(--border-light); }
+    .screenshot-card img { width: 100%; height: auto; display: block; }
+    .screenshot-card figcaption {
+      padding: 14px 18px; font-size: 14px; font-weight: 500;
+      color: var(--text-secondary); border-top: 1px solid var(--border);
+    }
+
+    /* ===== Keyboard Shortcuts ===== */
+    .shortcuts { padding: 80px 0; }
+    .shortcuts-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+    }
+    .shortcut-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px; border-radius: 10px;
+      background: var(--bg-surface); border: 1px solid var(--border);
+    }
+    .shortcut-action { font-size: 14px; color: var(--text-secondary); }
+    .shortcut-keys {
+      display: flex; gap: 4px;
+    }
+    .kbd {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 28px; height: 28px; padding: 0 8px;
+      border-radius: 6px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      font-size: 13px; font-weight: 600; color: var(--text-primary);
+      background: var(--bg-elevated); border: 1px solid var(--border-light);
+      box-shadow: 0 1px 0 var(--border-light);
+    }
+
+    /* ===== Tech Stack ===== */
+    .tech { padding: 80px 0; }
+    .tech-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
+    }
+    .tech-card {
+      padding: 24px; border-radius: 12px;
+      background: var(--bg-surface); border: 1px solid var(--border);
+      text-align: center; transition: border-color 0.2s;
+    }
+    .tech-card:hover { border-color: var(--border-light); }
+    .tech-card-name {
+      font-family: var(--font-mono); font-size: 15px;
+      font-weight: 600; margin-bottom: 4px;
+    }
+    .tech-card-role { font-size: 13px; color: var(--text-muted); }
+
+    /* ===== Download ===== */
+    .download { padding: 100px 0; text-align: center; }
+    .download-inner {
+      padding: 60px 40px; border-radius: 20px;
+      background: linear-gradient(135deg, rgba(59,130,246,0.06) 0%, rgba(139,92,246,0.04) 100%);
+      border: 1px solid var(--border);
+    }
+    .download h2 {
+      font-size: clamp(28px, 4vw, 40px); font-weight: 700;
+      letter-spacing: -0.02em; margin-bottom: 12px;
+    }
+    .download > .container > .download-inner > p {
+      font-size: 17px; color: var(--text-secondary); margin-bottom: 36px;
+    }
+    .download-desc { font-size: 17px; color: var(--text-secondary); margin-bottom: 36px; }
+    .download-platforms {
+      display: flex; justify-content: center; gap: 16px;
+      flex-wrap: wrap; margin-bottom: 28px;
+    }
+    .platform-btn {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 14px 28px; border-radius: 10px;
+      font-weight: 600; font-size: 15px;
+      cursor: pointer; transition: all 0.2s; border: none;
+      font-family: var(--font-sans);
+    }
+    .platform-btn svg { width: 20px; height: 20px; }
+    .platform-btn--mac { background: var(--text-primary); color: var(--bg-deep); }
+    .platform-btn--mac:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(241,245,249,0.15); }
+    .platform-btn--win { background: var(--accent-blue); color: #fff; }
+    .platform-btn--win:hover { background: var(--accent-blue-light); transform: translateY(-2px); }
+    .platform-btn--linux {
+      background: var(--bg-elevated); color: var(--text-primary);
+      border: 1px solid var(--border-light);
+    }
+    .platform-btn--linux:hover { background: var(--border); transform: translateY(-2px); }
+    .platform-btn:focus-visible { outline: 2px solid var(--accent-blue-light); outline-offset: 2px; }
+    .download-note { font-size: 13px; color: var(--text-muted); }
+    .download-note a {
+      color: var(--accent-blue-light); text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .download-note a:hover { color: var(--text-primary); }
+
+    /* ===== Footer ===== */
+    .footer { padding: 40px 0; border-top: 1px solid var(--border); }
+    .footer-inner {
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 16px;
+    }
+    .footer-left { font-size: 13px; color: var(--text-muted); }
+    .footer-links { display: flex; gap: 24px; list-style: none; }
+    .footer-links a {
+      font-size: 13px; color: var(--text-muted); transition: color 0.2s;
+    }
+    .footer-links a:hover { color: var(--text-secondary); }
+
+    /* ===== Responsive ===== */
+    @media (max-width: 1024px) {
+      .pillars-grid { grid-template-columns: repeat(2, 1fr); }
+      .feature-row { grid-template-columns: 1fr; gap: 32px; }
+      .feature-row--reverse .feature-text { order: 1; }
+      .feature-row--reverse .feature-visual { order: 2; }
+      .tech-grid { grid-template-columns: repeat(2, 1fr); }
+      .shortcuts-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      .nav-mobile-btn { display: block; }
+      .nav-mobile-menu {
+        display: none; position: absolute; top: 64px; left: 0; right: 0;
+        background: var(--bg-base); border-bottom: 1px solid var(--border);
+        padding: 16px 24px;
+      }
+      .nav-mobile-menu.open { display: block; }
+      .nav-mobile-menu a {
+        display: block; padding: 12px 0;
+        font-size: 15px; color: var(--text-secondary);
+      }
+      .hero { padding: 110px 0 60px; }
+      .pillars-grid { grid-template-columns: 1fr; }
+      .providers-grid { grid-template-columns: repeat(2, 1fr); }
+      .screenshots-grid { grid-template-columns: 1fr; }
+      .tech-grid { grid-template-columns: repeat(2, 1fr); }
+      .shortcuts-grid { grid-template-columns: 1fr; }
+      .download-platforms { flex-direction: column; align-items: center; }
+      .platform-btn { width: 100%; max-width: 280px; justify-content: center; }
+    }
+    @media (max-width: 480px) {
+      .providers-grid { grid-template-columns: 1fr; }
+      .tech-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ===== Scroll Animations ===== */
+    .js-ready .fade-in {
+      opacity: 0; transform: translateY(24px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+    .js-ready .fade-in.visible { opacity: 1; transform: translateY(0); }
+  </style>
+</head>
+
+<body>
+
+<!-- ===== Navigation ===== -->
+<nav class="nav" role="navigation" aria-label="Main navigation">
+  <div class="container nav-inner">
+    <a href="#" class="nav-logo" aria-label="TOKENICODE home">
+      <img src="../public/app-icon.png" alt="" width="32" height="32">
+      TOKENICODE
+    </a>
+    <ul class="nav-links">
+      <li><a href="#features" data-i18n="nav.features">Features</a></li>
+      <li><a href="#screenshots" data-i18n="nav.screenshots">Screenshots</a></li>
+      <li><a href="#shortcuts" data-i18n="nav.shortcuts">Shortcuts</a></li>
+      <li><a href="#tech" data-i18n="nav.tech">Tech Stack</a></li>
+      <li><a href="https://github.com/yiliqi78/TOKENICODE" target="_blank" rel="noopener">GitHub</a></li>
+      <li><div class="nav-lang" role="group" aria-label="Language">
+        <button class="active" onclick="setLang('en')" id="langEn">EN</button>
+        <button onclick="setLang('zh')" id="langZh">中文</button>
+      </div></li>
+      <li><a href="#download" class="nav-cta">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span data-i18n="nav.download">Download</span>
+      </a></li>
+    </ul>
+    <button class="nav-mobile-btn" aria-label="Toggle menu" aria-expanded="false" onclick="toggleMobileMenu()">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+  </div>
+  <div class="nav-mobile-menu" id="mobileMenu">
+    <a href="#features" onclick="closeMobileMenu()" data-i18n="nav.features">Features</a>
+    <a href="#screenshots" onclick="closeMobileMenu()" data-i18n="nav.screenshots">Screenshots</a>
+    <a href="#shortcuts" onclick="closeMobileMenu()" data-i18n="nav.shortcuts">Shortcuts</a>
+    <a href="#tech" onclick="closeMobileMenu()" data-i18n="nav.tech">Tech Stack</a>
+    <a href="https://github.com/yiliqi78/TOKENICODE" target="_blank" rel="noopener">GitHub</a>
+    <a href="#download" onclick="closeMobileMenu()" data-i18n="nav.download">Download</a>
+  </div>
+</nav>
+
+<!-- ===== Hero ===== -->
+<section class="hero">
+  <div class="hero-glow" aria-hidden="true"></div>
+  <div class="container hero-content">
+    <div class="hero-badge">
+      <span class="hero-badge-dot" aria-hidden="true"></span>
+      v0.8.0 — SDK Control Protocol
+    </div>
+    <h1>
+      <span data-i18n="hero.title1">The Desktop Client</span><br>
+      <span class="gradient-text" data-i18n="hero.title2">Claude Code Deserves</span>
+    </h1>
+    <p class="hero-subtitle" data-i18n="hero.subtitle">
+      Bring your own API key, connect any provider, and get a native coding experience with file exploration, session management, and structured permission control.
+    </p>
+    <div class="hero-actions">
+      <a href="https://github.com/yiliqi78/TOKENICODE/releases" class="btn-primary" target="_blank" rel="noopener">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span data-i18n="hero.btn_download">Download for Free</span>
+      </a>
+      <a href="https://github.com/yiliqi78/TOKENICODE" class="btn-secondary" target="_blank" rel="noopener">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+        <span data-i18n="hero.btn_github">View on GitHub</span>
+      </a>
+    </div>
+    <div class="hero-screenshot fade-in">
+      <img src="../screenshots/main-interface.png" alt="TOKENICODE main interface showing three-panel layout with sidebar, chat, and file explorer" loading="eager">
+    </div>
+  </div>
+</section>
+
+<!-- ===== Pillars ===== -->
+<section class="pillars">
+  <div class="container">
+    <div class="pillars-grid">
+      <div class="pillar-card fade-in">
+        <div class="pillar-icon pillar-icon--blue">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        </div>
+        <h3 data-i18n="pillar.api.title">Bring Your Own API</h3>
+        <p data-i18n="pillar.api.desc">6 preset providers plus custom endpoints. Anthropic, DeepSeek, Zhipu, Qwen, Kimi, MiniMax — or add your own. One-click config import/export.</p>
+      </div>
+      <div class="pillar-card fade-in">
+        <div class="pillar-icon pillar-icon--green">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        </div>
+        <h3 data-i18n="pillar.china.title">China-Ready</h3>
+        <p data-i18n="pillar.china.desc">Gitee mirror for updates when GitHub is unreachable. Pre-configured Chinese API endpoints. System proxy auto-detection. Full Chinese UI.</p>
+      </div>
+      <div class="pillar-card fade-in">
+        <div class="pillar-icon pillar-icon--purple">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <h3 data-i18n="pillar.sdk.title">SDK Control Protocol</h3>
+        <p data-i18n="pillar.sdk.desc">Structured JSON permission requests with typed allow/deny responses. Four work modes — code, ask, plan, bypass. Switch model on-the-fly.</p>
+      </div>
+      <div class="pillar-card fade-in">
+        <div class="pillar-icon pillar-icon--amber">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        </div>
+        <h3 data-i18n="pillar.native.title">Beautiful & Native</h3>
+        <p data-i18n="pillar.native.desc">Built with Tauri 2 for a truly native desktop feel. Multiple themes with light/dark mode. Adjustable font size and thinking depth control.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Features ===== -->
+<section class="features" id="features">
+  <div class="container">
+    <div class="section-label fade-in" data-i18n="feat.label">Features</div>
+    <h2 class="section-title fade-in" data-i18n="feat.title" data-i18n-html="true">Everything you need,<br>nothing you don't</h2>
+    <p class="section-desc fade-in" data-i18n="feat.desc">TOKENICODE enhances Claude Code CLI with a visual interface while preserving the full power of the command line.</p>
+
+    <!-- API Providers -->
+    <div class="feature-row fade-in">
+      <div class="feature-text">
+        <h3 data-i18n="feat.api.title">Third-Party API Providers</h3>
+        <p data-i18n="feat.api.desc">Use Claude through any compatible API endpoint. Choose from 6 presets or configure your own with Anthropic or OpenAI-compatible format. Quick connection test shows response time. Share configs via JSON export.</p>
+        <div class="providers-grid">
+          <div class="provider-chip"><span class="provider-dot" style="background:#D97706" aria-hidden="true"></span> Anthropic</div>
+          <div class="provider-chip"><span class="provider-dot" style="background:#3B82F6" aria-hidden="true"></span> DeepSeek</div>
+          <div class="provider-chip"><span class="provider-dot" style="background:#8B5CF6" aria-hidden="true"></span> Zhipu GLM</div>
+          <div class="provider-chip"><span class="provider-dot" style="background:#06B6D4" aria-hidden="true"></span> Qwen Coder</div>
+          <div class="provider-chip"><span class="provider-dot" style="background:#EC4899" aria-hidden="true"></span> Kimi k2</div>
+          <div class="provider-chip"><span class="provider-dot" style="background:#F59E0B" aria-hidden="true"></span> MiniMax</div>
+        </div>
+      </div>
+      <div class="feature-visual">
+        <img src="../screenshots/settings.png" alt="API Provider settings panel showing preset providers" loading="lazy">
+      </div>
+    </div>
+
+    <!-- Chat -->
+    <div class="feature-row feature-row--reverse fade-in">
+      <div class="feature-text">
+        <h3 data-i18n="feat.chat.title">Streaming Chat & Interaction</h3>
+        <p data-i18n="feat.chat.desc">Real-time NDJSON streaming with distinct visual phases for thinking, writing, and tool execution. Full slash command support with autocomplete. Command palette for quick access to everything.</p>
+        <div class="feature-tags">
+          <span class="feature-tag">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            <span data-i18n="tag.slash">Slash Commands</span>
+          </span>
+          <span class="feature-tag">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <span data-i18n="tag.palette">Cmd+K Palette</span>
+          </span>
+          <span class="feature-tag">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <span data-i18n="tag.agent">Agent Monitor</span>
+          </span>
+          <span class="feature-tag">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+            <span data-i18n="tag.skills">Skills & MCP</span>
+          </span>
+        </div>
+      </div>
+      <div class="feature-visual">
+        <img src="../screenshots/streaming-chat.png" alt="Streaming chat with thinking and writing indicators" loading="lazy">
+      </div>
+    </div>
+
+    <!-- Sessions -->
+    <div class="feature-row fade-in">
+      <div class="feature-text">
+        <h3 data-i18n="feat.session.title">Session Management</h3>
+        <p data-i18n="feat.session.desc">All sessions are persisted and fully searchable. Pin important sessions, archive old ones, batch-operate with multi-select. Smart date separators and auto-collapse keep things organized. AI generates titles automatically.</p>
+        <div class="feature-tags">
+          <span class="feature-tag">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <span data-i18n="tag.pin">Pin & Archive</span>
+          </span>
+          <span class="feature-tag">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            <span data-i18n="tag.batch">Batch Operations</span>
+          </span>
+          <span class="feature-tag">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <span data-i18n="tag.ai_titles">AI Titles</span>
+          </span>
+        </div>
+      </div>
+      <div class="feature-visual">
+        <img src="../screenshots/文件管理.png" alt="Session management with date separators and pin/archive" loading="lazy">
+      </div>
+    </div>
+
+    <!-- Files -->
+    <div class="feature-row feature-row--reverse fade-in">
+      <div class="feature-text">
+        <h3 data-i18n="feat.file.title">File Explorer & Editor</h3>
+        <p data-i18n="feat.file.desc">Browse your project tree with SVG icons for 20+ file types. Files modified by Claude show change markers. Create files and folders inline. Built-in CodeMirror editor with syntax highlighting for 12+ languages.</p>
+        <div class="feature-tags">
+          <span class="feature-tag">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            <span data-i18n="tag.languages">12+ Languages</span>
+          </span>
+          <span class="feature-tag">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span data-i18n="tag.markers">Change Markers</span>
+          </span>
+          <span class="feature-tag">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <span data-i18n="tag.search">Flat Search</span>
+          </span>
+        </div>
+      </div>
+      <div class="feature-visual">
+        <img src="../screenshots/file-explorer.png" alt="File explorer with SVG icons and syntax highlighting" loading="lazy">
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Screenshots ===== -->
+<section class="screenshots" id="screenshots">
+  <div class="container">
+    <div class="section-label fade-in" data-i18n="gallery.label">Gallery</div>
+    <h2 class="section-title fade-in" data-i18n="gallery.title">See it in action</h2>
+    <p class="section-desc fade-in" data-i18n="gallery.desc">Every panel, every detail — designed to feel right.</p>
+
+    <div class="screenshots-grid">
+      <figure class="screenshot-card fade-in">
+        <img src="../screenshots/plan-mode.png" alt="SDK permission approval cards" loading="lazy">
+        <figcaption data-i18n="gallery.plan">Plan Mode — SDK permission approval</figcaption>
+      </figure>
+      <figure class="screenshot-card fade-in">
+        <img src="../screenshots/file-editing.png" alt="Built-in code editor with syntax highlighting" loading="lazy">
+        <figcaption data-i18n="gallery.editing">File Editing — CodeMirror with 12+ languages</figcaption>
+      </figure>
+      <figure class="screenshot-card fade-in">
+        <img src="../screenshots/Agents.png" alt="Sub-agent activity monitoring" loading="lazy">
+        <figcaption data-i18n="gallery.agents">Agent Activity — Real-time sub-agent monitoring</figcaption>
+      </figure>
+      <figure class="screenshot-card fade-in">
+        <img src="../screenshots/skills.png" alt="Skills management panel" loading="lazy">
+        <figcaption data-i18n="gallery.skills">Skills — Right-click context menu management</figcaption>
+      </figure>
+      <figure class="screenshot-card fade-in">
+        <img src="../screenshots/html-preview.png" alt="HTML live preview panel" loading="lazy">
+        <figcaption data-i18n="gallery.preview">HTML Preview — Live preview in secondary panel</figcaption>
+      </figure>
+      <figure class="screenshot-card fade-in">
+        <img src="../screenshots/slash-commands.png" alt="Slash command autocomplete" loading="lazy">
+        <figcaption data-i18n="gallery.commands">Slash Commands — Autocomplete with all commands</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Keyboard Shortcuts ===== -->
+<section class="shortcuts" id="shortcuts">
+  <div class="container">
+    <div class="section-label fade-in" data-i18n="keys.label">Productivity</div>
+    <h2 class="section-title fade-in" data-i18n="keys.title">Keyboard-first workflow</h2>
+    <p class="section-desc fade-in" data-i18n="keys.desc">Every action is one shortcut away. On Windows/Linux, replace Cmd with Ctrl.</p>
+
+    <div class="shortcuts-grid">
+      <div class="shortcut-item fade-in">
+        <span class="shortcut-action" data-i18n="keys.palette">Command Palette</span>
+        <span class="shortcut-keys"><span class="kbd">&#8984;</span><span class="kbd">K</span></span>
+      </div>
+      <div class="shortcut-item fade-in">
+        <span class="shortcut-action" data-i18n="keys.new_chat">New Chat</span>
+        <span class="shortcut-keys"><span class="kbd">&#8984;</span><span class="kbd">N</span></span>
+      </div>
+      <div class="shortcut-item fade-in">
+        <span class="shortcut-action" data-i18n="keys.sidebar">Toggle Sidebar</span>
+        <span class="shortcut-keys"><span class="kbd">&#8984;</span><span class="kbd">B</span></span>
+      </div>
+      <div class="shortcut-item fade-in">
+        <span class="shortcut-action" data-i18n="keys.file_panel">File Panel</span>
+        <span class="shortcut-keys"><span class="kbd">&#8984;</span><span class="kbd">.</span></span>
+      </div>
+      <div class="shortcut-item fade-in">
+        <span class="shortcut-action" data-i18n="keys.settings">Settings</span>
+        <span class="shortcut-keys"><span class="kbd">&#8984;</span><span class="kbd">,</span></span>
+      </div>
+      <div class="shortcut-item fade-in">
+        <span class="shortcut-action" data-i18n="keys.send">Send Message</span>
+        <span class="shortcut-keys"><span class="kbd">&#8984;</span><span class="kbd">&#9166;</span></span>
+      </div>
+      <div class="shortcut-item fade-in">
+        <span class="shortcut-action" data-i18n="keys.zoom_in">Zoom In</span>
+        <span class="shortcut-keys"><span class="kbd">&#8984;</span><span class="kbd">+</span></span>
+      </div>
+      <div class="shortcut-item fade-in">
+        <span class="shortcut-action" data-i18n="keys.zoom_out">Zoom Out</span>
+        <span class="shortcut-keys"><span class="kbd">&#8984;</span><span class="kbd">-</span></span>
+      </div>
+      <div class="shortcut-item fade-in">
+        <span class="shortcut-action" data-i18n="keys.zoom_reset">Reset Zoom</span>
+        <span class="shortcut-keys"><span class="kbd">&#8984;</span><span class="kbd">0</span></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Tech Stack ===== -->
+<section class="tech" id="tech">
+  <div class="container">
+    <div class="section-label fade-in" data-i18n="tech.label">Under the Hood</div>
+    <h2 class="section-title fade-in" data-i18n="tech.title">Built with modern tools</h2>
+    <p class="section-desc fade-in" data-i18n="tech.desc">A lean, fast stack for a native desktop experience.</p>
+
+    <div class="tech-grid">
+      <div class="tech-card fade-in">
+        <div class="tech-card-name">Tauri 2</div>
+        <div class="tech-card-role" data-i18n="tech.tauri">Desktop Framework</div>
+      </div>
+      <div class="tech-card fade-in">
+        <div class="tech-card-name">React 19</div>
+        <div class="tech-card-role" data-i18n="tech.react">UI Library</div>
+      </div>
+      <div class="tech-card fade-in">
+        <div class="tech-card-name">TypeScript 5.8</div>
+        <div class="tech-card-role" data-i18n="tech.ts">Type Safety</div>
+      </div>
+      <div class="tech-card fade-in">
+        <div class="tech-card-name">Tailwind CSS 4</div>
+        <div class="tech-card-role" data-i18n="tech.tw">Styling</div>
+      </div>
+      <div class="tech-card fade-in">
+        <div class="tech-card-name">Zustand 5</div>
+        <div class="tech-card-role" data-i18n="tech.zustand">10 State Stores</div>
+      </div>
+      <div class="tech-card fade-in">
+        <div class="tech-card-name">CodeMirror 6</div>
+        <div class="tech-card-role" data-i18n="tech.cm">Code Editor</div>
+      </div>
+      <div class="tech-card fade-in">
+        <div class="tech-card-name">Vite 7</div>
+        <div class="tech-card-role" data-i18n="tech.vite">Build Tool</div>
+      </div>
+      <div class="tech-card fade-in">
+        <div class="tech-card-name">Rust</div>
+        <div class="tech-card-role" data-i18n="tech.rust">Backend Runtime</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Download ===== -->
+<section class="download" id="download">
+  <div class="container">
+    <div class="download-inner fade-in">
+      <h2 data-i18n="dl.title">Ready to code beautifully?</h2>
+      <p class="download-desc" data-i18n="dl.desc">Free and open source. Available on macOS, Windows, and Linux.</p>
+
+      <div class="download-platforms">
+        <a href="https://github.com/yiliqi78/TOKENICODE/releases" class="platform-btn platform-btn--mac" target="_blank" rel="noopener">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+          <span data-i18n="dl.mac">Download for macOS</span>
+        </a>
+        <a href="https://github.com/yiliqi78/TOKENICODE/releases" class="platform-btn platform-btn--win" target="_blank" rel="noopener">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>
+          <span data-i18n="dl.win">Download for Windows</span>
+        </a>
+        <a href="https://github.com/yiliqi78/TOKENICODE/releases" class="platform-btn platform-btn--linux" target="_blank" rel="noopener">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.832-.41 1.684-.287 2.489a.424.424 0 00-.11.135c-.26.268-.45.6-.663.839-.199.199-.485.267-.797.4-.313.136-.658.269-.864.68-.09.189-.136.394-.132.602 0 .199.027.4.055.536.058.399.116.728.04.97-.249.68-.28 1.145-.106 1.484.174.334.535.47.94.601.81.2 1.91.135 2.774.6.926.466 1.866.67 2.616.47.526-.116.97-.464 1.208-.946.587-.003 1.23-.269 2.26-.334.699-.058 1.574.267 2.577.2.025.134.063.198.114.333l.003.003c.391.778 1.113 1.368 1.884 1.43.868.074 1.02-.537 1.237-.997.23-.46.35-.783.567-.838.063-.016.139-.024.228-.012.764-.07 1.386-.395 1.846-.84.398-.39.656-.842.794-1.302.064-.216.104-.44.12-.654.034-.372-.013-.75-.137-1.106.368-.18.68-.397.873-.71.373-.594.195-1.303-.26-1.762-.292-.308-.763-.556-1.378-.584-.063-.27-.103-.578-.144-.814-.037-.233-.053-.469-.02-.67.039-.25.188-.46.38-.64a.59.59 0 00.087-.12c.188-.253.392-.501.458-.874a1.89 1.89 0 00-.067-1.002c-.096-.275-.285-.49-.545-.658-.41-.274-.989-.446-1.694-.51a.39.39 0 00-.125-.136c-.396-.26-.77-.378-1.103-.396-.26-.016-.472.044-.647.162-.163.109-.28.266-.36.472a3.46 3.46 0 00-.185.868c-.011.185-.007.37.012.536-.01.043-.02.082-.025.118l-.011.076a2.1 2.1 0 01-.294.614c-.207.28-.47.45-.74.504a1.5 1.5 0 01-.345.012c-.397.007-.69-.147-.88-.422-.209-.303-.284-.732-.144-1.25.192-.629.177-1.277-.052-1.857-.217-.556-.597-1.043-1.117-1.348a2.61 2.61 0 00-.454-.2c.033-.97.03-1.982-.059-2.895C15.075 2.13 14.146 0 12.504 0"/></svg>
+          <span data-i18n="dl.linux">Download for Linux</span>
+        </a>
+      </div>
+      <p class="download-note" data-i18n="dl.note" data-i18n-html="true">
+        China users: also available on <a href="https://gitee.com/yiliqiseven/TOKENICODE/releases" target="_blank" rel="noopener">Gitee Releases</a> &middot; Apache 2.0 License
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Footer ===== -->
+<footer class="footer">
+  <div class="container footer-inner">
+    <div class="footer-left">&copy; 2025–2026 TinyZ &middot; TOKENICODE v0.8.0</div>
+    <ul class="footer-links">
+      <li><a href="https://github.com/yiliqi78/TOKENICODE" target="_blank" rel="noopener">GitHub</a></li>
+      <li><a href="https://gitee.com/yiliqiseven/TOKENICODE" target="_blank" rel="noopener">Gitee</a></li>
+      <li><a href="https://github.com/yiliqi78/TOKENICODE/releases" target="_blank" rel="noopener">Releases</a></li>
+      <li><a href="https://github.com/yiliqi78/TOKENICODE/issues" target="_blank" rel="noopener">Issues</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script>
+  // Mobile menu toggle
+  function toggleMobileMenu() {
+    const menu = document.getElementById('mobileMenu');
+    const btn = document.querySelector('.nav-mobile-btn');
+    const isOpen = menu.classList.toggle('open');
+    btn.setAttribute('aria-expanded', isOpen);
+  }
+  function closeMobileMenu() {
+    document.getElementById('mobileMenu').classList.remove('open');
+    document.querySelector('.nav-mobile-btn').setAttribute('aria-expanded', 'false');
+  }
+
+  // ===== i18n =====
+  const i18n = {
+    en: {
+      // Nav
+      'nav.features': 'Features',
+      'nav.screenshots': 'Screenshots',
+      'nav.shortcuts': 'Shortcuts',
+      'nav.tech': 'Tech Stack',
+      'nav.download': 'Download',
+      // Hero
+      'hero.title1': 'The Desktop Client',
+      'hero.title2': 'Claude Code Deserves',
+      'hero.subtitle': 'Bring your own API key, connect any provider, and get a native coding experience with file exploration, session management, and structured permission control.',
+      'hero.btn_download': 'Download for Free',
+      'hero.btn_github': 'View on GitHub',
+      // Pillars
+      'pillar.api.title': 'Bring Your Own API',
+      'pillar.api.desc': '6 preset providers plus custom endpoints. Anthropic, DeepSeek, Zhipu, Qwen, Kimi, MiniMax — or add your own. One-click config import/export.',
+      'pillar.china.title': 'China-Ready',
+      'pillar.china.desc': 'Gitee mirror for updates when GitHub is unreachable. Pre-configured Chinese API endpoints. System proxy auto-detection. Full Chinese UI.',
+      'pillar.sdk.title': 'SDK Control Protocol',
+      'pillar.sdk.desc': 'Structured JSON permission requests with typed allow/deny responses. Four work modes — code, ask, plan, bypass. Switch model on-the-fly.',
+      'pillar.native.title': 'Beautiful & Native',
+      'pillar.native.desc': 'Built with Tauri 2 for a truly native desktop feel. Multiple themes with light/dark mode. Adjustable font size and thinking depth control.',
+      // Features section
+      'feat.label': 'Features',
+      'feat.title': 'Everything you need,<br>nothing you don\'t',
+      'feat.desc': 'TOKENICODE enhances Claude Code CLI with a visual interface while preserving the full power of the command line.',
+      'feat.api.title': 'Third-Party API Providers',
+      'feat.api.desc': 'Use Claude through any compatible API endpoint. Choose from 6 presets or configure your own with Anthropic or OpenAI-compatible format. Quick connection test shows response time. Share configs via JSON export.',
+      'feat.chat.title': 'Streaming Chat & Interaction',
+      'feat.chat.desc': 'Real-time NDJSON streaming with distinct visual phases for thinking, writing, and tool execution. Full slash command support with autocomplete. Command palette for quick access to everything.',
+      'feat.session.title': 'Session Management',
+      'feat.session.desc': 'All sessions are persisted and fully searchable. Pin important sessions, archive old ones, batch-operate with multi-select. Smart date separators and auto-collapse keep things organized. AI generates titles automatically.',
+      'feat.file.title': 'File Explorer & Editor',
+      'feat.file.desc': 'Browse your project tree with SVG icons for 20+ file types. Files modified by Claude show change markers. Create files and folders inline. Built-in CodeMirror editor with syntax highlighting for 12+ languages.',
+      // Tags
+      'tag.slash': 'Slash Commands',
+      'tag.palette': 'Cmd+K Palette',
+      'tag.agent': 'Agent Monitor',
+      'tag.skills': 'Skills & MCP',
+      'tag.pin': 'Pin & Archive',
+      'tag.batch': 'Batch Operations',
+      'tag.ai_titles': 'AI Titles',
+      'tag.languages': '12+ Languages',
+      'tag.markers': 'Change Markers',
+      'tag.search': 'Flat Search',
+      // Gallery
+      'gallery.label': 'Gallery',
+      'gallery.title': 'See it in action',
+      'gallery.desc': 'Every panel, every detail — designed to feel right.',
+      'gallery.plan': 'Plan Mode — SDK permission approval',
+      'gallery.editing': 'File Editing — CodeMirror with 12+ languages',
+      'gallery.agents': 'Agent Activity — Real-time sub-agent monitoring',
+      'gallery.skills': 'Skills — Right-click context menu management',
+      'gallery.preview': 'HTML Preview — Live preview in secondary panel',
+      'gallery.commands': 'Slash Commands — Autocomplete with all commands',
+      // Shortcuts
+      'keys.label': 'Productivity',
+      'keys.title': 'Keyboard-first workflow',
+      'keys.desc': 'Every action is one shortcut away. On Windows/Linux, replace Cmd with Ctrl.',
+      'keys.palette': 'Command Palette',
+      'keys.new_chat': 'New Chat',
+      'keys.sidebar': 'Toggle Sidebar',
+      'keys.file_panel': 'File Panel',
+      'keys.settings': 'Settings',
+      'keys.send': 'Send Message',
+      'keys.zoom_in': 'Zoom In',
+      'keys.zoom_out': 'Zoom Out',
+      'keys.zoom_reset': 'Reset Zoom',
+      // Tech
+      'tech.label': 'Under the Hood',
+      'tech.title': 'Built with modern tools',
+      'tech.desc': 'A lean, fast stack for a native desktop experience.',
+      'tech.tauri': 'Desktop Framework',
+      'tech.react': 'UI Library',
+      'tech.ts': 'Type Safety',
+      'tech.tw': 'Styling',
+      'tech.zustand': '10 State Stores',
+      'tech.cm': 'Code Editor',
+      'tech.vite': 'Build Tool',
+      'tech.rust': 'Backend Runtime',
+      // Download
+      'dl.title': 'Ready to code beautifully?',
+      'dl.desc': 'Free and open source. Available on macOS, Windows, and Linux.',
+      'dl.mac': 'Download for macOS',
+      'dl.win': 'Download for Windows',
+      'dl.linux': 'Download for Linux',
+      'dl.note': 'China users: also available on <a href="https://gitee.com/yiliqiseven/TOKENICODE/releases" target="_blank" rel="noopener">Gitee Releases</a> &middot; Apache 2.0 License',
+    },
+    zh: {
+      // Nav
+      'nav.features': '功能',
+      'nav.screenshots': '截图',
+      'nav.shortcuts': '快捷键',
+      'nav.tech': '技术栈',
+      'nav.download': '下载',
+      // Hero
+      'hero.title1': 'Claude Code',
+      'hero.title2': '值得拥有的桌面客户端',
+      'hero.subtitle': '自带 API Key，自由接入第三方服务商，原生桌面体验——文件管理、会话管理、结构化权限控制，一应俱全。',
+      'hero.btn_download': '免费下载',
+      'hero.btn_github': '在 GitHub 查看',
+      // Pillars
+      'pillar.api.title': '自带 API Key',
+      'pillar.api.desc': '6 个预设服务商 + 自定义接入点。Anthropic、DeepSeek、智谱、通义、Kimi、MiniMax——也可以添加你自己的。配置一键导入导出。',
+      'pillar.china.title': '国内可用',
+      'pillar.china.desc': 'GitHub 不可达时自动降级到 Gitee 镜像更新。预配置国内 API 地址。自动继承系统代理。完整中文界面。',
+      'pillar.sdk.title': 'SDK 控制协议',
+      'pillar.sdk.desc': '结构化 JSON 权限请求，类型化 allow/deny 响应。四种工作模式——code、ask、plan、bypass。运行时切换模型。',
+      'pillar.native.title': '精美原生体验',
+      'pillar.native.desc': '基于 Tauri 2 构建，真正的原生桌面体验。多主题 + 明暗模式。可调字号和 5 档思考深度控制。',
+      // Features section
+      'feat.label': '功能',
+      'feat.title': '该有的都有，<br>不该有的没有',
+      'feat.desc': 'TOKENICODE 为 Claude Code CLI 套上可视化界面，同时保留命令行的全部能力。',
+      'feat.api.title': '第三方 API 接入',
+      'feat.api.desc': '通过任何兼容 API 接入 Claude。6 个预设服务商可选，也可配置自定义接入点（支持 Anthropic 和 OpenAI 兼容格式）。快速连接测试显示响应时间。JSON 导出分享配置。',
+      'feat.chat.title': '流式对话与交互',
+      'feat.chat.desc': '基于 NDJSON 实时流式传输，清晰区分思考中、输出中、工具执行三个阶段。完整的斜杠命令支持和自动补全。命令面板快速访问一切功能。',
+      'feat.session.title': '会话管理',
+      'feat.session.desc': '所有会话持久保存，支持全文搜索。重要会话可置顶，旧会话可归档，多选模式批量操作。智能日期分组和自动折叠让一切井然有序。AI 自动生成简短标题。',
+      'feat.file.title': '文件浏览器与编辑器',
+      'feat.file.desc': '浏览项目目录树，20+ 文件类型 SVG 彩色图标。Claude 修改过的文件会显示变更标记。可以内联创建文件和文件夹。内置 CodeMirror 编辑器，支持 12+ 种语言语法高亮。',
+      // Tags
+      'tag.slash': '斜杠命令',
+      'tag.palette': 'Cmd+K 面板',
+      'tag.agent': '代理监控',
+      'tag.skills': '技能 & MCP',
+      'tag.pin': '置顶 & 归档',
+      'tag.batch': '批量操作',
+      'tag.ai_titles': 'AI 标题',
+      'tag.languages': '12+ 种语言',
+      'tag.markers': '变更标记',
+      'tag.search': '扁平搜索',
+      // Gallery
+      'gallery.label': '截图展示',
+      'gallery.title': '眼见为实',
+      'gallery.desc': '每个面板、每处细节——只为用着舒服。',
+      'gallery.plan': '计划模式 — SDK 权限审批卡片',
+      'gallery.editing': '文件编辑 — CodeMirror 支持 12+ 种语言',
+      'gallery.agents': '代理活动 — 实时监控子代理',
+      'gallery.skills': '技能管理 — 右键菜单操作',
+      'gallery.preview': 'HTML 预览 — 副面板实时预览',
+      'gallery.commands': '斜杠命令 — 全部命令自动补全',
+      // Shortcuts
+      'keys.label': '效率',
+      'keys.title': '键盘优先工作流',
+      'keys.desc': '每个操作都只差一个快捷键。Windows/Linux 下将 Cmd 替换为 Ctrl。',
+      'keys.palette': '命令面板',
+      'keys.new_chat': '新建对话',
+      'keys.sidebar': '切换侧栏',
+      'keys.file_panel': '文件面板',
+      'keys.settings': '设置',
+      'keys.send': '发送消息',
+      'keys.zoom_in': '放大',
+      'keys.zoom_out': '缩小',
+      'keys.zoom_reset': '重置缩放',
+      // Tech
+      'tech.label': '底层技术',
+      'tech.title': '现代技术栈',
+      'tech.desc': '精简高效的技术栈，打造原生桌面体验。',
+      'tech.tauri': '桌面框架',
+      'tech.react': 'UI 库',
+      'tech.ts': '类型安全',
+      'tech.tw': '样式方案',
+      'tech.zustand': '10 个状态仓库',
+      'tech.cm': '代码编辑器',
+      'tech.vite': '构建工具',
+      'tech.rust': '后端运行时',
+      // Download
+      'dl.title': '准备好优雅地编码了吗？',
+      'dl.desc': '免费开源，支持 macOS、Windows 和 Linux。',
+      'dl.mac': '下载 macOS 版',
+      'dl.win': '下载 Windows 版',
+      'dl.linux': '下载 Linux 版',
+      'dl.note': '国内用户：也可从 <a href="https://gitee.com/yiliqiseven/TOKENICODE/releases" target="_blank" rel="noopener">Gitee Releases</a> 下载 &middot; Apache 2.0 许可证',
+    }
+  };
+
+  let currentLang = 'en';
+
+  function setLang(lang) {
+    currentLang = lang;
+    document.documentElement.lang = lang;
+
+    // Update toggle buttons
+    document.getElementById('langEn').classList.toggle('active', lang === 'en');
+    document.getElementById('langZh').classList.toggle('active', lang === 'zh');
+
+    // Update page title
+    document.title = lang === 'zh'
+      ? 'TOKENICODE — Claude Code 精美桌面客户端'
+      : 'TOKENICODE — A Beautiful Desktop Client for Claude Code';
+
+    // Update all data-i18n elements
+    const dict = i18n[lang];
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const key = el.getAttribute('data-i18n');
+      if (dict[key] !== undefined) {
+        if (el.getAttribute('data-i18n-html') === 'true') {
+          el.innerHTML = dict[key];
+        } else {
+          el.textContent = dict[key];
+        }
+      }
+    });
+  }
+
+  // Scroll-triggered fade-in (IntersectionObserver)
+  document.addEventListener('DOMContentLoaded', () => {
+    // Enable fade-in animations only after JS is ready
+    document.documentElement.classList.add('js-ready');
+
+    if ('IntersectionObserver' in window) {
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+            observer.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.05, rootMargin: '0px 0px -20px 0px' });
+
+      document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+    } else {
+      // Fallback: show everything immediately
+      document.querySelectorAll('.fade-in').forEach(el => el.classList.add('visible'));
+    }
+
+    // Detect browser language for auto-switch
+    const browserLang = navigator.language || navigator.userLanguage || '';
+    if (browserLang.startsWith('zh')) {
+      setLang('zh');
+    }
+  });
+</script>
+
+</body>
+</html>
