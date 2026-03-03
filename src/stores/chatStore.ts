@@ -417,8 +417,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       pendingAttachments: [...pendingAttachments],
       pendingUserMessages: [...pendingUserMessages],
     });
-    // P1-5: LRU eviction — keep at most 20 cached sessions
-    const MAX_CACHE = 20;
+    // P1-5: LRU eviction — keep at most 8 cached sessions (reduced from 20 to limit memory)
+    const MAX_CACHE = 8;
     if (next.size > MAX_CACHE) {
       const keysIter = next.keys();
       while (next.size > MAX_CACHE) {

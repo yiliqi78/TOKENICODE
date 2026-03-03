@@ -13,6 +13,20 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.8.2',
+    date: '2026-03-03',
+    highlights: {
+      zh: [
+        '修复内存泄漏 — 面板拖拽时事件监听器不再累积，长时间使用不再卡顿（感谢 @qs858053851-wq 反馈）',
+        '降低会话缓存上限 — 后台缓存从 20 降至 8，减少内存占用',
+      ],
+      en: [
+        'Fix memory leak — Panel resize event listeners no longer accumulate, no more sluggishness after extended use (thanks @qs858053851-wq)',
+        'Reduce session cache limit — Background cache reduced from 20 to 8, lowering memory footprint',
+      ],
+    },
+  },
+  {
     version: '0.8.1',
     date: '2026-03-02',
     highlights: {

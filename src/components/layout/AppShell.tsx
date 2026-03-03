@@ -73,16 +73,24 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
     prevPreviewMode.current = isFilePreviewMode;
   }, [isFilePreviewMode, sidebarOpen, toggleSidebar, secondaryPanelOpen, toggleSecondaryPanel]);
 
+  // Refs to avoid re-registering global listeners when these values change
+  const isFilePreviewModeRef = useRef(isFilePreviewMode);
+  isFilePreviewModeRef.current = isFilePreviewMode;
+  const secondaryPanelWidthRef = useRef(secondaryPanelWidth);
+  secondaryPanelWidthRef.current = secondaryPanelWidth;
+  const previewWidthRef = useRef(previewWidth);
+  previewWidthRef.current = previewWidth;
+
   const handleRightMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     isRightDragging.current = true;
     rightStartX.current = e.clientX;
-    rightStartWidth.current = isFilePreviewMode
-      ? previewWidth
-      : secondaryPanelWidth;
+    rightStartWidth.current = isFilePreviewModeRef.current
+      ? previewWidthRef.current
+      : secondaryPanelWidthRef.current;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
-  }, [secondaryPanelWidth, isFilePreviewMode, previewWidth]);
+  }, []);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -90,7 +98,7 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
       const delta = rightStartX.current - e.clientX;
       const newWidth = rightStartWidth.current + delta;
 
-      if (isFilePreviewMode) {
+      if (isFilePreviewModeRef.current) {
         if (newWidth < COLLAPSE_THRESHOLD) {
           isRightDragging.current = false;
           document.body.style.cursor = '';
@@ -106,10 +114,11 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
           isRightDragging.current = false;
           document.body.style.cursor = '';
           document.body.style.userSelect = '';
-          if (secondaryPanelOpen) toggleSecondaryPanel();
+          const settings = useSettingsStore.getState();
+          if (settings.secondaryPanelOpen) settings.toggleSecondaryPanel();
           return;
         }
-        setSecondaryPanelWidth(
+        useSettingsStore.getState().setSecondaryPanelWidth(
           Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, newWidth))
         );
       }
@@ -128,21 +137,24 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isFilePreviewMode, secondaryPanelOpen, toggleSecondaryPanel, setSecondaryPanelWidth]);
+  }, []);
 
   // --- Sidebar dragging ---
   const isSidebarDragging = useRef(false);
   const sidebarStartX = useRef(0);
   const sidebarStartW = useRef(0);
 
+  const sidebarWidthRef = useRef(sidebarWidth);
+  sidebarWidthRef.current = sidebarWidth;
+
   const handleSidebarMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     isSidebarDragging.current = true;
     sidebarStartX.current = e.clientX;
-    sidebarStartW.current = sidebarWidth;
+    sidebarStartW.current = sidebarWidthRef.current;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
-  }, [sidebarWidth]);
+  }, []);
 
   useEffect(() => {
     const handleMove = (e: MouseEvent) => {
@@ -154,10 +166,11 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
         isSidebarDragging.current = false;
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
-        if (sidebarOpen) toggleSidebar();
+        const settings = useSettingsStore.getState();
+        if (settings.sidebarOpen) settings.toggleSidebar();
         return;
       }
-      setSidebarWidth(
+      useSettingsStore.getState().setSidebarWidth(
         Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, newW))
       );
     };
@@ -173,7 +186,7 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
     };
-  }, [sidebarOpen, toggleSidebar, setSidebarWidth]);
+  }, []);
 
   /* Compute sidebar visibility: hidden when file preview is active (reclaim space) */
   const showSidebar = sidebarOpen && !isFilePreviewMode;

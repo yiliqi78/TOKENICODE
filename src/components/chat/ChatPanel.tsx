@@ -41,12 +41,14 @@ function PlanPanel({ planMessages, onClose }: {
   const dragging = useRef(false);
   const startX = useRef(0);
   const startW = useRef(0);
+  const widthRef = useRef(width);
+  widthRef.current = width;
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     dragging.current = true;
     startX.current = e.clientX;
-    startW.current = width;
+    startW.current = widthRef.current;
 
     const onMouseMove = (ev: MouseEvent) => {
       if (!dragging.current) return;
@@ -66,7 +68,7 @@ function PlanPanel({ planMessages, onClose }: {
     document.addEventListener('mouseup', onMouseUp);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
-  }, [width]);
+  }, []);
 
   return (
     <div
