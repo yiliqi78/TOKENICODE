@@ -19,6 +19,37 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.8.6',
+    date: '2026-03-07',
+    highlights: {
+      zh: ['多会话稳定性大幅提升，修复 6 个核心 Bug'],
+      en: ['Major multi-session stability improvements, 6 core bug fixes'],
+    },
+    categories: [
+      {
+        label: { zh: '修复', en: 'Fixes' },
+        items: {
+          zh: [
+            '多会话串窗口 — 修复不同标签页消息串到同一会话的问题',
+            '文件监听风暴 — 后台 CLI 操作不再导致界面持续刷新',
+            '会话时间显示 — 同一天内的会话显示具体时间而非全部显示「今天」',
+            '聊天回退 — 修复回退后旧上下文残留的问题',
+            '残留思考状态 — 切换回已完成的会话不再显示「思考中」',
+            '添加 API 菜单 — 菜单被底部裁切时自动向上弹出',
+          ],
+          en: [
+            'Multi-session cross-talk — fix messages leaking between tabs',
+            'File watcher storm — background CLI no longer causes UI refresh flood',
+            'Session timestamps — show HH:mm for same-day sessions instead of all "today"',
+            'Rewind failure — fix old context persisting after rewind',
+            'Stale thinking state — switching to completed sessions no longer shows "thinking"',
+            'AddProvider menu — auto-flip upward when clipped at viewport bottom',
+          ],
+        },
+      },
+    ],
+  },
+  {
     version: '0.8.5',
     date: '2026-03-06',
     highlights: {
