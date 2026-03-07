@@ -7,9 +7,11 @@ export interface StartSessionParams {
   prompt: string;
   cwd: string;
   model?: string;
+  /** Desk-generated process key (stdinId) — used as key in Rust StdinManager/ProcessManager.
+   *  NOT the Claude CLI session UUID (that comes back as SessionInfo.session_id). */
   session_id?: string;
   allowed_tools?: string[];
-  /** Resume an existing Claude CLI session by ID (for follow-up messages) */
+  /** Resume an existing Claude CLI conversation by its UUID (for session continuity) */
   resume_session_id?: string;
   /** Thinking effort level: 'off' | 'low' | 'medium' | 'high' | 'max' */
   thinking_level?: string;
@@ -24,6 +26,8 @@ export interface StartSessionParams {
 }
 
 export interface SessionInfo {
+  /** The Claude CLI's own conversation UUID (used for --resume).
+   *  This is different from the stdinId (desk-generated process key). */
   session_id: string;
   pid: number;
   cli_path: string;
@@ -174,6 +178,11 @@ export const bridge = {
 
   killSession: (sessionId: string) =>
     invoke<void>('kill_session', { sessionId }),
+
+  /** TK-329: List all active stdinIds from backend ProcessManager.
+   *  Used after refresh to detect orphaned processes. */
+  listActiveProcesses: () =>
+    invoke<string[]>('list_active_processes'),
 
   abortSession: (sessionId: string) =>
     invoke<void>('abort_session', { sessionId }),
@@ -394,44 +403,51 @@ export interface PermissionRequest {
 
 // --- Event Listeners ---
 
-/** Listen for structured permission requests from the SDK control protocol */
+/** Listen for structured permission requests from the SDK control protocol.
+ *  @param stdinId - Desk-generated process key (NOT the CLI session UUID) */
 export function onPermissionRequest(
-  sessionId: string,
+  stdinId: string,
   callback: (req: PermissionRequest) => void,
 ): Promise<UnlistenFn> {
-  const channel = `claude:permission_request:${sessionId}`;
+  const channel = `claude:permission_request:${stdinId}`;
   return listen<PermissionRequest>(
     channel,
     (event) => callback(event.payload),
   );
 }
 
+/** Listen for NDJSON stream events from a Claude CLI process.
+ *  @param stdinId - Desk-generated process key (NOT the CLI session UUID) */
 export function onClaudeStream(
-  sessionId: string,
+  stdinId: string,
   callback: (message: any) => void,
 ): Promise<UnlistenFn> {
   return listen<any>(
-    `claude:stream:${sessionId}`,
+    `claude:stream:${stdinId}`,
     (event) => callback(event.payload),
   );
 }
 
+/** Listen for stderr output from a Claude CLI process.
+ *  @param stdinId - Desk-generated process key (NOT the CLI session UUID) */
 export function onClaudeStderr(
-  sessionId: string,
+  stdinId: string,
   callback: (line: string) => void,
 ): Promise<UnlistenFn> {
   return listen<string>(
-    `claude:stderr:${sessionId}`,
+    `claude:stderr:${stdinId}`,
     (event) => callback(event.payload),
   );
 }
 
+/** Listen for process exit events.
+ *  @param stdinId - Desk-generated process key (NOT the CLI session UUID) */
 export function onSessionExit(
-  sessionId: string,
+  stdinId: string,
   callback: (code: number | null) => void,
 ): Promise<UnlistenFn> {
   return listen<number | null>(
-    `claude:exit:${sessionId}`,
+    `claude:exit:${stdinId}`,
     (event) => callback(event.payload),
   );
 }

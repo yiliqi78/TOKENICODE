@@ -1933,6 +1933,15 @@ async fn kill_session(
     Ok(())
 }
 
+/// TK-329: List all active stdinIds from ProcessManager.
+/// Frontend uses this after refresh to detect and clean up orphaned backend processes.
+#[tauri::command]
+async fn list_active_processes(
+    state: State<'_, ProcessManager>,
+) -> Result<Vec<String>, String> {
+    Ok(state.active_ids().await)
+}
+
 /// Path to the file tracking TOKENICODE-managed session IDs
 fn tracked_sessions_path() -> std::path::PathBuf {
     let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
@@ -2961,6 +2970,17 @@ async fn watch_directory(
     let app_clone = app.clone();
     let path_clone = path.clone();
 
+    // Directories whose changes are noise for the UI (high-frequency writes by CLI, git, etc.)
+    const IGNORED_SEGMENTS: &[&str] = &[
+        ".claude",
+        ".git",
+        "node_modules",
+        ".next",
+        "target",
+        "__pycache__",
+        ".venv",
+    ];
+
     let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
         if let Ok(event) = res {
             let kind = match event.kind {
@@ -2969,11 +2989,22 @@ async fn watch_directory(
                 EventKind::Remove(_) => "removed",
                 _ => return,
             };
+            // Filter out paths under ignored directories to prevent UI render storms
             let paths: Vec<String> = event
                 .paths
                 .iter()
+                .filter(|p| {
+                    !p.components().any(|c| {
+                        IGNORED_SEGMENTS
+                            .iter()
+                            .any(|seg| c.as_os_str() == *seg)
+                    })
+                })
                 .map(|p| p.to_string_lossy().to_string())
                 .collect();
+            if paths.is_empty() {
+                return;
+            }
             let _ = app_clone.emit(
                 "fs:change",
                 serde_json::json!({
@@ -5668,6 +5699,7 @@ pub fn run() {
             send_stdin,
             send_raw_stdin,
             kill_session,
+            list_active_processes,
             track_session,
             delete_session,
             list_sessions,

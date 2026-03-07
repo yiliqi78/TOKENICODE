@@ -4,13 +4,18 @@ import { useT } from '../../lib/i18n';
 import { t as tStatic } from '../../lib/i18n';
 
 function formatRelativeTime(ms: number): string {
+  if (!ms) return '';
   const now = Date.now();
   const diff = now - ms;
   const minutes = Math.floor(diff / 60000);
   if (minutes < 1) return tStatic('conv.justNow');
   if (minutes < 60) return `${minutes}${tStatic('conv.mAgo')}`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}${tStatic('conv.hAgo')}`;
+  // Within today: show HH:mm for precise differentiation (TK-332 fix)
+  if (hours < 24) {
+    const d = new Date(ms);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}${tStatic('conv.dAgo')}`;
   return new Date(ms).toLocaleDateString();

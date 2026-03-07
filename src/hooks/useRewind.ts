@@ -71,10 +71,12 @@ export function useRewind() {
     }
   }, []);
 
-  /** Reset session state after rewind */
+  /** Reset session state after rewind.
+   *  Clears both stdinId (process link) AND sessionId (CLI UUID) so the next
+   *  message starts a fresh session instead of --resume'ing the old context. */
   const resetSession = useCallback(() => {
     useChatStore.getState().setSessionStatus('idle');
-    useChatStore.getState().setSessionMeta({ stdinId: undefined });
+    useChatStore.getState().setSessionMeta({ stdinId: undefined, sessionId: undefined });
   }, []);
 
   /** Save rewound state to tab cache */

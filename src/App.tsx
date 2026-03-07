@@ -129,6 +129,21 @@ function App() {
     return () => { unlisten?.(); };
   }, []);
 
+  // TK-329: On app startup (incl. browser refresh), detect and kill orphaned backend processes.
+  // After refresh, frontend state (stdinToTab, listeners) is wiped, but Rust ProcessManager
+  // may still hold live child processes. Kill any that have no corresponding frontend mapping.
+  useEffect(() => {
+    bridge.listActiveProcesses().then((activeIds) => {
+      if (!activeIds.length) return;
+      const { stdinToTab } = useSessionStore.getState();
+      const orphaned = activeIds.filter((id) => !stdinToTab[id]);
+      for (const id of orphaned) {
+        console.log('[TOKENICODE:cleanup] killing orphaned process:', id);
+        bridge.killSession(id).catch(() => {});
+      }
+    }).catch(() => {});
+  }, []);
+
   // macOS Full Disk Access check — detect TCC restrictions on startup
   const [showPermDialog, setShowPermDialog] = useState(false);
   useEffect(() => {
@@ -320,7 +335,13 @@ function App() {
 
   useEffect(() => {
     const unlisten = onFileChange((event) => {
-      for (const filePath of event.paths) {
+      // Defense-in-depth: skip paths under noisy directories (also filtered in Rust)
+      const filtered = event.paths.filter((p) =>
+        !/(^|[/\\])(\.(claude|git)|node_modules|__pycache__)[/\\]/.test(p)
+      );
+      if (filtered.length === 0) return;
+
+      for (const filePath of filtered) {
         markFileChanged(filePath, event.kind);
       }
 

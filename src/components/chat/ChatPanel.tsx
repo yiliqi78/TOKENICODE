@@ -747,8 +747,6 @@ async function startDraftSession(folderPath: string) {
       unlisten();
       unlistenStderr();
     };
-    // Keep backward-compat single reference for current active session
-    (window as any).__claudeUnlisten = (window as any).__claudeUnlisteners[preWarmId];
 
     const session = await bridge.startSession({
       prompt: '',  // empty = pre-warm, no message sent

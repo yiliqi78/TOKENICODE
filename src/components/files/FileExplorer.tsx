@@ -290,13 +290,14 @@ function TreeNode({
   const [expanded, setExpanded] = useState(false);
   const selectedFile = useFileStore((s) => s.selectedFile);
   const selectFile = useFileStore((s) => s.selectFile);
-  const changedFiles = useFileStore((s) => s.changedFiles);
-  const isSelected = selectedFile === node.path;
-  const changeKind = changedFiles.get(node.path);
-
-  const hasChildChanges = node.is_dir && Array.from(changedFiles.keys()).some(
-    (p) => p.startsWith(node.path + '/')
+  const changeKind = useFileStore((s) => s.changedFiles.get(node.path));
+  const dirPrefix = node.path + '/';
+  const hasChildChanges = useFileStore((s) =>
+    node.is_dir
+      ? Array.from(s.changedFiles.keys()).some((p) => p.startsWith(dirPrefix))
+      : false
   );
+  const isSelected = selectedFile === node.path;
 
   const isExpanded = expanded;
 

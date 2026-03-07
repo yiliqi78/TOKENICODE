@@ -303,7 +303,10 @@ export function ConversationList() {
     clearMessages();
     agentActions.clearAgents();
     setSessionStatus('running');
-    setSessionMeta({ sessionId });
+    // TK-329: explicitly clear stdinId when loading from disk — no live process exists yet.
+    // Only set the CLI UUID (for resume). Prevents inheriting a stale stdinId
+    // from a previous session that might still be alive in the backend.
+    setSessionMeta({ sessionId, stdinId: undefined });
 
     try {
       const rawMessages = await bridge.loadSession(sessionPath);

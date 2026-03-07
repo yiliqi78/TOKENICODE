@@ -4,6 +4,10 @@ import { bridge, FileNode, RecentProject } from '../lib/tauri-bridge';
 export type FileChangeKind = 'created' | 'modified' | 'removed';
 export type PreviewMode = 'preview' | 'source' | 'edit';
 
+// Batch buffer for markFileChanged — collect changes within a single frame, flush once via rAF
+const _pendingChanges = new Map<string, FileChangeKind>();
+let _changeFlushRaf = 0;
+
 interface FileState {
   tree: FileNode[];
   isLoading: boolean;
@@ -237,13 +241,19 @@ export const useFileStore = create<FileState>()((set, get) => ({
   },
 
   markFileChanged: (path: string, kind: FileChangeKind) => {
-    const next = new Map(get().changedFiles);
-    if (kind === 'removed') {
-      next.set(path, 'removed');
-    } else {
-      next.set(path, kind);
+    _pendingChanges.set(path, kind);
+    if (!_changeFlushRaf) {
+      _changeFlushRaf = requestAnimationFrame(() => {
+        _changeFlushRaf = 0;
+        if (_pendingChanges.size === 0) return;
+        const next = new Map(get().changedFiles);
+        for (const [p, k] of _pendingChanges) {
+          next.set(p, k);
+        }
+        _pendingChanges.clear();
+        set({ changedFiles: next });
+      });
     }
-    set({ changedFiles: next });
   },
 
   clearChangedFiles: () => set({ changedFiles: new Map() }),

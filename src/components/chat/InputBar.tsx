@@ -8,7 +8,7 @@ import { FileUploadChips } from './FileUploadChips';
 import { RewindPanel } from './RewindPanel';
 import { useFileAttachments } from '../../hooks/useFileAttachments';
 import { useRewind } from '../../hooks/useRewind';
-import { useStreamProcessor } from '../../hooks/useStreamProcessor';
+import { useStreamProcessor, flushStreamBuffer } from '../../hooks/useStreamProcessor';
 import { useAgentStore } from '../../stores/agentStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useT } from '../../lib/i18n';
@@ -866,16 +866,14 @@ export function InputBar() {
           ? rawSessionId
           : undefined;
 
-        // Clean up previous stream listeners (P0-5: also remove from per-stdinId dict)
-        if ((window as any).__claudeUnlisten) {
-          (window as any).__claudeUnlisten();
-          (window as any).__claudeUnlisten = null;
-        }
-        // Clean stale entries from the per-stdinId dictionary
+        // TK-329 fix: only clean up THIS tab's old stdinId listener, not the global singleton.
+        // The old __claudeUnlisten global could kill another tab's active listener.
         const oldStdinId = useChatStore.getState().sessionMeta.stdinId;
         if (oldStdinId && (window as any).__claudeUnlisteners?.[oldStdinId]) {
           (window as any).__claudeUnlisteners[oldStdinId]();
           delete (window as any).__claudeUnlisteners[oldStdinId];
+          // Also flush any pending stream buffer for the old session
+          flushStreamBuffer(oldStdinId);
         }
 
         const cwd = workingDirectory;
@@ -887,6 +885,13 @@ export function InputBar() {
         // Reset guards for the new session
         autoCompactFiredRef.current = false;
         exitPlanModeSeenRef.current = false;
+
+        // TK-329 fix: register stdinId → tabId mapping BEFORE listeners,
+        // so events arriving immediately after spawn can be routed correctly.
+        const earlyTabId = useSessionStore.getState().selectedSessionId;
+        if (earlyTabId) {
+          useSessionStore.getState().registerStdinTab(preGeneratedId, earlyTabId);
+        }
 
         // Register listeners BEFORE starting the session
         const unlisten = await onClaudeStream(
@@ -980,7 +985,6 @@ export function InputBar() {
           unlistenPermission();
           unlistenExit();
         };
-        (window as any).__claudeUnlisten = (window as any).__claudeUnlisteners[preGeneratedId];
 
         // Spawn persistent process (first message sent via stdin inside Rust)
         // If resuming a historical session, pass resume_session_id so the CLI
@@ -1004,12 +1008,7 @@ export function InputBar() {
 
         // Store both: session_id for tracking, stdinId (preGeneratedId) for stdin communication
         setSessionMeta({ sessionId: session.session_id, stdinId: preGeneratedId, envFingerprint: envFingerprint(), spawnedModel: resolveModelForProvider(selectedModel) });
-
-        // Register stdinId → tabId mapping for background stream routing
-        const tabId = useSessionStore.getState().selectedSessionId;
-        if (tabId) {
-          useSessionStore.getState().registerStdinTab(preGeneratedId, tabId);
-        }
+        // Note: stdinId → tabId mapping already registered before listener setup (TK-329)
 
         // Track the session and refresh conversation list
         bridge.trackSession(session.session_id).catch(() => {});

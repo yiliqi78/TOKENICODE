@@ -92,6 +92,13 @@ impl ProcessManager {
             }
         }
     }
+
+    /// TK-329: List all active stdinIds so the frontend can detect orphaned processes
+    /// after a browser refresh (frontend state is wiped but backend keeps processes alive).
+    pub async fn active_ids(&self) -> Vec<String> {
+        let map = self.processes.lock().await;
+        map.keys().cloned().collect()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

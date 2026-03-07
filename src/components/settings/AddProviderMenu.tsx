@@ -56,11 +56,19 @@ export function AddProviderMenu({
 
   const existingPresets = new Set(providers.map((p) => p.preset).filter(Boolean));
 
+  const menuHeight = 320; // approximate max height of the dropdown
+  const spaceBelow = window.innerHeight - rect.bottom - 6;
+  const openUpward = spaceBelow < menuHeight && rect.top > spaceBelow;
+
   const style: React.CSSProperties = {
     position: 'fixed',
-    top: rect.bottom + 6,
+    ...(openUpward
+      ? { bottom: window.innerHeight - rect.top + 6 }
+      : { top: rect.bottom + 6 }),
     left: rect.left,
     zIndex: 9999,
+    maxHeight: `${Math.max(openUpward ? rect.top - 12 : spaceBelow, 200)}px`,
+    overflowY: 'auto',
   };
 
   return createPortal(

@@ -290,7 +290,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     set(() => ({
       sessionStatus: status,
       // Reset streaming state when session ends
-      ...(status === 'completed' || status === 'error'
+      ...(status === 'completed' || status === 'error' || status === 'idle'
         ? { isStreaming: false, partialText: '', partialThinking: '' }
         : {}),
       // Sync activity status with session status
@@ -438,13 +438,23 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     const next = new Map(cache);
     next.delete(tabId);
     next.set(tabId, snapshot);
+    // TK-329 fix: validate stdinId belongs to this tab before restoring.
+    // A stale stdinId from another tab would route messages to the wrong process.
+    const restoredMeta = { ...snapshot.sessionMeta };
+    if (restoredMeta.stdinId) {
+      const ownerTab = useSessionStore.getState().getTabForStdin(restoredMeta.stdinId);
+      if (ownerTab && ownerTab !== tabId) {
+        // stdinId belongs to a different tab — clear transport-related fields
+        restoredMeta.stdinId = undefined;
+      }
+    }
     set({
       messages: [...snapshot.messages],
       isStreaming: snapshot.isStreaming,
       partialText: snapshot.partialText,
       partialThinking: snapshot.partialThinking || '',
       sessionStatus: snapshot.sessionStatus,
-      sessionMeta: { ...snapshot.sessionMeta },
+      sessionMeta: restoredMeta,
       activityStatus: { ...snapshot.activityStatus },
       inputDraft: snapshot.inputDraft || '',
       pendingAttachments: snapshot.pendingAttachments ? [...snapshot.pendingAttachments] : [],
@@ -555,7 +565,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     next.set(tabId, {
       ...snapshot,
       sessionStatus: status,
-      ...(status === 'completed' || status === 'error'
+      ...(status === 'completed' || status === 'error' || status === 'idle'
         ? { isStreaming: false, partialText: '', partialThinking: '' }
         : {}),
       ...(status === 'completed' ? { activityStatus: { phase: 'completed' as ActivityPhase } }

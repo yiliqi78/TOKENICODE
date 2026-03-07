@@ -7,88 +7,105 @@ import { bridge, onClaudeStream, onClaudeStderr } from '../lib/tauri-bridge';
 import { envFingerprint, resolveModelForProvider } from '../lib/api-provider';
 import { useProviderStore } from '../stores/providerStore';
 
-// --- Streaming text buffer (rAF-throttled) ---
+// --- Streaming text buffer (rAF-throttled, per-stdinId) ---
 // Coalesces rapid text_delta / thinking_delta events into a single state update
 // per animation frame (~60/s), preventing JS main thread starvation from
 // excessive React re-renders when the message list is large.
-let _pendingStreamText = '';
-let _pendingThinkingText = '';
-let _pendingStreamStdinId: string | undefined; // track which session owns the buffer
-let _streamFlushRaf = 0;
+// TK-329 fix: each session gets its own buffer to prevent cross-contamination
+// when multiple sessions stream concurrently.
+interface _StreamBuffer {
+  text: string;
+  thinking: string;
+  raf: number;
+}
+const _streamBuffers = new Map<string, _StreamBuffer>();
 
-function _scheduleStreamFlush() {
-  if (_streamFlushRaf) return;
-  _streamFlushRaf = requestAnimationFrame(() => {
-    _streamFlushRaf = 0;
+function _getBuffer(stdinId: string): _StreamBuffer {
+  let buf = _streamBuffers.get(stdinId);
+  if (!buf) {
+    buf = { text: '', thinking: '', raf: 0 };
+    _streamBuffers.set(stdinId, buf);
+  }
+  return buf;
+}
+
+function _scheduleStreamFlush(stdinId: string) {
+  const buf = _getBuffer(stdinId);
+  if (buf.raf) return;
+  buf.raf = requestAnimationFrame(() => {
+    buf.raf = 0;
 
     // Check if the buffer's owner session is still the active foreground tab.
     // If the user switched tabs between buffer accumulation and rAF flush,
     // route the buffered text to the background cache instead.
-    const ownerStdinId = _pendingStreamStdinId;
-    const ownerTab = ownerStdinId
-      ? useSessionStore.getState().getTabForStdin(ownerStdinId)
-      : undefined;
+    const ownerTab = useSessionStore.getState().getTabForStdin(stdinId);
     const activeTab = useSessionStore.getState().selectedSessionId;
     const isStale = ownerTab && ownerTab !== activeTab;
 
     if (isStale) {
       // Route to background cache
-      if (_pendingStreamText) {
-        useChatStore.getState().updatePartialInCache(ownerTab, _pendingStreamText);
-        _pendingStreamText = '';
+      if (buf.text && ownerTab) {
+        useChatStore.getState().updatePartialInCache(ownerTab, buf.text);
       }
-      // Drop thinking text for background (no cache method for thinking)
-      _pendingThinkingText = '';
-      _pendingStreamStdinId = undefined;
+      buf.text = '';
+      buf.thinking = '';
       return;
     }
 
     const { updatePartialMessage, updatePartialThinking } = useChatStore.getState();
-    if (_pendingStreamText) {
-      updatePartialMessage(_pendingStreamText);
-      _pendingStreamText = '';
+    if (buf.text) {
+      updatePartialMessage(buf.text);
+      buf.text = '';
     }
-    if (_pendingThinkingText) {
-      updatePartialThinking(_pendingThinkingText);
-      _pendingThinkingText = '';
+    if (buf.thinking) {
+      updatePartialThinking(buf.thinking);
+      buf.thinking = '';
     }
-    _pendingStreamStdinId = undefined;
   });
 }
 
-/** Flush any buffered streaming text immediately (call before clearPartial). */
-export function flushStreamBuffer() {
-  if (_streamFlushRaf) {
-    cancelAnimationFrame(_streamFlushRaf);
-    _streamFlushRaf = 0;
-  }
-  if (!_pendingStreamText && !_pendingThinkingText) {
-    _pendingStreamStdinId = undefined;
-    return;
-  }
-  // Check if the buffer belongs to a background tab (user may have just switched)
-  const flushOwnerTab = _pendingStreamStdinId
-    ? useSessionStore.getState().getTabForStdin(_pendingStreamStdinId)
-    : undefined;
-  const flushActiveTab = useSessionStore.getState().selectedSessionId;
-  if (flushOwnerTab && flushOwnerTab !== flushActiveTab) {
-    if (_pendingStreamText) {
-      useChatStore.getState().updatePartialInCache(flushOwnerTab, _pendingStreamText);
-      _pendingStreamText = '';
+/** Flush any buffered streaming text immediately (call before clearPartial).
+ *  If stdinId is provided, flush only that session's buffer.
+ *  If omitted, flush ALL buffers (backward compat). */
+export function flushStreamBuffer(stdinId?: string) {
+  const ids = stdinId ? [stdinId] : Array.from(_streamBuffers.keys());
+  const activeTab = useSessionStore.getState().selectedSessionId;
+
+  for (const id of ids) {
+    const buf = _streamBuffers.get(id);
+    if (!buf) continue;
+
+    if (buf.raf) {
+      cancelAnimationFrame(buf.raf);
+      buf.raf = 0;
     }
-    _pendingThinkingText = '';
-    _pendingStreamStdinId = undefined;
-    return;
+    if (!buf.text && !buf.thinking) continue;
+
+    const ownerTab = useSessionStore.getState().getTabForStdin(id);
+    if (ownerTab && ownerTab !== activeTab) {
+      if (buf.text) {
+        useChatStore.getState().updatePartialInCache(ownerTab, buf.text);
+      }
+      buf.text = '';
+      buf.thinking = '';
+      continue;
+    }
+    if (buf.text) {
+      useChatStore.getState().updatePartialMessage(buf.text);
+      buf.text = '';
+    }
+    if (buf.thinking) {
+      useChatStore.getState().updatePartialThinking(buf.thinking);
+      buf.thinking = '';
+    }
   }
-  if (_pendingStreamText) {
-    useChatStore.getState().updatePartialMessage(_pendingStreamText);
-    _pendingStreamText = '';
+
+  // Clean up empty buffers
+  if (!stdinId) {
+    _streamBuffers.clear();
+  } else {
+    _streamBuffers.delete(stdinId);
   }
-  if (_pendingThinkingText) {
-    useChatStore.getState().updatePartialThinking(_pendingThinkingText);
-    _pendingThinkingText = '';
-  }
-  _pendingStreamStdinId = undefined;
 }
 
 /**
@@ -775,19 +792,20 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
 
         if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
           const text = evt.delta.text || '';
-          if (text) {
+          if (text && msgStdinId) {
             // Buffer text and flush via rAF to avoid excessive re-renders
-            _pendingStreamText += text;
-            _pendingStreamStdinId = msgStdinId;
-            _scheduleStreamFlush();
+            // TK-329: per-stdinId buffer prevents cross-session contamination
+            const buf = _getBuffer(msgStdinId);
+            buf.text += text;
+            _scheduleStreamFlush(msgStdinId);
             agentActions.updatePhase(agentId, 'writing');
           }
         } else if (evt.type === 'content_block_delta' && evt.delta?.type === 'thinking_delta') {
           const thinkingText = evt.delta.thinking || '';
-          if (thinkingText) {
-            _pendingThinkingText += thinkingText;
-            _pendingStreamStdinId = msgStdinId;
-            _scheduleStreamFlush();
+          if (thinkingText && msgStdinId) {
+            const buf = _getBuffer(msgStdinId);
+            buf.thinking += thinkingText;
+            _scheduleStreamFlush(msgStdinId);
             agentActions.updatePhase(agentId, 'thinking');
           } else {
             setActivityStatus({ phase: 'thinking' });
@@ -1646,10 +1664,10 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         // Fallback: handle content_block_delta at top level (without stream_event wrapper)
         if (msg.type === 'content_block_delta') {
           const text = msg.delta?.text || '';
-          if (text) {
-            _pendingStreamText += text;
-            _pendingStreamStdinId = msgStdinId;
-            _scheduleStreamFlush();
+          if (text && msgStdinId) {
+            const buf = _getBuffer(msgStdinId);
+            buf.text += text;
+            _scheduleStreamFlush(msgStdinId);
           }
         }
         break;
