@@ -12,6 +12,16 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.8.8] - 2026-03-09
+
+### Fixed
+
+- **多会话隔离加固** — 修复 desk_* 临时 ID 污染会话列表、stdinToTab 映射泄漏、进程退出后残留映射等问题。前端 + Rust 双层防护，启动时一次性清理历史污染数据。
+
+- **Markdown 渲染兼容性** — 修复旧版 macOS WebKit 不支持 lookbehind 正则导致的白屏崩溃。remark-gfm 改为运行时探测 + 动态加载，不兼容时自动降级为基础 Markdown。
+
+---
+
 ## [0.8.7] - 2026-03-08
 
 ### Added
