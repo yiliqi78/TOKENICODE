@@ -2071,6 +2071,10 @@ fn load_tracked_sessions() -> std::collections::HashSet<String> {
 /// Register a CLI session ID as managed by TOKENICODE
 #[tauri::command]
 async fn track_session(session_id: String) -> Result<(), String> {
+    // Defense-in-depth: never persist desk-generated temporary IDs
+    if session_id.starts_with("desk_") {
+        return Ok(());
+    }
     let path = tracked_sessions_path();
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
@@ -2084,6 +2088,34 @@ async fn track_session(session_id: String) -> Result<(), String> {
         .map_err(|e| format!("Failed to open tracked sessions: {}", e))?;
     writeln!(file, "{}", session_id).map_err(|e| format!("Failed to write session ID: {}", e))?;
     Ok(())
+}
+
+/// One-time cleanup: remove desk_* entries and duplicates from tracked_sessions.txt
+fn cleanup_tracked_sessions() {
+    let path = tracked_sessions_path();
+    if !path.exists() {
+        return;
+    }
+    use std::io::{BufRead, Write};
+    let lines: Vec<String> = match std::fs::File::open(&path) {
+        Ok(f) => std::io::BufReader::new(f).lines().flatten().collect(),
+        Err(_) => return,
+    };
+    let mut seen = std::collections::HashSet::new();
+    let clean: Vec<&String> = lines
+        .iter()
+        .filter(|l| {
+            let t = l.trim();
+            !t.is_empty() && !t.starts_with("desk_") && seen.insert(t.to_string())
+        })
+        .collect();
+    if clean.len() < lines.len() {
+        if let Ok(mut f) = std::fs::File::create(&path) {
+            for line in clean {
+                let _ = writeln!(f, "{}", line.trim());
+            }
+        }
+    }
 }
 
 /// Delete a session: remove from tracking file and delete the .jsonl file
@@ -5794,6 +5826,9 @@ pub fn run() {
         .setup(|app| {
             // titleBarStyle: "Overlay" in tauri.conf.json handles macOS traffic lights
             // and native titlebar drag/double-click-to-maximize automatically.
+
+            // One-time cleanup: purge desk_* entries from tracked_sessions.txt
+            cleanup_tracked_sessions();
 
             // Propagate proxy env vars from login shell to the process environment
             // so that ALL HTTP clients (including the updater plugin) can reach

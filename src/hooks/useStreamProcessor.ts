@@ -546,6 +546,10 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         }
         cache.setStatusInCache(tabId, 'idle');
         cache.setMetaInCache(tabId, { stdinId: undefined });
+        // Clean up stdinId → tabId mapping to prevent memory leak
+        if (bgStdinId) {
+          useSessionStore.getState().unregisterStdinTab(bgStdinId);
+        }
         useSessionStore.getState().fetchSessions();
         break;
       }
@@ -1654,6 +1658,10 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
 
         setSessionStatus('idle');
         setSessionMeta({ stdinId: undefined });
+        // Clean up stdinId → tabId mapping to prevent memory leak
+        if (exitingStdinId) {
+          useSessionStore.getState().unregisterStdinTab(exitingStdinId);
+        }
         useChatStore.getState().clearPendingMessages();
         agentActions.completeAll();
         useSessionStore.getState().fetchSessions();

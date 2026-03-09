@@ -769,7 +769,10 @@ async function startDraftSession(folderPath: string) {
     // Register stdinId → tabId mapping for background stream routing
     useSessionStore.getState().registerStdinTab(preWarmId, draftId);
 
-    bridge.trackSession(session.session_id).catch(() => {});
+    // Skip desk_* IDs — they pollute tracked_sessions.txt (multi-session isolation fix)
+    if (!session.session_id.startsWith('desk_')) {
+      bridge.trackSession(session.session_id).catch(() => {});
+    }
   } catch {
     // Pre-warm failed — InputBar will spawn on first message instead
   }

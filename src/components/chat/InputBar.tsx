@@ -1011,7 +1011,10 @@ export function InputBar() {
         // Note: stdinId → tabId mapping already registered before listener setup (TK-329)
 
         // Track the session and refresh conversation list
-        bridge.trackSession(session.session_id).catch(() => {});
+        // Skip desk_* IDs — they pollute tracked_sessions.txt (multi-session isolation fix)
+        if (!session.session_id.startsWith('desk_')) {
+          bridge.trackSession(session.session_id).catch(() => {});
+        }
         useSessionStore.getState().fetchSessions();
         // Delayed retry in case JSONL file isn't written yet
         setTimeout(() => useSessionStore.getState().fetchSessions(), 1500);

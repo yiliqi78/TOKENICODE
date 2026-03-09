@@ -5,6 +5,7 @@ import { bridge, SessionListItem } from '../lib/tauri-bridge';
 // and sync to disk via Tauri backend for durability.
 const CUSTOM_PREVIEWS_KEY = 'tokenicode_custom_previews';
 const LAST_SESSION_KEY = 'tokenicode_last_session';
+const STDIN_TO_TAB_KEY = 'tokenicode_stdinToTab';
 
 function loadCustomPreviewsSync(): Record<string, string> {
   try {
@@ -27,6 +28,21 @@ function saveLastSessionId(id: string | null) {
 
 function loadLastSessionId(): string | null {
   return localStorage.getItem(LAST_SESSION_KEY);
+}
+
+/** Persist stdinToTab across page refreshes using sessionStorage.
+ *  sessionStorage survives same-window refreshes but clears on app restart,
+ *  which is exactly the right scope for process-lifetime mappings. */
+function loadStdinToTabSync(): Record<string, string> {
+  try {
+    return JSON.parse(sessionStorage.getItem(STDIN_TO_TAB_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveStdinToTab(map: Record<string, string>) {
+  sessionStorage.setItem(STDIN_TO_TAB_KEY, JSON.stringify(map));
 }
 
 interface SessionState {
@@ -58,8 +74,10 @@ interface SessionState {
   setSessionRunning: (sessionId: string, running: boolean) => void;
   /** Check if a session is currently running */
   isSessionRunning: (sessionId: string) => boolean;
-  /** Register a stdinId → tabId mapping */
+  /** Register a stdinId → tabId mapping (persisted to sessionStorage) */
   registerStdinTab: (stdinId: string, tabId: string) => void;
+  /** Remove a stdinId mapping on process exit (cleans sessionStorage too) */
+  unregisterStdinTab: (stdinId: string) => void;
   /** Look up which tabId owns a given stdinId */
   getTabForStdin: (stdinId: string) => string | undefined;
   /** Remove a draft session from the local list (no disk deletion needed) */
@@ -83,7 +101,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   previousSessionId: null,
   customPreviews: loadCustomPreviewsSync(),
   runningSessions: new Set<string>(),
-  stdinToTab: {},
+  stdinToTab: loadStdinToTabSync(),
 
   fetchSessions: async () => {
     const isFirstLoad = get().sessions.length === 0;
@@ -157,9 +175,17 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
 
   isSessionRunning: (sessionId) => get().runningSessions.has(sessionId),
 
-  registerStdinTab: (stdinId, tabId) => set((state) => ({
-    stdinToTab: { ...state.stdinToTab, [stdinId]: tabId },
-  })),
+  registerStdinTab: (stdinId, tabId) => {
+    const next = { ...get().stdinToTab, [stdinId]: tabId };
+    saveStdinToTab(next);
+    set({ stdinToTab: next });
+  },
+
+  unregisterStdinTab: (stdinId) => {
+    const { [stdinId]: _, ...rest } = get().stdinToTab;
+    saveStdinToTab(rest);
+    set({ stdinToTab: rest });
+  },
 
   getTabForStdin: (stdinId) => get().stdinToTab[stdinId],
 
@@ -207,6 +233,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       bridge.saveCustomPreviews(customPreviews).catch(() => {});
     }
 
+    saveStdinToTab(stdinToTab);
     return { sessions, selectedSessionId, previousSessionId, runningSessions, stdinToTab, customPreviews };
   });
   },
