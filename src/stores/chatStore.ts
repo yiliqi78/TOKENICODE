@@ -116,6 +116,14 @@ export interface SessionMeta {
   modelSwitched?: boolean;
   /** The user message text to re-send if model-switch auto-retry triggers. */
   modelSwitchPendingText?: string;
+  /** Rate limit info from CLI rate_limit_event (latest per rateLimitType) */
+  rateLimits?: Record<string, {
+    rateLimitType: string;
+    resetsAt: number;
+    isUsingOverage?: boolean;
+    overageStatus?: string;
+    overageDisabledReason?: string;
+  }>;
 }
 
 export type SessionStatus = 'idle' | 'running' | 'completed' | 'error';
