@@ -1741,8 +1741,16 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         }
 
         setSessionStatus('idle');
-        if (!document.hasFocus() && 'Notification' in window && Notification.permission === 'granted') {
-          new Notification('TOKENICODE', { body: t('notification.chatComplete') });
+        if (!document.hasFocus() && 'Notification' in window) {
+          if (Notification.permission === 'granted') {
+            new Notification('TOKENICODE', { body: t('notification.chatComplete') });
+          } else if (Notification.permission === 'default') {
+            Notification.requestPermission().then((perm) => {
+              if (perm === 'granted') {
+                new Notification('TOKENICODE', { body: t('notification.chatComplete') });
+              }
+            }).catch(() => {});
+          }
         }
 
         setSessionMeta({ stdinId: undefined, lastProgressAt: undefined });
