@@ -39,7 +39,9 @@ export const CHANGELOG: ChangelogEntry[] = [
           en: [
             'CLI detection prioritizes native binary — ~/.claude/local/claude checked before npm paths, avoiding Node.js v22 --sdk-url bug',
             'Windows PortableGit extraction timeout — Extended from 120s to 300s, preventing false failures on slower machines',
+            'Download content validation — Detects CDN hijacking (< 1MB auto-skips to next mirror)',
             'Error classification fix — Local extraction timeout no longer misidentified as network error',
+            'Notification permission — Lazy request on first need instead of eager startup prompt',
           ],
         },
       },
