@@ -19,6 +19,63 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.8.9',
+    date: '2026-03-11',
+    highlights: {
+      zh: ['6 项关键 Bug 修复、3 项 UX 改进'],
+      en: ['6 critical bug fixes, 3 UX improvements'],
+    },
+    categories: [
+      {
+        label: { zh: '新功能', en: 'New' },
+        items: {
+          zh: [
+            '对话完成时推送系统通知（窗口不在前台时自动提醒）',
+            '右键菜单「重命名」支持内联编辑（不再弹出系统对话框）',
+          ],
+          en: [
+            'System notification when chat completes (while window is unfocused)',
+            'Context menu rename now uses inline editing (no more browser prompt)',
+          ],
+        },
+      },
+      {
+        label: { zh: '修复', en: 'Fixes' },
+        items: {
+          zh: [
+            'Plan 审批后 CLI 未收到确认响应的问题',
+            '交互卡片等待期间误按 Enter 发送消息的问题',
+            '后台会话 stderr 漏到前台空闲标签页的问题',
+            'CLI 崩溃后交互卡片永久卡住的问题',
+            '文件路径标签在气泡中从中间断行的问题',
+            '停滞检测误报（改为 120 秒静默检测）',
+          ],
+          en: [
+            'Plan approval not sending CLI confirmation response',
+            'Accidental Enter submission while interaction card is pending',
+            'Background session stderr leaking into idle foreground tab',
+            'Interaction cards stuck permanently after CLI crash',
+            'File path chip breaking mid-text in message bubbles',
+            'Stall detection false positives (now 120s silence-based)',
+          ],
+        },
+      },
+      {
+        label: { zh: '改进', en: 'Improved' },
+        items: {
+          zh: [
+            '技能面板按拼音排序',
+            '斜杠命令选中项高亮更清晰',
+          ],
+          en: [
+            'Skills panel sorted alphabetically with CJK awareness',
+            'Slash command selected item highlight improved',
+          ],
+        },
+      },
+    ],
+  },
+  {
     version: '0.8.8',
     date: '2026-03-09',
     highlights: {
