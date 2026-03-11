@@ -61,6 +61,10 @@ export function PlanReviewCard({ message, floating }: Props) {
     // Respond to ExitPlanMode control_request if pending (SDK control protocol)
     const permData = message.permissionData;
     if (permData?.requestId) {
+      useChatStore.getState().updateMessage(message.id, {
+        interactionState: 'sending',
+        interactionError: undefined,
+      });
       const stdinId = useChatStore.getState().sessionMeta.stdinId;
       if (stdinId) {
         try {
@@ -74,7 +78,13 @@ export function PlanReviewCard({ message, floating }: Props) {
             permData.input,
           );
         } catch (err) {
-          console.error('[TOKENICODE] Failed to respond to ExitPlanMode permission:', err);
+          console.error('[TC:plan] Failed to respond to ExitPlanMode permission:', err);
+          useChatStore.getState().updateMessage(message.id, {
+            interactionState: 'failed',
+            interactionError: String(err),
+          });
+          setApproving(false);
+          return;
         }
       }
     }

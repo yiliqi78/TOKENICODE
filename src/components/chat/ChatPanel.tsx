@@ -224,7 +224,7 @@ function CyclingThinkingText() {
 /** Activity indicator with elapsed time and token count */
 function ActivityIndicator({ activityStatus, sessionMeta }: {
   activityStatus: { phase: string; toolName?: string };
-  sessionMeta: { turnStartTime?: number; outputTokens?: number; inputTokens?: number };
+  sessionMeta: { turnStartTime?: number; outputTokens?: number; inputTokens?: number; lastProgressAt?: number };
 }) {
   const t = useT();
   const [now, setNow] = useState(Date.now());
@@ -241,7 +241,6 @@ function ActivityIndicator({ activityStatus, sessionMeta }: {
     : t('chat.running');
 
   const elapsed = sessionMeta.turnStartTime ? formatElapsed(now - sessionMeta.turnStartTime) : null;
-  const elapsedMs = sessionMeta.turnStartTime ? now - sessionMeta.turnStartTime : 0;
   const tokens = sessionMeta.outputTokens ? formatTokens(sessionMeta.outputTokens) : null;
   const statsText = elapsed
     ? tokens ? `(${elapsed} · ↓ ${tokens})` : `(${elapsed})`
@@ -251,10 +250,10 @@ function ActivityIndicator({ activityStatus, sessionMeta }: {
   const inputTokens = sessionMeta.inputTokens || 0;
   const contextWarning = inputTokens > 120_000;
 
-  // Stall detection: if turn has been running > 5 minutes with zero output tokens,
-  // likely the CLI is hanging (network disconnect, API timeout, etc.)
-  // Note: API-connected users may have longer response times, so 5 min is more appropriate.
-  const stallWarning = elapsedMs > 300_000 && !sessionMeta.outputTokens;
+  // Stall detection: 120s of silence (no stream activity), not total elapsed time.
+  const stallWarning = !!sessionMeta.lastProgressAt
+    && !!elapsed
+    && (now - sessionMeta.lastProgressAt) > 120_000;
 
   const isThinking = activityStatus.phase === 'thinking';
 

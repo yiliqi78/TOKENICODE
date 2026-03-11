@@ -120,8 +120,8 @@ export function SlashCommandPopover({
                 className={`w-full text-left px-3 py-2 flex items-center gap-3
                   transition-smooth text-xs
                   ${idx === selectedIndex
-                    ? 'bg-accent/10 text-accent'
-                    : 'text-text-muted hover:bg-bg-secondary hover:text-text-primary'
+                    ? 'bg-accent/10 text-accent border-l-2 border-l-accent'
+                    : 'text-text-muted hover:bg-bg-secondary hover:text-text-primary border-l-2 border-l-transparent'
                   }`}
               >
                 {/* Icon: / for commands, diamond for skills */}

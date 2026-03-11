@@ -34,6 +34,8 @@ interface SessionItemProps {
   onContextMenu: (e: React.MouseEvent, session: SessionListItem) => void;
   onRename: (sessionId: string, newName: string) => void;
   onToggleCheck?: (sessionId: string, shiftKey?: boolean) => void;
+  triggerRename?: boolean;
+  onRenameDone?: () => void;
 }
 
 export function SessionItem({
@@ -49,6 +51,8 @@ export function SessionItem({
   onContextMenu,
   onRename,
   onToggleCheck,
+  triggerRename,
+  onRenameDone,
 }: SessionItemProps) {
   const t = useT();
   const [isRenaming, setIsRenaming] = useState(false);
@@ -72,6 +76,13 @@ export function SessionItem({
     setIsRenaming(true);
     setRenameValue(name);
   }, [name]);
+
+  useEffect(() => {
+    if (triggerRename) {
+      startRename();
+      onRenameDone?.();
+    }
+  }, [triggerRename, startRename, onRenameDone]);
 
   useEffect(() => {
     if (isRenaming && renameInputRef.current) {

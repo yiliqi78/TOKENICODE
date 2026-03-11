@@ -91,6 +91,7 @@ function App() {
   const workingDirectory = useSettingsStore((s) => s.workingDirectory);
   const lastSeenVersion = useSettingsStore((s) => s.lastSeenVersion);
   const setLastSeenVersion = useSettingsStore((s) => s.setLastSeenVersion);
+  const selectedSessionId = useSessionStore((s) => s.selectedSessionId);
   const loadTree = useFileStore((s) => s.loadTree);
   const refreshTree = useFileStore((s) => s.refreshTree);
   const markFileChanged = useFileStore((s) => s.markFileChanged);
@@ -160,6 +161,9 @@ function App() {
   useEffect(() => {
     useSessionStore.getState().loadCustomPreviewsFromDisk();
     useProviderStore.getState().load();
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
   }, []);
 
   // Changelog modal state
@@ -365,7 +369,7 @@ function App() {
     <>
       <AppShell
         sidebar={<Sidebar />}
-        main={<ChatPanel />}
+        main={<ChatPanel key={selectedSessionId || 'new'} />}
         secondary={<SecondaryPanel />}
       />
       <CommandPalette />

@@ -62,10 +62,12 @@ export function SkillsPanel() {
     s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     s.description.toLowerCase().includes(searchQuery.toLowerCase())
   );
+  const sortByName = (a: SkillInfo, b: SkillInfo) =>
+    a.name.localeCompare(b.name, 'zh-Hans-CN');
 
   // Group skills by scope
-  const globalSkills = filteredSkills.filter((s) => s.scope === 'global');
-  const projectSkills = filteredSkills.filter((s) => s.scope === 'project');
+  const globalSkills = filteredSkills.filter((s) => s.scope === 'global').sort(sortByName);
+  const projectSkills = filteredSkills.filter((s) => s.scope === 'project').sort(sortByName);
 
   const handleSelect = useCallback((skill: SkillInfo) => {
     selectFile(skill.path);

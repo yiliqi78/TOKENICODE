@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useChatStore, generateMessageId } from '../../stores/chatStore';
-import { useSettingsStore, MODEL_OPTIONS, mapSessionModeToPermissionMode, type ThinkingLevel } from '../../stores/settingsStore';
+import { useSettingsStore, MODEL_OPTIONS, mapSessionModeToPermissionMode, setSessionModeLocal, type ThinkingLevel } from '../../stores/settingsStore';
 import { bridge, onClaudeStream, onClaudeStderr, onSessionExit, onPermissionRequest, type UnifiedCommand, type PermissionRequest } from '../../lib/tauri-bridge';
 import { ModelSelector } from './ModelSelector';
 // import { ModeSelector } from './ModeSelector';
@@ -147,6 +147,7 @@ function PlanToggleButton() {
 
 export function InputBar() {
   const t = useT();
+  const selectedSessionId = useSessionStore((s) => s.selectedSessionId);
   const inputDraft = useChatStore((s) => s.inputDraft);
   const setInputDraft = useChatStore((s) => s.setInputDraft);
   // Local alias for the store-backed draft
@@ -638,7 +639,30 @@ export function InputBar() {
       (m) => m.type === 'plan_review' && !m.resolved,
     );
     if (pendingPlanReview && !text && !useCommandStore.getState().activePrefix) {
-      useChatStore.getState().updateMessage(pendingPlanReview.id, { resolved: true });
+      const stdinId = useChatStore.getState().sessionMeta.stdinId;
+      const permData = pendingPlanReview.permissionData;
+      if (permData?.requestId && stdinId) {
+        try {
+          await bridge.respondPermission(
+            stdinId,
+            permData.requestId,
+            true,
+            undefined,
+            permData.toolUseId,
+            permData.input,
+          );
+        } catch (err) {
+          console.error('[TC:plan] Empty-Enter plan approval failed:', err);
+          return;
+        }
+      }
+      if (useSettingsStore.getState().sessionMode === 'plan') {
+        setSessionModeLocal('code');
+      }
+      useChatStore.getState().updateMessage(pendingPlanReview.id, {
+        resolved: true,
+        interactionState: 'resolved',
+      });
       window.dispatchEvent(new CustomEvent('tokenicode:plan-execute'));
       return;
     }
@@ -741,8 +765,14 @@ export function InputBar() {
       return;
     }
 
+    const turnStartedAt = Date.now();
     setSessionStatus('running');
-    setSessionMeta({ turnStartTime: Date.now(), inputTokens: 0, outputTokens: 0 });
+    setSessionMeta({
+      turnStartTime: turnStartedAt,
+      lastProgressAt: turnStartedAt,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
     useChatStore.getState().setActivityStatus({ phase: 'thinking' });
     lastStderrRef.current = ''; // Clear stale stderr before new turn
 
@@ -757,6 +787,8 @@ export function InputBar() {
       startTime: Date.now(),
       isMain: true,
     });
+
+    let sessionStdinId: string | undefined;
 
     try {
       if (!workingDirectory) {
@@ -881,6 +913,7 @@ export function InputBar() {
         // Generate the desk-side session ID FIRST so we can register
         // event listeners BEFORE spawning the process.
         const preGeneratedId = `desk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        sessionStdinId = preGeneratedId;
 
         // Reset guards for the new session
         autoCompactFiredRef.current = false;
@@ -1020,6 +1053,13 @@ export function InputBar() {
         setTimeout(() => useSessionStore.getState().fetchSessions(), 1500);
       }
     } catch (err: any) {
+      if (sessionStdinId && (window as any).__claudeUnlisteners?.[sessionStdinId]) {
+        (window as any).__claudeUnlisteners[sessionStdinId]();
+        delete (window as any).__claudeUnlisteners[sessionStdinId];
+      }
+      if (sessionStdinId) {
+        useSessionStore.getState().unregisterStdinTab(sessionStdinId);
+      }
       setSessionStatus('error');
       addMessage({
         id: generateMessageId(),
@@ -1039,9 +1079,23 @@ export function InputBar() {
 
   // Handle stderr lines — detect permission prompts and other interactive requests
   const handleStderrLine = useCallback((line: string, sid: string) => {
-    // Route: only process stderr for the currently active session
-    const currentStdinId = useChatStore.getState().sessionMeta.stdinId;
-    if (sid && currentStdinId && sid !== currentStdinId) return;
+    if (sid) {
+      const ownerTabId = useSessionStore.getState().getTabForStdin(sid);
+      const activeTabId = useSessionStore.getState().selectedSessionId;
+      if (ownerTabId && ownerTabId !== activeTabId) {
+        const clean = stripAnsi(line).trim();
+        if (clean) {
+          useChatStore.getState().addMessageToCache(ownerTabId, {
+            id: generateMessageId(),
+            role: 'system',
+            type: 'text',
+            content: `[stderr] ${clean}`,
+            timestamp: Date.now(),
+          });
+        }
+        return;
+      }
+    }
 
     // Strip ANSI escape codes so regex matching works on raw text
     const clean = stripAnsi(line).trim();
@@ -1160,6 +1214,18 @@ export function InputBar() {
     // confirming a candidate with Enter — should NOT send the message)
     if (e.isComposing || e.keyCode === 229) return;
 
+    const pendingInteraction = useChatStore.getState().messages.find(
+      (m) => ['permission', 'question', 'plan_review'].includes(m.type) && !m.resolved,
+    );
+    if (pendingInteraction) {
+      const inputText = (useChatStore.getState().inputDraft || '').trim();
+      const isEmptyPlanApproval = pendingInteraction.type === 'plan_review' && !inputText;
+      if (!isEmptyPlanApproval && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+        e.preventDefault();
+        return true;
+      }
+    }
+
     if (e.metaKey || e.ctrlKey) {
       // Cmd+Enter / Ctrl+Enter → let tiptap insert newline (default behavior)
       return false;
@@ -1213,12 +1279,12 @@ export function InputBar() {
       <div className="max-w-3xl mx-auto">
         {/* Rewind Panel — positioned above the input area */}
         {showRewindPanel && (
-          <RewindPanel onClose={() => setShowRewindPanel(false)} />
+          <RewindPanel key={selectedSessionId || 'new'} onClose={() => setShowRewindPanel(false)} />
         )}
 
         {/* Floating approval card — plan_review, question, or permission awaiting user response */}
         {floatingCard && (
-          <div className="mb-3 animate-scale-in">
+          <div key={`${selectedSessionId || 'new'}-${floatingCard.id}`} className="mb-3 animate-scale-in">
             {floatingCard.type === 'plan_review'
               ? <PlanReviewCard message={floatingCard} floating />
               : floatingCard.type === 'permission'

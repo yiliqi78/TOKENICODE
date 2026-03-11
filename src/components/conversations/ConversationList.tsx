@@ -83,6 +83,7 @@ export function ConversationList() {
   // Context menus
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [projectMenu, setProjectMenu] = useState<ProjectMenuState | null>(null);
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
 
   // Delete confirmation
   const [deleteTarget, setDeleteTarget] = useState<SessionListItem | null>(null);
@@ -310,6 +311,9 @@ export function ConversationList() {
 
     try {
       const rawMessages = await bridge.loadSession(sessionPath);
+      if (useSessionStore.getState().selectedSessionId !== sessionId) {
+        return;
+      }
       const { messages, agents } = parseSessionMessages(rawMessages);
 
       // Apply agents
@@ -331,6 +335,7 @@ export function ConversationList() {
 
       setSessionStatus('completed');
     } catch (err) {
+      if (useSessionStore.getState().selectedSessionId !== sessionId) return;
       setSessionStatus('error');
       addMessage({
         id: generateMessageId(),
@@ -431,6 +436,11 @@ export function ConversationList() {
     });
     const realPath = match ? (match.project || match.projectDir) : resolveProjectPath(projectKey);
     useSettingsStore.getState().setWorkingDirectory(realPath);
+    const currentTabId = useSessionStore.getState().selectedSessionId;
+    if (currentTabId) {
+      useChatStore.getState().saveToCache(currentTabId);
+      useAgentStore.getState().saveToCache(currentTabId);
+    }
     useChatStore.getState().resetSession();
     const draftId = `draft_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     useSessionStore.getState().addDraftSession(draftId, realPath);
@@ -525,18 +535,10 @@ export function ConversationList() {
     setCustomPreview(sessionId, newName);
   }, [setCustomPreview]);
 
-  // Rename from context menu (trigger double-click-like behavior)
+  // Rename from context menu — trigger inline edit in SessionItem
   const handleRenameFromMenu = useCallback((session: SessionListItem) => {
-    // The SessionItem handles its own rename state via double-click.
-    // For context menu rename, we use setCustomPreview with a prompt-like pattern.
-    // Since we moved rename to SessionItem, we just need to simulate.
-    // Actually, let's keep rename in ConversationList for context menu trigger.
-    const name = customPreviews[session.id] || session.preview || '';
-    const newName = prompt(t('conv.renamePrompt'), name);
-    if (newName && newName.trim()) {
-      setCustomPreview(session.id, newName.trim());
-    }
-  }, [customPreviews, setCustomPreview, t]);
+    setRenamingSessionId(session.id);
+  }, []);
 
   const handleSelectMode = useCallback((_project: string) => {
     setMultiSelect(true);
@@ -618,6 +620,8 @@ export function ConversationList() {
           onRename={handleRename}
           onNewSession={handleNewSessionInProject}
           onToggleCheck={handleToggleCheck}
+          renamingSessionId={renamingSessionId}
+          onRenameDone={() => setRenamingSessionId(null)}
         />
       ))}
 
