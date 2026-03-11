@@ -88,9 +88,10 @@ export function QuestionCard({ message, floating }: Props) {
   const interactionState = message.interactionState ?? (isFullyResolved ? 'resolved' : 'pending');
   const isSending = interactionState === 'sending';
   const isFailed = interactionState === 'failed';
+  const awaitingSdkPatch = !isFullyResolved && !message.permissionData?.requestId;
 
   const handleConfirm = useCallback(async () => {
-    if (isFullyResolved || isSending) return;
+    if (isFullyResolved || isSending || awaitingSdkPatch) return;
     const answerText = getCurrentAnswer();
     setAnsweredMap((prev) => ({ ...prev, [currentIdx]: answerText }));
 
@@ -135,10 +136,10 @@ export function QuestionCard({ message, floating }: Props) {
     } else {
       setCurrentIdx(currentIdx + 1);
     }
-  }, [isFullyResolved, isSending, currentIdx, questions, selectedMap, useOther, otherText, message.id, message.permissionData, message.toolInput, getCurrentAnswer]);
+  }, [isFullyResolved, isSending, awaitingSdkPatch, currentIdx, questions, selectedMap, useOther, otherText, message.id, message.permissionData, message.toolInput, getCurrentAnswer]);
 
   const handleSkip = useCallback(async () => {
-    if (isFullyResolved || isSending) return;
+    if (isFullyResolved || isSending || awaitingSdkPatch) return;
     const { sessionMeta, setInteractionState, setSessionStatus, setActivityStatus } = useChatStore.getState();
     const stdinId = sessionMeta.stdinId;
     if (!stdinId) return;
@@ -158,7 +159,7 @@ export function QuestionCard({ message, floating }: Props) {
     } catch (err) {
       setInteractionState(message.id, 'failed', String(err));
     }
-  }, [isFullyResolved, isSending, message.id]);
+  }, [isFullyResolved, isSending, awaitingSdkPatch, message.id]);
 
   return (
     <div className={`${floating ? '' : 'ml-11'} animate-scale-in ${isFullyResolved ? 'opacity-80' : ''}`}>
@@ -317,7 +318,7 @@ export function QuestionCard({ message, floating }: Props) {
             <div className="flex items-center gap-2">
               <button
                 onClick={handleConfirm}
-                disabled={!hasCurrentSelection || isSending}
+                disabled={!hasCurrentSelection || isSending || awaitingSdkPatch}
                 className={`px-4 py-1.5 rounded-lg text-xs font-semibold
                   bg-accent text-text-inverse hover:bg-accent-hover
                   transition-smooth cursor-pointer shadow-sm
@@ -326,11 +327,13 @@ export function QuestionCard({ message, floating }: Props) {
               >
                 {isSending
                   ? 'Sending...'
-                  : currentIdx >= questions.length - 1 ? t('msg.questionSubmit') : t('msg.questionNext')}
+                  : awaitingSdkPatch
+                    ? t('msg.questionLoading')
+                    : currentIdx >= questions.length - 1 ? t('msg.questionSubmit') : t('msg.questionNext')}
               </button>
               <button
                 onClick={handleSkip}
-                disabled={isSending}
+                disabled={isSending || awaitingSdkPatch}
                 className="px-3 py-1.5 rounded-lg text-xs font-medium
                   text-text-tertiary hover:text-text-primary
                   hover:bg-bg-tertiary transition-smooth cursor-pointer

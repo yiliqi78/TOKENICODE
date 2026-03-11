@@ -98,6 +98,8 @@ export interface SessionMeta {
   totalOutputTokens?: number;
   /** Timestamp (Date.now()) when the current turn started — used for elapsed timer */
   turnStartTime?: number;
+  /** Timestamp of last stream activity — used for stall detection instead of total elapsed */
+  lastProgressAt?: number;
   /** JSON fingerprint of the active provider config used when spawning the CLI process.
    *  Compared before sending via stdin to detect stale pre-warm sessions. */
   envFingerprint?: string;
@@ -114,6 +116,14 @@ export interface SessionMeta {
   modelSwitched?: boolean;
   /** The user message text to re-send if model-switch auto-retry triggers. */
   modelSwitchPendingText?: string;
+  /** Rate limit info from CLI rate_limit_event (latest per rateLimitType) */
+  rateLimits?: Record<string, {
+    rateLimitType: string;
+    resetsAt: number;
+    isUsingOverage?: boolean;
+    overageStatus?: string;
+    overageDisabledReason?: string;
+  }>;
 }
 
 export type SessionStatus = 'idle' | 'running' | 'completed' | 'error';
@@ -206,6 +216,8 @@ interface ChatState {
   addMessageToCache: (tabId: string, message: ChatMessage) => void;
   /** Update partial text in a background session's cache */
   updatePartialInCache: (tabId: string, text: string) => void;
+  /** Update partial thinking in a background session's cache */
+  updatePartialThinkingInCache: (tabId: string, thinking: string) => void;
   /** Update session status in a background session's cache */
   setStatusInCache: (tabId: string, status: SessionStatus) => void;
   /** Update session meta in a background session's cache */
@@ -535,6 +547,35 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     next.set(tabId, {
       ...snapshot,
       partialText: snapshot.partialText + text,
+      isStreaming: true,
+    });
+    set({ sessionCache: next });
+  },
+
+  updatePartialThinkingInCache: (tabId, thinking) => {
+    const cache = get().sessionCache;
+    const snapshot = cache.get(tabId);
+    if (!snapshot) {
+      const next = new Map(cache);
+      next.set(tabId, {
+        messages: [],
+        isStreaming: true,
+        partialText: '',
+        partialThinking: thinking,
+        sessionStatus: 'running',
+        sessionMeta: {},
+        activityStatus: { phase: 'thinking' as ActivityPhase },
+        inputDraft: '',
+        pendingAttachments: [],
+        pendingUserMessages: [],
+      });
+      set({ sessionCache: next });
+      return;
+    }
+    const next = new Map(cache);
+    next.set(tabId, {
+      ...snapshot,
+      partialThinking: snapshot.partialThinking + thinking,
       isStreaming: true,
     });
     set({ sessionCache: next });

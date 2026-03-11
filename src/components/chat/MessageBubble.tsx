@@ -79,7 +79,7 @@ function renderCodeSegment(inner: string, key: number): ReactNode {
           text-xs font-medium cursor-pointer
           hover:bg-white/25 hover:border-white/40
           transition-all duration-150 select-none
-          align-baseline leading-normal whitespace-nowrap"
+          align-baseline leading-normal whitespace-nowrap inline-block"
         title={resolved}
       >
         <span className="text-[10px]">📄</span>

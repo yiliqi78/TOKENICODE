@@ -253,6 +253,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'msg.questionSkip': '跳过',
     'msg.questionOther': '其他',
     'msg.questionOtherPlaceholder': '输入自定义回答...',
+    'msg.questionLoading': '正在加载...',
     'msg.planReview': '审查 Claude 的计划',
     'msg.planApprove': '批准计划并开始执行',
     'msg.planModify': '告诉 Claude 如何修改',
@@ -261,7 +262,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'chat.awaiting': '等待输入...',
     'chat.tokenWarning': '上下文即将满载，建议 /compact',
     'chat.autoCompacting': '上下文接近上限，自动压缩中...',
-    'chat.stallWarning': '响应超时，可能断网。建议停止后重试',
+    'chat.stallWarning': '长时间无响应，可能断网。建议停止后重试',
 
     // Agent panel
     'agents.title': '代理',
@@ -879,6 +880,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'msg.questionSkip': 'Skip',
     'msg.questionOther': 'Other',
     'msg.questionOtherPlaceholder': 'Enter custom answer...',
+    'msg.questionLoading': 'Loading...',
     'msg.planReview': 'Review Claude\'s plan',
     'msg.planApprove': 'Approve plan and start coding',
     'msg.planModify': 'Tell Claude what to change',

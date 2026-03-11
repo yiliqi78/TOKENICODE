@@ -6,6 +6,7 @@ import { useAgentStore, resolveAgentId, getAgentDepth } from '../stores/agentSto
 import { bridge, onClaudeStream, onClaudeStderr } from '../lib/tauri-bridge';
 import { envFingerprint, resolveModelForProvider } from '../lib/api-provider';
 import { useProviderStore } from '../stores/providerStore';
+import { t } from '../lib/i18n';
 
 // --- Streaming text buffer (rAF-throttled, per-stdinId) ---
 // Coalesces rapid text_delta / thinking_delta events into a single state update
@@ -47,6 +48,9 @@ function _scheduleStreamFlush(stdinId: string) {
       if (buf.text && ownerTab) {
         useChatStore.getState().updatePartialInCache(ownerTab, buf.text);
       }
+      if (buf.thinking && ownerTab) {
+        useChatStore.getState().updatePartialThinkingInCache(ownerTab, buf.thinking);
+      }
       buf.text = '';
       buf.thinking = '';
       return;
@@ -85,6 +89,9 @@ export function flushStreamBuffer(stdinId?: string) {
     if (ownerTab && ownerTab !== activeTab) {
       if (buf.text) {
         useChatStore.getState().updatePartialInCache(ownerTab, buf.text);
+      }
+      if (buf.thinking) {
+        useChatStore.getState().updatePartialThinkingInCache(ownerTab, buf.thinking);
       }
       buf.text = '';
       buf.thinking = '';
@@ -145,6 +152,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
    */
   const handleBackgroundStreamMessage = useCallback((msg: any, tabId: string) => {
     const cache = useChatStore.getState();
+    cache.setMetaInCache(tabId, { lastProgressAt: Date.now() });
 
     switch (msg.type) {
       case 'tokenicode_permission_request': {
@@ -487,6 +495,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             totalInputTokens: (prevMeta?.totalInputTokens || 0) + (resultInput - streamedInput),
             totalOutputTokens: (prevMeta?.totalOutputTokens || 0) + (resultOutput - streamedOutput),
             turnStartTime: undefined,
+            lastProgressAt: undefined,
           });
         }
         if (typeof msg.result === 'string' && msg.result) {
@@ -535,6 +544,25 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         }
         break;
       }
+      case 'rate_limit_event': {
+        const rli = msg.rate_limit_info;
+        if (rli && rli.rateLimitType) {
+          const prev = cache.sessionCache.get(tabId)?.sessionMeta.rateLimits || {};
+          cache.setMetaInCache(tabId, {
+            rateLimits: {
+              ...prev,
+              [rli.rateLimitType]: {
+                rateLimitType: rli.rateLimitType,
+                resetsAt: rli.resetsAt,
+                isUsingOverage: rli.isUsingOverage,
+                overageStatus: rli.overageStatus,
+                overageDisabledReason: rli.overageDisabledReason,
+              },
+            },
+          });
+        }
+        break;
+      }
       case 'process_exit': {
         // P0-5: Clean up Tauri event listeners for background tab.
         // __claudeUnlisteners is keyed by stdinId (desk_xxx), NOT tabId (session uuid).
@@ -544,8 +572,17 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           (window as any).__claudeUnlisteners[bgStdinId]();
           delete (window as any).__claudeUnlisteners[bgStdinId];
         }
+        const exitMessages = cache.sessionCache.get(tabId)?.messages || [];
+        for (const m of exitMessages) {
+          if (['permission', 'question', 'plan_review'].includes(m.type) && !m.resolved) {
+            cache.updateMessageInCache(tabId, m.id, {
+              interactionState: 'failed',
+              interactionError: 'CLI process exited',
+            });
+          }
+        }
         cache.setStatusInCache(tabId, 'idle');
-        cache.setMetaInCache(tabId, { stdinId: undefined });
+        cache.setMetaInCache(tabId, { stdinId: undefined, lastProgressAt: undefined });
         // Clean up stdinId → tabId mapping to prevent memory leak
         if (bgStdinId) {
           useSessionStore.getState().unregisterStdinTab(bgStdinId);
@@ -582,7 +619,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
     const KNOWN_TYPES = new Set([
       'tokenicode_permission_request', 'stream_event', 'system', 'assistant',
       'user', 'human', 'tool_result', 'tool_use_summary', 'result', 'process_exit',
-      'content_block_delta',
+      'content_block_delta', 'rate_limit_event',
     ]);
     if (msg.type === 'system' || msg.type === 'process_exit') {
       console.log('[TOKENICODE:stream]', msg.type, msg.subtype || '', msg.__stdinId || '');
@@ -610,6 +647,8 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
       handleBackgroundStreamMessage(msg, ownerTabId);
       return;
     }
+
+    useChatStore.getState().setSessionMeta({ lastProgressAt: Date.now() });
 
     // --- SDK Permission Request (routed through stream channel for reliability) ---
     if (msg.type === 'tokenicode_permission_request') {
@@ -1312,8 +1351,14 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
                 const selectedModel = useSettingsStore.getState().selectedModel;
                 const sessionMode = useSettingsStore.getState().sessionMode;
 
+                const retryTurnStartedAt = Date.now();
                 setSessionStatus('running');
-                setSessionMeta({ turnStartTime: Date.now(), inputTokens: 0, outputTokens: 0 });
+                setSessionMeta({
+                  turnStartTime: retryTurnStartedAt,
+                  lastProgressAt: retryTurnStartedAt,
+                  inputTokens: 0,
+                  outputTokens: 0,
+                });
                 setActivityStatus({ phase: 'thinking' });
                 agentActions.clearAgents();
                 agentActions.upsertAgent({
@@ -1485,6 +1530,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             totalInputTokens: (meta.totalInputTokens || 0) + (resultInput - streamedInput),
             totalOutputTokens: (meta.totalOutputTokens || 0) + (resultOutput - streamedOutput),
             turnStartTime: undefined,
+            lastProgressAt: undefined,
           });
         }
         agentActions.completeAll(
@@ -1538,7 +1584,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             id: compactMsgId,
             role: 'system',
             type: 'text',
-            content: '',
+            content: t('chat.autoCompacting'),
             commandType: 'processing',
             commandData: { command: '/compact' },
             commandStartTime: Date.now(),
@@ -1580,8 +1626,14 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         const flushStdinId = useChatStore.getState().sessionMeta.stdinId;
         if (pendingMsgs.length > 0 && flushStdinId) {
           const combinedText = pendingMsgs.join('\n\n');
+          const nextTurnStartedAt = Date.now();
           setSessionStatus('running');
-          setSessionMeta({ turnStartTime: Date.now(), inputTokens: 0, outputTokens: 0 });
+          setSessionMeta({
+            turnStartTime: nextTurnStartedAt,
+            lastProgressAt: nextTurnStartedAt,
+            inputTokens: 0,
+            outputTokens: 0,
+          });
           setActivityStatus({ phase: 'thinking' });
           agentActions.clearAgents();
           agentActions.upsertAgent({
@@ -1598,6 +1650,26 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           });
         }
 
+        break;
+      }
+
+      case 'rate_limit_event': {
+        const rli = msg.rate_limit_info;
+        if (rli && rli.rateLimitType) {
+          const prev = useChatStore.getState().sessionMeta.rateLimits || {};
+          setSessionMeta({
+            rateLimits: {
+              ...prev,
+              [rli.rateLimitType]: {
+                rateLimitType: rli.rateLimitType,
+                resetsAt: rli.resetsAt,
+                isUsingOverage: rli.isUsingOverage,
+                overageStatus: rli.overageStatus,
+                overageDisabledReason: rli.overageDisabledReason,
+              },
+            },
+          });
+        }
         break;
       }
 
@@ -1656,8 +1728,24 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           (window as any).__claudeUnlisten = null;
         }
 
+        {
+          const { messages: exitMessages, updateMessage } = useChatStore.getState();
+          for (const m of exitMessages) {
+            if (['permission', 'question', 'plan_review'].includes(m.type) && !m.resolved) {
+              updateMessage(m.id, {
+                interactionState: 'failed',
+                interactionError: 'CLI process exited',
+              });
+            }
+          }
+        }
+
         setSessionStatus('idle');
-        setSessionMeta({ stdinId: undefined });
+        if (!document.hasFocus() && 'Notification' in window && Notification.permission === 'granted') {
+          new Notification('TOKENICODE', { body: t('notification.chatComplete') });
+        }
+
+        setSessionMeta({ stdinId: undefined, lastProgressAt: undefined });
         // Clean up stdinId → tabId mapping to prevent memory leak
         if (exitingStdinId) {
           useSessionStore.getState().unregisterStdinTab(exitingStdinId);

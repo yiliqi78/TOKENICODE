@@ -40,6 +40,8 @@ interface SessionGroupProps {
   onRename: (sessionId: string, newName: string) => void;
   onNewSession: (project: string) => void;
   onToggleCheck: (sessionId: string, shiftKey?: boolean) => void;
+  renamingSessionId?: string | null;
+  onRenameDone?: () => void;
 }
 
 export function SessionGroup({
@@ -62,6 +64,8 @@ export function SessionGroup({
   onRename,
   onNewSession,
   onToggleCheck,
+  renamingSessionId,
+  onRenameDone,
 }: SessionGroupProps) {
   const t = useT();
 
@@ -177,6 +181,8 @@ export function SessionGroup({
                   onContextMenu={onContextMenu}
                   onRename={onRename}
                   onToggleCheck={onToggleCheck}
+                  triggerRename={renamingSessionId === session.id}
+                  onRenameDone={onRenameDone}
                 />
               ))}
               {dateGroups.length > 0 && (
@@ -207,6 +213,8 @@ export function SessionGroup({
                   onContextMenu={onContextMenu}
                   onRename={onRename}
                   onToggleCheck={onToggleCheck}
+                  triggerRename={renamingSessionId === session.id}
+                  onRenameDone={onRenameDone}
                 />
               ))}
             </div>

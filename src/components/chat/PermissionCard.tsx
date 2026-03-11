@@ -57,10 +57,16 @@ export function PermissionCard({ message }: Props) {
       }
     } else {
       // Legacy fallback: send raw y/n to stdin (for bypass/old-style)
-      bridge.sendRawStdin(stdinId, allow ? 'y' : 'n');
-      useChatStore.getState().updateMessage(message.id, { resolved: true });
-      setSessionStatus('running');
-      setActivityStatus({ phase: 'thinking' });
+      setInteractionState(message.id, 'sending');
+      try {
+        await bridge.sendRawStdin(stdinId, allow ? 'y' : 'n');
+        setInteractionState(message.id, 'resolved');
+        setSessionStatus('running');
+        setActivityStatus({ phase: 'thinking' });
+      } catch (err) {
+        console.warn('[TC:permission] Legacy permission response failed:', err);
+        setInteractionState(message.id, 'failed', String(err));
+      }
     }
     setRetrying(false);
   }, [message.id, permData]);

@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useChatStore } from '../../stores/chatStore';
+import { useSessionStore } from '../../stores/sessionStore';
+import { useAgentStore } from '../../stores/agentStore';
 import { useT } from '../../lib/i18n';
 
 interface CommandItem {
@@ -30,6 +32,11 @@ export function CommandPalette() {
       descKey: 'cmd.newChatDesc',
       categoryKey: 'cmd.chat', icon: 'M8 3v10M3 8h10',
       action: () => {
+        const currentTabId = useSessionStore.getState().selectedSessionId;
+        if (currentTabId) {
+          useChatStore.getState().saveToCache(currentTabId);
+          useAgentStore.getState().saveToCache(currentTabId);
+        }
         useChatStore.getState().resetSession();
       },
     },
