@@ -19,6 +19,31 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.8.12',
+    date: '2026-03-12',
+    highlights: {
+      zh: ['修复运行时切换模式后权限判断不更新的问题'],
+      en: ['Fixed permission mode not updating after runtime mode switch'],
+    },
+    categories: [
+      {
+        label: { zh: '修复', en: 'Fixes' },
+        items: {
+          zh: [
+            '修复运行时切换权限模式（如 bypass → plan）后，后台仍按旧模式处理权限请求',
+            '新增当前模式指示器，状态栏显示 bypass/code/ask/plan',
+            '修复老版本升级后默认模式未正确设为 bypass 的问题',
+          ],
+          en: [
+            'Fixed runtime permission mode switch (e.g. bypass → plan) not reflected in background permission handler',
+            'Added current mode indicator to status bar showing bypass/code/ask/plan',
+            'Fixed default mode not correctly set to bypass after upgrading from older versions',
+          ],
+        },
+      },
+    ],
+  },
+  {
     version: '0.8.11',
     date: '2026-03-12',
     highlights: {
