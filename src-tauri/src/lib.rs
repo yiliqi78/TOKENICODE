@@ -1699,7 +1699,8 @@ async fn start_claude_session(
     let app_clone = app.clone();
     let sid_clone = sid.clone();
     let stdin_clone = stdin_mgr.inner().clone();
-    let is_bypass = permission_mode == "bypassPermissions";
+    let is_bypass_flag = bypass_modes.register(&sid, permission_mode == "bypassPermissions").await;
+    let bypass_modes_clone = bypass_modes.inner().clone();
     tokio::spawn(async move {
         let stream_event = format!("claude:stream:{}", sid_clone);
         // Use a large buffer (1MB) to efficiently read large NDJSON lines from Claude CLI.
