@@ -102,6 +102,46 @@ impl ProcessManager {
     }
 }
 
+/// Per-session bypass mode flag, shared between the stdout reader task and
+/// the `send_control_request` command. When the user switches permission mode
+/// at runtime (e.g. bypass → plan), `send_control_request` updates the flag
+/// so the stdout reader's control_request handler uses the current mode.
+#[derive(Debug, Default, Clone)]
+pub struct BypassModeMap {
+    flags: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+}
+
+impl BypassModeMap {
+    pub fn new() -> Self {
+        Self {
+            flags: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Register a session with its initial bypass mode. Returns a shared flag
+    /// for the stdout reader task to read.
+    pub async fn register(&self, session_id: &str, is_bypass: bool) -> Arc<AtomicBool> {
+        let flag = Arc::new(AtomicBool::new(is_bypass));
+        let mut map = self.flags.lock().await;
+        map.insert(session_id.to_string(), flag.clone());
+        flag
+    }
+
+    /// Update bypass mode for a session (called when permission_mode changes at runtime).
+    pub async fn set_bypass(&self, session_id: &str, is_bypass: bool) {
+        let map = self.flags.lock().await;
+        if let Some(flag) = map.get(session_id) {
+            flag.store(is_bypass, Ordering::Relaxed);
+        }
+    }
+
+    /// Remove a session's flag (called on process exit).
+    pub async fn remove(&self, session_id: &str) {
+        let mut map = self.flags.lock().await;
+        map.remove(session_id);
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct StartSessionParams {
     pub prompt: String,
