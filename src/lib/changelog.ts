@@ -19,6 +19,48 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.8.15',
+    date: '2026-03-17',
+    highlights: {
+      zh: ['6 个 Bug 修复 + CLI 全链路加固'],
+      en: ['6 bug fixes + CLI lifecycle hardening'],
+    },
+    categories: [
+      {
+        label: { zh: '修复', en: 'Fixes' },
+        items: {
+          zh: [
+            'AI 运行中发送的补充消息不再丢失',
+            '/compact 完成后不再卡转圈',
+            'Agent 运行时可以继续发消息',
+            '中文输入法回车上屏不再被拦截',
+            'CLI 版本检测不再误报「过旧」',
+            '重装 CLI 现在真正执行安装',
+          ],
+          en: [
+            'Messages sent during AI processing no longer lost',
+            '/compact no longer leaves GUI spinning',
+            'Can send messages while Agent is running',
+            'Chinese IME enter key no longer intercepted',
+            'CLI version check no longer falsely reports "too old"',
+            'Reinstall CLI now actually performs installation',
+          ],
+        },
+      },
+      {
+        label: { zh: '改进', en: 'Improvements' },
+        items: {
+          zh: [
+            'CLI 全链路加固：登录 shell 超时保护、二进制校验、安装超时',
+          ],
+          en: [
+            'CLI lifecycle hardening: login shell timeout, binary verification, install timeout',
+          ],
+        },
+      },
+    ],
+  },
+  {
     version: '0.8.14',
     date: '2026-03-17',
     highlights: {
