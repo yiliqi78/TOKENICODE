@@ -250,16 +250,9 @@ fn find_claude_binary() -> Option<String> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        if let Ok(output) = std::process::Command::new("sh")
-            .args(["-l", "-c", "which claude"])
-            .output()
-        {
-            if output.status.success() {
-                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !path.is_empty() && is_valid_executable(std::path::Path::new(&path)) {
-                    return Some(path);
-                }
-            }
+        let which_path = shell_with_timeout("sh", &["-l", "-c", "which claude"], "which claude");
+        if !which_path.is_empty() && is_valid_executable(std::path::Path::new(&which_path)) {
+            return Some(which_path);
         }
     }
 
@@ -439,16 +432,9 @@ fn find_claude_binary_skip_app_local() -> Option<String> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        if let Ok(output) = std::process::Command::new("sh")
-            .args(["-l", "-c", "which claude"])
-            .output()
-        {
-            if output.status.success() {
-                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !path.is_empty() && is_valid_executable(std::path::Path::new(&path)) {
-                    return Some(path);
-                }
-            }
+        let which_path = shell_with_timeout("sh", &["-l", "-c", "which claude"], "which claude");
+        if !which_path.is_empty() && is_valid_executable(std::path::Path::new(&which_path)) {
+            return Some(which_path);
         }
     }
 
@@ -566,33 +552,60 @@ fn find_newest_version_bin(base_dir: &std::path::Path, bin_name: &str) -> Option
 /// managers (nvm, volta, fnm) that are set up in login-shell config files.
 /// This function spawns a login shell once, captures its PATH, and caches it
 /// for the lifetime of the process via OnceLock.
+/// Run a shell command with a 3-second timeout. Returns stdout on success, empty string on timeout/failure.
+#[cfg(not(target_os = "windows"))]
+fn shell_with_timeout(shell: &str, args: &[&str], label: &str) -> String {
+    let mut child = match std::process::Command::new(shell)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{label} spawn failed: {e}");
+            return String::new();
+        }
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if status.success() {
+                    let mut buf = String::new();
+                    if let Some(mut stdout) = child.stdout.take() {
+                        use std::io::Read;
+                        let _ = stdout.read_to_string(&mut buf);
+                    }
+                    return buf.trim().to_string();
+                }
+                return String::new();
+            }
+            Ok(None) => {
+                if std::time::Instant::now() > deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    eprintln!("{label} timed out (3s), killed");
+                    return String::new();
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            Err(_) => return String::new(),
+        }
+    }
+}
+
 #[cfg(not(target_os = "windows"))]
 fn login_shell_extra_path() -> &'static str {
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     CACHE.get_or_init(|| {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-        let output = std::process::Command::new(&shell)
-            .args(["-l", "-c", "echo $PATH"])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .output();
-        match output {
-            Ok(o) if o.status.success() => {
-                let p = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                if !p.is_empty() {
-                    eprintln!(
-                        "login shell PATH captured ({} entries)",
-                        p.split(':').count()
-                    );
-                }
-                p
-            }
-            _ => {
-                eprintln!("login shell PATH capture failed");
-                String::new()
-            }
+        let p = shell_with_timeout(&shell, &["-l", "-c", "echo $PATH"], "login shell PATH");
+        if !p.is_empty() {
+            eprintln!("login shell PATH captured ({} entries)", p.split(':').count());
         }
+        p
     })
 }
 
@@ -5055,7 +5068,11 @@ fn finalize_cli_install_paths(app: &AppHandle) {
         }
         if !extra_dirs.is_empty() {
             let current = std::env::var("PATH").unwrap_or_default();
-            let new_path = format!("{}:{}", extra_dirs.join(":"), current);
+            #[cfg(target_os = "windows")]
+            let sep = ";";
+            #[cfg(not(target_os = "windows"))]
+            let sep = ":";
+            let new_path = format!("{}{}{}", extra_dirs.join(sep), sep, current);
             std::env::set_var("PATH", &new_path);
             eprintln!("[TC CLI] Injected into current process PATH: {:?}", extra_dirs);
         }
