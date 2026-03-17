@@ -262,7 +262,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'chat.awaiting': '等待输入...',
     'chat.tokenWarning': '上下文即将满载，建议 /compact',
     'chat.autoCompacting': '上下文接近上限，自动压缩中...',
-    'chat.stallWarning': '长时间无响应，可能断网。建议停止后重试',
+    'chat.stallWarning': '任务仍在运行中，复杂任务可能需要较长时间。若界面持续无任何变化，可停止后重试',
 
     // Agent panel
     'agents.title': '代理',
@@ -352,7 +352,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'provider.testConnection': '测试连接',
     'provider.testing': '测试中...',
     'provider.testSuccess': '连接成功',
-    'provider.testFailed': '连接失败',
+    'provider.testFailed': '测试失败（部分渠道限制请求来源，可直接发送消息测试）',
     'provider.testNoModel': '请先填写至少一个模型名',
     'provider.testNoKey': '请先填写 API Key',
     'provider.testAuthError': '认证失败，请检查 API Key',
@@ -895,7 +895,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'chat.awaiting': 'Awaiting input...',
     'chat.tokenWarning': 'Context nearly full — try /compact',
     'chat.autoCompacting': 'Context near limit, auto-compacting...',
-    'chat.stallWarning': 'Response stalled — network issue? Try stopping and retrying',
+    'chat.stallWarning': 'Task still running — complex tasks may take a while. If no activity appears, try stopping and retrying',
 
     // Agent panel
     'agents.title': 'Agents',
@@ -985,7 +985,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'provider.testConnection': 'Test Connection',
     'provider.testing': 'Testing...',
     'provider.testSuccess': 'Connected',
-    'provider.testFailed': 'Failed',
+    'provider.testFailed': 'Failed (some providers restrict request origin — try sending a message directly)',
     'provider.testNoModel': 'Enter at least one model name first',
     'provider.testNoKey': 'Enter API Key first',
     'provider.testAuthError': 'Auth failed, check API Key',

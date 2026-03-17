@@ -195,7 +195,8 @@ const SANITIZE_SCHEMA = {
   },
 };
 
-type RemarkPlugin = (typeof import('remark-gfm'))['default'];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type RemarkPlugin = any;
 
 const EMPTY_REMARK_PLUGINS: RemarkPlugin[] = [];
 let cachedRemarkPlugins: RemarkPlugin[] | null = null;
@@ -230,13 +231,16 @@ async function loadRemarkPlugins(): Promise<RemarkPlugin[]> {
   }
 
   if (!remarkPluginsPromise) {
-    remarkPluginsPromise = import('remark-gfm')
-      .then((mod) => {
-        cachedRemarkPlugins = [mod.default];
+    remarkPluginsPromise = Promise.all([
+      import('remark-gfm'),
+      import('remark-cjk-friendly'),
+    ])
+      .then(([gfmMod, cjkMod]) => {
+        cachedRemarkPlugins = [gfmMod.default, cjkMod.default];
         return cachedRemarkPlugins;
       })
       .catch((error) => {
-        console.warn('[TOKENICODE] failed to load remark-gfm, falling back to basic markdown', error);
+        console.warn('[TOKENICODE] failed to load remark plugins, falling back to basic markdown', error);
         cachedRemarkPlugins = EMPTY_REMARK_PLUGINS;
         return cachedRemarkPlugins;
       });

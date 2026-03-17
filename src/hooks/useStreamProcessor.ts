@@ -1490,9 +1490,9 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         }
 
         // Only add result text if it wasn't already delivered via an
-        // 'assistant' event (which is the normal case for stream-json output).
-        // This prevents duplicate messages on first output.
-        if (resultDisplayText) {
+        // 'assistant' event (which is the normal case for stream-json output)
+        // AND there's no pending command card (which already displays the output).
+        if (resultDisplayText && !pendingCmdMsgId) {
           const currentMessages = useChatStore.getState().messages;
           const isDuplicate = currentMessages.some(
             (m) => m.role === 'assistant' && m.type === 'text'

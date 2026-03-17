@@ -84,7 +84,8 @@ export function ProviderForm({ provider, onClose, onDelete, autoTest, onTestStat
   const handleNameChange = (v: string) => { setName(v); autoSave({ name: v }); };
   const handleBaseUrlChange = (v: string) => { setBaseUrl(v); autoSave({ baseUrl: v }); };
   const handleApiKeyChange = (v: string) => { setApiKey(v); autoSave({ apiKey: v || undefined }); };
-  const handleApiFormatChange = (v: 'anthropic' | 'openai') => { setApiFormat(v); autoSave({ apiFormat: v }); };
+  // API format selector hidden from UI — kept for backward compat
+  const _handleApiFormatChange = (v: 'anthropic' | 'openai') => { setApiFormat(v); autoSave({ apiFormat: v }); }; void _handleApiFormatChange;
 
   const getMapping = (tier: 'opus' | 'sonnet' | 'haiku'): string => {
     return mappings.find((m) => m.tier === tier)?.providerModel || '';
@@ -269,25 +270,8 @@ export function ProviderForm({ provider, onClose, onDelete, autoTest, onTestStat
           placeholder={t('provider.baseUrlPlaceholder')} />
       </div>
 
-      {/* API Format */}
-      <div>
-        <label className="text-xs text-text-muted mb-1 block">{t('provider.format')}</label>
-        <div className="inline-flex rounded-lg border border-border-subtle overflow-hidden">
-          {(['anthropic', 'openai'] as const).map((fmt) => (
-            <button key={fmt}
-              onClick={() => handleApiFormatChange(fmt)}
-              className={`py-1.5 px-3 text-[13px] font-medium transition-smooth
-                border-r border-border-subtle last:border-r-0 whitespace-nowrap
-                ${apiFormat === fmt
-                  ? 'bg-accent/10 text-accent'
-                  : 'text-text-muted hover:bg-bg-secondary'
-                }`}>
-              {t(fmt === 'anthropic' ? 'provider.formatAnthropic' : 'provider.formatOpenai')}
-            </button>
-          ))}
-        </div>
-        <p className="text-xs text-text-tertiary mt-1">{t('provider.formatHint')}</p>
-      </div>
+      {/* API Format — hidden from UI, defaults to anthropic.
+          Existing providers with 'openai' format still work via stored config. */}
 
       {/* API Key */}
       <div>
