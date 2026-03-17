@@ -6,7 +6,7 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
-## [Unreleased]
+## [0.8.14] - 2026-03-17
 
 ---
 

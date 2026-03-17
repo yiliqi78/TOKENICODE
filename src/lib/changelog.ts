@@ -19,6 +19,52 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.8.14',
+    date: '2026-03-17',
+    highlights: {
+      zh: ['支持 Opus 4.6 (1M) 超长上下文 + 极致思考模式，修复 15 个问题'],
+      en: ['Opus 4.6 (1M) ultra-long context + max thinking, 15 issues fixed'],
+    },
+    categories: [
+      {
+        label: { zh: '新功能', en: 'New' },
+        items: {
+          zh: [
+            '模型选择器新增 Opus 4.6 (1M context) 超长上下文选项',
+            '思考级别新增「极致思考」（max effort）',
+            '启动时检测 CLI 版本兼容性，旧版自动引导升级',
+          ],
+          en: [
+            'Model selector adds Opus 4.6 (1M context) ultra-long context option',
+            'Thinking level adds "Max Think" (max effort)',
+            'CLI version compatibility check on startup, auto-guides upgrade for old versions',
+          ],
+        },
+      },
+      {
+        label: { zh: '修复', en: 'Fixes' },
+        items: {
+          zh: [
+            '中文输入法回车不再被拦截为提交',
+            'Markdown 加粗紧跟中文标点现在正确渲染',
+            '/context 命令不再重复显示内容',
+            '中转站各渠道默认配置修正（智谱/Kimi/MiniMax）',
+            '隐藏 OpenAI 格式选项，默认使用 Anthropic 协议',
+            '长时间运行提示不再误导用户中断任务',
+          ],
+          en: [
+            'Chinese IME enter key no longer intercepted as form submit',
+            'Markdown bold with CJK punctuation now renders correctly',
+            '/context command no longer shows content twice',
+            'Fixed default config for relay channels (Zhipu/Kimi/MiniMax)',
+            'Hidden OpenAI format option, defaults to Anthropic protocol',
+            'Long-running task prompt no longer misleads users to stop',
+          ],
+        },
+      },
+    ],
+  },
+  {
     version: '0.8.13',
     date: '2026-03-14',
     highlights: {
