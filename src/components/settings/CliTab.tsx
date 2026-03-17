@@ -14,6 +14,7 @@ export function CliTab() {
   const [cliPath, setCliPath] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [gitBashMissing, setGitBashMissing] = useState(false);
+  const [versionIncompat, setVersionIncompat] = useState(false);
   const [downloadPercent, setDownloadPercent] = useState(0);
   const [phase, setPhase] = useState<'idle' | 'downloading' | 'configuring' | 'npm_fallback' | 'node_downloading' | 'node_extracting' | 'git_downloading' | 'git_extracting' | 'native_version' | 'native_manifest' | 'native_download' | 'native_verify' | 'native_install'>('idle');
 
@@ -24,6 +25,7 @@ export function CliTab() {
         setCliVersion(result.version ?? null);
         setCliPath(result.path ?? null);
         setGitBashMissing(result.git_bash_missing ?? false);
+        setVersionIncompat(result.version_compatible === false && result.version != null);
         setStatus('found');
       } else {
         setStatus('not_found');
@@ -40,6 +42,7 @@ export function CliTab() {
         setCliVersion(result.version ?? null);
         setCliPath(result.path ?? null);
         setGitBashMissing(result.git_bash_missing ?? false);
+        setVersionIncompat(result.version_compatible === false && result.version != null);
         setStatus('found');
       } else {
         setStatus('not_found');
@@ -119,6 +122,15 @@ export function CliTab() {
           </span>
           <p className="text-xs text-text-tertiary truncate" title={cliPath}>
             {cliPath}
+          </p>
+        </div>
+      )}
+
+      {/* Version incompatible warning */}
+      {versionIncompat && (status === 'found' || status === 'idle') && (
+        <div className="py-2 px-3 rounded-lg bg-amber-500/10">
+          <p className="text-[13px] text-amber-500 font-medium">
+            {t('cli.versionIncompat')}
           </p>
         </div>
       )}

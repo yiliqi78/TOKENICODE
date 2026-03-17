@@ -88,6 +88,7 @@ export interface CliStatus {
   installed: boolean;
   path: string | null;
   version: string | null;
+  version_compatible: boolean;
   git_bash_missing: boolean;
 }
 

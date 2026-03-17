@@ -1332,6 +1332,22 @@ fn resolve_provider_env(
     Ok((env, keys_to_remove, extra_args))
 }
 
+/// Read user-configured MCP servers from ~/.claude.json.
+/// Returns a JSON string for --mcp-config if servers exist, None otherwise.
+fn read_user_mcp_servers() -> Option<String> {
+    let home = dirs::home_dir()?;
+    let claude_json_path = home.join(".claude.json");
+    let content = std::fs::read_to_string(&claude_json_path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let servers = json.get("mcpServers")?;
+    let obj = servers.as_object()?;
+    if obj.is_empty() {
+        return None;
+    }
+    let mcp_config = serde_json::json!({ "mcpServers": servers });
+    Some(mcp_config.to_string())
+}
+
 #[tauri::command]
 async fn start_claude_session(
     app: AppHandle,
@@ -1358,11 +1374,20 @@ async fn start_claude_session(
         "--verbose".to_string(),
         "--include-partial-messages".to_string(),
         "--replay-user-messages".to_string(),
-        // Skip global MCP servers from ~/.claude.json to avoid slow cold start.
-        // MCP servers (chrome-devtools, codex, gemini, pencil etc.) add 20-30s startup
-        // overhead as each must initialize before the CLI accepts input.
-        "--strict-mcp-config".to_string(),
     ];
+
+    // MCP server handling: if user has configured servers in ~/.claude.json,
+    // pass them via --mcp-config so they are loaded. Otherwise use --strict-mcp-config
+    // to skip global servers and avoid 20-30s cold start overhead.
+    match read_user_mcp_servers() {
+        Some(mcp_json) => {
+            args.push("--mcp-config".to_string());
+            args.push(mcp_json);
+        }
+        None => {
+            args.push("--strict-mcp-config".to_string());
+        }
+    }
 
     // Resume an existing CLI session if requested
     if let Some(ref resume_id) = params.resume_session_id {
@@ -4079,7 +4104,45 @@ struct CliStatus {
     installed: bool,
     path: Option<String>,
     version: Option<String>,
+    version_compatible: bool,
     git_bash_missing: bool,
+}
+
+/// Minimum CLI version that supports all required flags:
+/// --strict-mcp-config, --replay-user-messages, --permission-prompt-tool stdio
+const MIN_CLI_VERSION: (u32, u32, u32) = (1, 0, 0);
+
+/// Parse version string like "1.0.26" or "Claude Code v2.1.76" into (major, minor, patch).
+fn parse_cli_version(version_str: &str) -> Option<(u32, u32, u32)> {
+    // Extract version number — strip common prefixes
+    let cleaned = version_str
+        .trim()
+        .trim_start_matches("Claude Code")
+        .trim()
+        .trim_start_matches('v')
+        .trim();
+    let parts: Vec<&str> = cleaned.split('.').collect();
+    if parts.len() >= 3 {
+        let major = parts[0].parse().ok()?;
+        let minor = parts[1].parse().ok()?;
+        let patch = parts[2].parse().ok()?;
+        Some((major, minor, patch))
+    } else if parts.len() == 2 {
+        let major = parts[0].parse().ok()?;
+        let minor = parts[1].parse().ok()?;
+        Some((major, minor, 0))
+    } else {
+        None
+    }
+}
+
+fn is_version_compatible(version_str: &str) -> bool {
+    match parse_cli_version(version_str) {
+        Some((major, minor, patch)) => {
+            (major, minor, patch) >= MIN_CLI_VERSION
+        }
+        None => false, // Can't parse → assume incompatible
+    }
 }
 
 /// Run a Claude CLI subcommand (e.g. `claude doctor`) as a one-shot process
@@ -4187,6 +4250,7 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
                                     installed: true,
                                     path: Some(alt_path),
                                     version: None,
+                                    version_compatible: false,
                                     git_bash_missing,
                                 })
                             }
@@ -4194,6 +4258,7 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
                                 installed: false,
                                 path: None,
                                 version: None,
+                                version_compatible: false,
                                 git_bash_missing: false,
                             }),
                         };
@@ -4226,6 +4291,7 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
                                 installed: true,
                                 path: Some(alt_path),
                                 version: None,
+                                version_compatible: false,
                                 git_bash_missing,
                             })
                         }
@@ -4233,6 +4299,7 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
                             installed: false,
                             path: None,
                             version: None,
+                            version_compatible: false,
                             git_bash_missing: false,
                         }),
                     };
@@ -4272,12 +4339,14 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
                                     installed: true,
                                     path: Some(alt_path),
                                     version: None,
+                                    version_compatible: false,
                                     git_bash_missing,
                                 }),
                                 None => Ok(CliStatus {
                                     installed: false,
                                     path: None,
                                     version: None,
+                                    version_compatible: false,
                                     git_bash_missing: false,
                                 }),
                             };
@@ -4292,6 +4361,7 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
                         installed: false,
                         path: Some(path),
                         version: None,
+                        version_compatible: false,
                         git_bash_missing,
                     });
                 }
@@ -4302,10 +4372,12 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
             #[cfg(not(target_os = "windows"))]
             let git_bash_missing = false;
 
+            let version_compatible = version.as_ref().map_or(false, |v| is_version_compatible(v));
             Ok(CliStatus {
                 installed: true,
                 path: Some(path),
                 version,
+                version_compatible,
                 git_bash_missing,
             })
         }
@@ -4313,6 +4385,7 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
             installed: false,
             path: None,
             version: None,
+            version_compatible: false,
             git_bash_missing: false,
         }),
     }
