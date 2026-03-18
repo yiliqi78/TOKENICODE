@@ -19,6 +19,29 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.8.18',
+    date: '2026-03-19',
+    highlights: {
+      zh: ['MiniMax 等中文 Provider 卡死修复 + MiniMax 配置升级'],
+      en: ['Fix Chinese provider stream freeze + MiniMax config upgrade'],
+    },
+    categories: [
+      {
+        label: { zh: '修复', en: 'Fixed' },
+        items: {
+          zh: [
+            'stdout UTF-8 切割 panic — 中文 Provider 响应导致流式输出永久中断，现已修复',
+            'MiniMax 配置修正 — thinkingSupport 改为 full，默认模型升级至 M2.7，新增推荐超时',
+          ],
+          en: [
+            'stdout UTF-8 slice panic — Chinese provider responses crashed stdout reader, now fixed',
+            'MiniMax config fix — thinkingSupport set to full, default models upgraded to M2.7, timeout added',
+          ],
+        },
+      },
+    ],
+  },
+  {
     version: '0.8.17',
     date: '2026-03-18',
     highlights: {
