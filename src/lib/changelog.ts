@@ -19,6 +19,44 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.8.17',
+    date: '2026-03-18',
+    highlights: {
+      zh: ['国产大模型接入体系 + 回车键修复 + CLI 搜索重构'],
+      en: ['Domestic LLM provider system + Enter key fix + CLI search refactor'],
+    },
+    categories: [
+      {
+        label: { zh: '新功能', en: 'New' },
+        items: {
+          zh: [
+            '5 家国产大模型预设（GLM / Kimi / MiniMax / 通义千问），一键获取 Key',
+            '自定义模型映射 + Thinking 联动提示',
+          ],
+          en: [
+            '5 domestic LLM presets (GLM / Kimi / MiniMax / Qwen) with one-click Key link',
+            'Custom model mapping + Thinking support indicators',
+          ],
+        },
+      },
+      {
+        label: { zh: '修复', en: 'Fixes' },
+        items: {
+          zh: [
+            '回车键发不出消息（中文输入法状态卡住）',
+            'GLM 模型选择器重复显示',
+            'CLI 找不到时的错误处理优化',
+          ],
+          en: [
+            'Enter key not sending (IME composing state stuck)',
+            'Duplicate models in selector when using GLM',
+            'Better error handling when CLI binary not found',
+          ],
+        },
+      },
+    ],
+  },
+  {
     version: '0.8.16',
     date: '2026-03-18',
     highlights: {
