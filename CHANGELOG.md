@@ -6,11 +6,11 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
-## [Unreleased]
+## [0.8.16] - 2026-03-18
 
 ### Changed
 
-- **智谱 GLM 预设模型分级** — 三个 tier 分别映射不同模型（Opus → glm-5, Sonnet → glm-5-turbo, Haiku → glm-4.7），不再全部指向同一个 glm-5。PresetProvider 接口新增 `defaultModels` 字段支持 per-tier 默认模型
+- **智谱 GLM 预设模型分级** — 三个 tier 分别映射不同模型（Opus → glm-5, Sonnet → glm-5-turbo, Haiku → glm-4.7），不再全部指向同一个 glm-5
 
 ---
 
