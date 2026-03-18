@@ -141,6 +141,12 @@ export const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
           'data-chat-input': '',
         },
         handleKeyDown: (_view, event) => {
+          // Auto-unstick composingRef if browser says not composing.
+          // compositionend can be missed on macOS WebKit (focus change, click outside),
+          // leaving composingRef stuck true and blocking Enter. See issue #66.
+          if (composingRef.current && !event.isComposing && event.keyCode !== 229) {
+            composingRef.current = false;
+          }
           return onKeyDownRef.current?.(event) === true;
         },
         handlePaste: (_view, event) => {
