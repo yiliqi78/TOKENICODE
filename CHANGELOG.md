@@ -6,6 +6,14 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.8.20] - 2026-03-19
+
+### Changed
+
+- **MiMo 模型映射优化** — mimo-v2-pro 启用 1M 上下文（`[1m]`），haiku 默认模型改为 mimo-v2-pro
+
+---
+
 ## [0.8.19] - 2026-03-19
 
 ### Added
