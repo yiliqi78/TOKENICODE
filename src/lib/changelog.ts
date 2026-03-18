@@ -19,6 +19,23 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.8.16',
+    date: '2026-03-18',
+    highlights: {
+      zh: ['智谱 GLM 模型分级映射'],
+      en: ['GLM model tier mapping'],
+    },
+    categories: [
+      {
+        label: { zh: '改进', en: 'Improvements' },
+        items: {
+          zh: ['智谱 GLM 预设按能力分级：Opus → glm-5, Sonnet → glm-5-turbo, Haiku → glm-4.7'],
+          en: ['GLM preset now maps by tier: Opus → glm-5, Sonnet → glm-5-turbo, Haiku → glm-4.7'],
+        },
+      },
+    ],
+  },
+  {
     version: '0.8.15',
     date: '2026-03-17',
     highlights: {
