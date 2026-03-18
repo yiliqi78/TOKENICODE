@@ -87,4 +87,18 @@ export const PROVIDER_PRESETS: PresetProvider[] = [
       haiku: 'qwen3.5-flash',
     },
   },
+  {
+    id: 'mimo',
+    name: '小米 MiMo',
+    baseUrl: 'https://api.xiaomimimo.com/anthropic',
+    apiFormat: 'anthropic',
+    extra_env: {},
+    keyUrl: 'https://platform.xiaomimimo.com/',
+    thinkingSupport: 'unknown',
+    defaultModels: {
+      opus: 'mimo-v2-pro',
+      sonnet: 'mimo-v2-omni',
+      haiku: 'mimo-v2-flash',
+    },
+  },
 ];
