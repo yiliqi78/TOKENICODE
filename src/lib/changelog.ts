@@ -19,6 +19,27 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.8.19',
+    date: '2026-03-19',
+    highlights: {
+      zh: ['新增小米 MiMo 大模型预设'],
+      en: ['Add Xiaomi MiMo model preset'],
+    },
+    categories: [
+      {
+        label: { zh: '新增', en: 'Added' },
+        items: {
+          zh: [
+            '小米 MiMo Provider 预设 — 支持 mimo-v2-pro / mimo-v2-omni / mimo-v2-flash 三款模型',
+          ],
+          en: [
+            'Xiaomi MiMo provider preset — supports mimo-v2-pro / mimo-v2-omni / mimo-v2-flash models',
+          ],
+        },
+      },
+    ],
+  },
+  {
     version: '0.8.18',
     date: '2026-03-19',
     highlights: {
