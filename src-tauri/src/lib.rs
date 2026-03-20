@@ -333,13 +333,56 @@ fn collect_search_dirs() -> Vec<String> {
             if let Some(app_data) = dirs::data_dir() {
                 push(app_data.join("npm").to_string_lossy().to_string());
             }
+            if let Some(local_data) = dirs::data_local_dir() {
+                push(local_data.join("Programs\\claude-code").to_string_lossy().to_string());
+            }
             push(home.join("scoop\\shims").to_string_lossy().to_string());
             push(home.join(".volta\\bin").to_string_lossy().to_string());
+            push(home.join(".bun\\bin").to_string_lossy().to_string());
+            // nvm-windows: scan for newest Node version
+            let nvm_dir = home.join("AppData\\Roaming\\nvm");
+            if let Some(bin) = find_newest_version_bin(&nvm_dir, bin_name) {
+                if let Some(p) = std::path::Path::new(&bin).parent() {
+                    push(p.to_string_lossy().to_string());
+                }
+            }
+            // fnm on Windows
+            let fnm_default = home.join(".fnm\\aliases\\default");
+            if fnm_default.exists() {
+                push(fnm_default.to_string_lossy().to_string());
+            }
         }
         #[cfg(not(target_os = "windows"))]
         {
             push(home.join(".local/bin").to_string_lossy().to_string());
             push(home.join(".npm-global/bin").to_string_lossy().to_string());
+            push(home.join(".volta/bin").to_string_lossy().to_string());
+            push(home.join(".bun/bin").to_string_lossy().to_string());
+            // fnm: ~/.fnm/aliases/default/bin/
+            let fnm_bin = home.join(".fnm/aliases/default/bin");
+            if fnm_bin.exists() {
+                push(fnm_bin.to_string_lossy().to_string());
+            }
+            // NVM: scan ~/.nvm/versions/node/<version>/bin/ for newest version
+            let nvm_base = home.join(".nvm/versions/node");
+            if nvm_base.exists() {
+                if let Ok(entries) = std::fs::read_dir(&nvm_base) {
+                    let mut versions: Vec<_> = entries.flatten().filter(|e| e.path().is_dir()).collect();
+                    versions.sort_by(|a, b| {
+                        let parse = |name: &std::ffi::OsStr| -> Vec<u64> {
+                            name.to_string_lossy().split('.').filter_map(|s| s.parse::<u64>().ok()).collect()
+                        };
+                        parse(&b.file_name()).cmp(&parse(&a.file_name()))
+                    });
+                    for entry in &versions {
+                        let bin_dir = entry.path().join("bin");
+                        if bin_dir.join(bin_name).exists() {
+                            push(bin_dir.to_string_lossy().to_string());
+                            break;
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -369,6 +412,39 @@ fn collect_search_dirs() -> Vec<String> {
     }
     if let Some(npm_bin) = get_npm_global_bin() {
         push(npm_bin.to_string_lossy().to_string());
+    }
+
+    // 7. Last resort: `which`/`where` fallback (catches any PATH we missed)
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(output) = std::process::Command::new("which").arg(bin_name)
+            .stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+            .output()
+        {
+            if output.status.success() {
+                let p = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if let Some(dir) = std::path::Path::new(&p).parent() {
+                    push(dir.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(output) = std::process::Command::new("cmd").args(["/C", "where", bin_name])
+            .stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+            .creation_flags(0x08000000)
+            .output()
+        {
+            if output.status.success() {
+                if let Some(line) = String::from_utf8_lossy(&output.stdout).lines().next() {
+                    let p = line.trim().to_string();
+                    if let Some(dir) = std::path::Path::new(&p).parent() {
+                        push(dir.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
     }
 
     dirs
@@ -496,7 +572,7 @@ fn shell_with_timeout(shell: &str, args: &[&str], label: &str) -> String {
             return String::new();
         }
     };
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
