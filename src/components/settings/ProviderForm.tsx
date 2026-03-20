@@ -112,9 +112,10 @@ export function ProviderForm({ provider, onClose, onDelete, autoTest, onTestStat
     autoSave({ modelMappings: updated });
   };
 
-  const updateExtraTier = (oldTier: string, newTier: string) => {
+  /** Update extra model: tier and providerModel are always the same value */
+  const updateExtraModel = (oldTier: string, modelName: string) => {
     const updated = mappings.map((m) =>
-      m.tier === oldTier && !FIXED_TIERS.has(m.tier) ? { ...m, tier: newTier } : m,
+      m.tier === oldTier && !FIXED_TIERS.has(m.tier) ? { tier: modelName, providerModel: modelName } : m,
     );
     setMappings(updated);
     autoSave({ modelMappings: updated });
