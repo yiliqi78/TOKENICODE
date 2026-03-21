@@ -7,6 +7,7 @@ import { CommandPalette } from './components/commands/CommandPalette';
 import { SettingsPanel } from './components/settings/SettingsPanel';
 import { ImageLightbox } from './components/shared/ImageLightbox';
 import { ChangelogModal } from './components/shared/ChangelogModal';
+import { Toast } from './components/shared/Toast';
 import { useSettingsStore } from './stores/settingsStore';
 import { useProviderStore } from './stores/providerStore';
 import type { ColorTheme, Theme } from './stores/settingsStore';
@@ -433,6 +434,7 @@ function App() {
           </div>
         </div>
       )}
+      <Toast />
     </>
   );
 }

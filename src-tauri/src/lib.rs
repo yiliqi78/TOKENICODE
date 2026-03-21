@@ -2861,11 +2861,24 @@ async fn share_file(path: String, app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Directly invoke WeChat's sharing service for a file (macOS only).
+/// Share a file to WeChat.
+/// macOS: invokes WeChat's NSSharingService extension directly (native share dialog).
+/// Windows: copies file to clipboard and opens WeChat for manual pasting.
 #[tauri::command]
+#[allow(deprecated)]
 async fn share_to_wechat(path: String, app: AppHandle) -> Result<(), String> {
+    if !std::path::Path::new(&path).exists() {
+        return Err("File not found".to_string());
+    }
+
     #[cfg(target_os = "macos")]
     {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let found = Arc::new(AtomicBool::new(false));
+        let found_clone = found.clone();
+
         app.run_on_main_thread(move || {
             objc::rc::autoreleasepool(|| {
                 unsafe {
@@ -2879,13 +2892,11 @@ async fn share_to_wechat(path: String, app: AppHandle) -> Result<(), String> {
                         return;
                     }
 
-                    // Create NSArray with the URL
                     let nsarray_class = Class::get("NSArray").unwrap();
                     let items: *mut Object = msg_send![nsarray_class,
                         arrayWithObject: file_url
                     ];
 
-                    // Get all sharing services for this file
                     let service_class = Class::get("NSSharingService").unwrap();
                     let services: *mut Object = msg_send![service_class,
                         sharingServicesForItems: items
@@ -2893,7 +2904,6 @@ async fn share_to_wechat(path: String, app: AppHandle) -> Result<(), String> {
 
                     let count: usize = msg_send![services, count];
 
-                    // Find WeChat's sharing service by title
                     for i in 0..count {
                         let service: *mut Object = msg_send![services, objectAtIndex: i];
                         let title: *mut Object = msg_send![service, title];
@@ -2904,33 +2914,49 @@ async fn share_to_wechat(path: String, app: AppHandle) -> Result<(), String> {
                         let title_str = std::ffi::CStr::from_ptr(utf8).to_string_lossy();
                         if title_str.contains("WeChat") || title_str.contains("微信") {
                             let _: () = msg_send![service, performWithItems: items];
+                            found_clone.store(true, std::sync::atomic::Ordering::SeqCst);
                             return;
-                        }
-                    }
-
-                    // WeChat service not found — log for debugging
-                    eprintln!(
-                        "[share_to_wechat] WeChat sharing service not found. Available services:"
-                    );
-                    for i in 0..count {
-                        let service: *mut Object = msg_send![services, objectAtIndex: i];
-                        let title: *mut Object = msg_send![service, title];
-                        let utf8: *const std::ffi::c_char = msg_send![title, UTF8String];
-                        if !utf8.is_null() {
-                            let t = std::ffi::CStr::from_ptr(utf8).to_string_lossy();
-                            eprintln!("  - {}", t);
                         }
                     }
                 }
             });
         })
         .map_err(|e| format!("Failed to share to WeChat: {}", e))?;
+
+        if !found.load(Ordering::SeqCst) {
+            return Err("WeChat sharing service not found".to_string());
+        }
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        let _ = app;
+
+        // Copy file to clipboard via PowerShell
+        let ps_script = format!(
+            "Add-Type -AssemblyName System.Windows.Forms; \
+             $f = New-Object System.Collections.Specialized.StringCollection; \
+             $f.Add('{}'); \
+             [System.Windows.Forms.Clipboard]::SetFileDropList($f)",
+            path.replace('\'', "''")
+        );
+
+        std::process::Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
+            .output()
+            .map_err(|e| format!("Clipboard copy failed: {}", e))?;
+
+        // Best effort: open WeChat via protocol handler
+        let _ = std::process::Command::new("cmd")
+            .args(["/c", "start", "", "weixin://"])
+            .spawn();
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = app;
         let _ = path;
+        return Err("Not supported on this platform".to_string());
     }
 
     Ok(())
