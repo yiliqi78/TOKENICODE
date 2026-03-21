@@ -2873,14 +2873,10 @@ async fn share_to_wechat(path: String, app: AppHandle) -> Result<(), String> {
 
     #[cfg(target_os = "macos")]
     {
-        use std::sync::Arc;
-        use std::sync::atomic::{AtomicBool, Ordering};
-
-        let found = Arc::new(AtomicBool::new(false));
-        let found_clone = found.clone();
+        let (tx, rx) = std::sync::mpsc::channel::<bool>();
 
         app.run_on_main_thread(move || {
-            objc::rc::autoreleasepool(|| {
+            let found = objc::rc::autoreleasepool(|| -> bool {
                 unsafe {
                     use objc::msg_send;
                     use objc::runtime::{Class, Object};
@@ -2889,7 +2885,7 @@ async fn share_to_wechat(path: String, app: AppHandle) -> Result<(), String> {
 
                     let file_url = create_nsurl_from_path(&path);
                     if file_url.is_null() {
-                        return;
+                        return false;
                     }
 
                     let nsarray_class = Class::get("NSArray").unwrap();
@@ -2914,17 +2910,20 @@ async fn share_to_wechat(path: String, app: AppHandle) -> Result<(), String> {
                         let title_str = std::ffi::CStr::from_ptr(utf8).to_string_lossy();
                         if title_str.contains("WeChat") || title_str.contains("微信") {
                             let _: () = msg_send![service, performWithItems: items];
-                            found_clone.store(true, std::sync::atomic::Ordering::SeqCst);
-                            return;
+                            return true;
                         }
                     }
+                    false
                 }
             });
+            let _ = tx.send(found);
         })
         .map_err(|e| format!("Failed to share to WeChat: {}", e))?;
 
-        if !found.load(Ordering::SeqCst) {
-            return Err("WeChat sharing service not found".to_string());
+        // Block until main thread closure completes
+        match rx.recv() {
+            Ok(true) => {},
+            _ => return Err("WeChat sharing service not found".to_string()),
         }
     }
 
