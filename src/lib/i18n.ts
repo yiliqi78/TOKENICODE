@@ -765,7 +765,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'files.openDefault': 'Open with Default App',
     'files.share': 'Share...',
     'files.shareToWechat': 'Share to WeChat',
-    'files.shareToWechatSuccess': 'File copied to clipboard. Paste in WeChat to send.',
+    'files.shareToWechatSuccess': 'File copied. Switch to WeChat and press Ctrl+V to paste.',
     'files.shareToWechatFailed': 'Share failed. Please try again.',
     'files.openVscodeShort': 'Open in VS Code',
     'files.preview': 'Preview',
