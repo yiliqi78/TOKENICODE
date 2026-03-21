@@ -123,7 +123,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'files.openDefault': '使用默认应用打开',
     'files.share': '分享...',
     'files.shareToWechat': '分享到微信',
-    'files.shareToWechatSuccess': '文件已复制到剪贴板，请在微信中粘贴发送',
+    'files.shareToWechatSuccess': '文件已复制，切换到微信窗口后按 Ctrl+V 粘贴发送',
     'files.shareToWechatFailed': '分享失败，请重试',
     'files.openVscodeShort': '在 VS Code 中打开',
     'files.preview': '预览',
