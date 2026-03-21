@@ -19,6 +19,29 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.8.22',
+    date: '2026-03-21',
+    highlights: {
+      zh: ['微信分享修复 + Windows 分享支持'],
+      en: ['WeChat share fix + Windows share support'],
+    },
+    categories: [
+      {
+        label: { zh: '修复', en: 'Fixed' },
+        items: {
+          zh: [
+            '微信分享 — 修复 Mac 端间歇性无反应，失败时 toast 提示',
+            'Windows 微信分享 — 剪贴板方案，跨平台可用',
+          ],
+          en: [
+            'WeChat share — fix intermittent failure on Mac, error toast on failure',
+            'Windows WeChat share — clipboard-based, cross-platform',
+          ],
+        },
+      },
+    ],
+  },
+  {
     version: '0.8.21',
     date: '2026-03-20',
     highlights: {

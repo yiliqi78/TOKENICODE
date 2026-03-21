@@ -6,6 +6,19 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.8.22] - 2026-03-21
+
+### Fixed
+
+- **微信分享修复** — 修复 Mac 端分享到微信间歇性无反应的竞态条件（菜单关闭与 NSSharingService 时序冲突），失败时 toast 提示
+- **Windows 微信分享** — 新增 Windows 端「分享到微信」（文件复制到剪贴板 + 自动打开微信），跨平台可用
+
+### Added
+
+- **Toast 通知组件** — 新增全局 Toast 通知（成功/错误/信息三种样式，支持操作按钮）
+
+---
+
 ## [0.8.21] - 2026-03-20
 
 ### Added
