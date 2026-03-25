@@ -1,6 +1,6 @@
 import { useCallback, type MutableRefObject } from 'react';
 import { useChatStore, generateMessageId, type ChatMessage } from '../stores/chatStore';
-import { useSettingsStore, mapSessionModeToPermissionMode } from '../stores/settingsStore';
+import { useSettingsStore, mapSessionModeToPermissionMode, getEffectiveMode } from '../stores/settingsStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { useAgentStore, resolveAgentId, getAgentDepth } from '../stores/agentStore';
 import { bridge, onClaudeStream, onClaudeStderr } from '../lib/tauri-bridge';
