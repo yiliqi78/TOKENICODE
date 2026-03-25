@@ -441,7 +441,12 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       return result ?? {};
     }),
 
-  setSessionStatus: (tabId, status) => {
+  setSessionStatus: (tabIdOrStatus: any, maybeStatus?: any) => {
+    // Backward compat: setSessionStatus(status) → setSessionStatus(activeTabId, status)
+    const isV1 = maybeStatus === undefined;
+    const tabId = isV1 ? (useSessionStore.getState().selectedSessionId ?? '') : tabIdOrStatus;
+    const status = isV1 ? tabIdOrStatus : maybeStatus;
+    if (!tabId) return;
     // Sync running state to sessionStore for tab indicators
     useSessionStore.getState().setSessionRunning(tabId, status === 'running');
     set((state) => {
