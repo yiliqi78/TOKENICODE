@@ -109,6 +109,8 @@ export interface SessionMeta {
   snapshotModel?: string;
   /** Snapshot of thinkingLevel at session spawn — per-session isolation (Phase 4) */
   snapshotThinking?: import('./settingsStore').ThinkingLevel;
+  /** Snapshot of active provider ID at session spawn — per-tab provider isolation */
+  snapshotProviderId?: string | null;
   /** The resolved model name used when spawning the CLI process.
    *  Compared before sending via stdin to detect mid-session model switches. */
   spawnedModel?: string;
