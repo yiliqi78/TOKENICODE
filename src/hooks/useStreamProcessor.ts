@@ -918,7 +918,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
 
         // Track input tokens from message_start (per-turn + cumulative total)
         if (evt.type === 'message_start' && evt.message?.usage?.input_tokens) {
-          const meta = useChatStore.getState().sessionMeta;
+          const meta = useChatStore.getState().getTab(tabId)?.sessionMeta;
           const delta = evt.message.usage.input_tokens;
           setSessionMeta({
             inputTokens: (meta.inputTokens || 0) + delta,
@@ -928,7 +928,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
 
         // Track output tokens from message_delta (per-turn + cumulative total)
         if (evt.type === 'message_delta' && evt.usage?.output_tokens) {
-          const meta = useChatStore.getState().sessionMeta;
+          const meta = useChatStore.getState().getTab(tabId)?.sessionMeta;
           const delta = evt.usage.output_tokens;
           setSessionMeta({
             outputTokens: (meta.outputTokens || 0) + delta,
@@ -977,7 +977,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         // If there's a pending slash command processing card, mark it as
         // completed now — the assistant response means the CLI has responded.
         // Some commands (e.g. /compact) may not emit a 'result' event.
-        const pendingCmd = useChatStore.getState().sessionMeta.pendingCommandMsgId;
+        const pendingCmd = useChatStore.getState().getTab(tabId)?.sessionMeta.pendingCommandMsgId;
         if (pendingCmd) {
           useChatStore.getState().updateMessage(pendingCmd, {
             commandCompleted: true,
@@ -1308,7 +1308,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         // the session. If the new provider/model rejects the old thinking block signatures,
         // we automatically retry without resume to preserve UX continuity.
         if (msg.subtype !== 'success') {
-          const meta = useChatStore.getState().sessionMeta;
+          const meta = useChatStore.getState().getTab(tabId)?.sessionMeta;
           // Build a combined error string from all possible error fields
           const errorText = [msg.result, msg.error, msg.content]
             .filter(Boolean)
@@ -1438,7 +1438,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           exitPlanModeSeenRef.current = false;
           console.log('[TOKENICODE] Code mode ExitPlanMode exit detected — auto-restarting with --resume');
           // Clean up dead process
-          const oldStdinId = useChatStore.getState().sessionMeta.stdinId;
+          const oldStdinId = useChatStore.getState().getTab(tabId)?.sessionMeta.stdinId;
           if (oldStdinId) {
             useChatStore.getState().setSessionMeta({ stdinId: undefined });
             bridge.killSession(oldStdinId).catch(() => {});
@@ -1457,7 +1457,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         exitPlanModeSeenRef.current = false;
 
         // Mark pending processing card (CLI slash command) as completed
-        const pendingCmdMsgId = useChatStore.getState().sessionMeta.pendingCommandMsgId;
+        const pendingCmdMsgId = useChatStore.getState().getTab(tabId)?.sessionMeta.pendingCommandMsgId;
         if (pendingCmdMsgId) {
           const resultOutput = typeof msg.result === 'string' ? msg.result : '';
           useChatStore.getState().updateMessage(pendingCmdMsgId, {
@@ -1533,7 +1533,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         {
           // Correct cumulative totals for any drift between streaming
           // accumulation and the authoritative result values.
-          const meta = useChatStore.getState().sessionMeta;
+          const meta = useChatStore.getState().getTab(tabId)?.sessionMeta;
           const resultInput = msg.usage?.input_tokens || 0;
           const resultOutput = msg.usage?.output_tokens || 0;
           const streamedInput = meta.inputTokens || 0;
@@ -1558,7 +1558,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
 
         // --- AI Title Generation (TK-001): on 3rd successful turn, generate a title ---
         if (msg.subtype === 'success') {
-          const sessionId = useChatStore.getState().sessionMeta.sessionId;
+          const sessionId = useChatStore.getState().getTab(tabId)?.sessionMeta.sessionId;
           if (sessionId) {
             const customPreviews = useSessionStore.getState().customPreviews;
             if (!customPreviews[sessionId]) {
@@ -1592,7 +1592,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         // automatically send /compact to prevent context overflow on the next turn.
         // Fires at most once per session to avoid infinite loops.
         const resultInputTokens = msg.usage?.input_tokens || 0;
-        const compactStdinId = useChatStore.getState().sessionMeta.stdinId;
+        const compactStdinId = useChatStore.getState().getTab(tabId)?.sessionMeta.stdinId;
         if (resultInputTokens > 160_000 && !autoCompactFiredRef.current && compactStdinId && msg.subtype === 'success') {
           autoCompactFiredRef.current = true;
           console.log('[TOKENICODE] Auto-compact triggered: inputTokens =', resultInputTokens);
@@ -1617,7 +1617,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           });
           // FI-4: Timeout fallback — if compact doesn't complete within 90s, auto-complete
           setTimeout(() => {
-            const meta = useChatStore.getState().sessionMeta;
+            const meta = useChatStore.getState().getTab(tabId)?.sessionMeta;
             if (meta.pendingCommandMsgId === compactMsgId) {
               useChatStore.getState().updateMessage(compactMsgId, {
                 commandCompleted: true,
@@ -1640,7 +1640,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         // These follow-up messages were held to prevent them from being
         // consumed as answers to AskUserQuestion / PlanReview interactions.
         const pendingMsgs = useChatStore.getState().flushPendingMessages();
-        const flushStdinId = useChatStore.getState().sessionMeta.stdinId;
+        const flushStdinId = useChatStore.getState().getTab(tabId)?.sessionMeta.stdinId;
         if (pendingMsgs.length > 0 && flushStdinId) {
           const combinedText = pendingMsgs.join('\n\n');
           const nextTurnStartedAt = Date.now();
@@ -1673,7 +1673,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
       case 'rate_limit_event': {
         const rli = msg.rate_limit_info;
         if (rli && rli.rateLimitType) {
-          const prev = useChatStore.getState().sessionMeta.rateLimits || {};
+          const prev = useChatStore.getState().getTab(tabId)?.sessionMeta.rateLimits || {};
           setSessionMeta({
             rateLimits: {
               ...prev,
@@ -1696,7 +1696,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         console.log('[TOKENICODE:session] process_exit received', { stdinId: msg.__stdinId });
 
         // Bug C fix (#27): Clear stuck pendingCommandMsgId (e.g., /compact without result)
-        const exitPendingCmd = useChatStore.getState().sessionMeta.pendingCommandMsgId;
+        const exitPendingCmd = useChatStore.getState().getTab(tabId)?.sessionMeta.pendingCommandMsgId;
         if (exitPendingCmd) {
           useChatStore.getState().updateMessage(exitPendingCmd, { commandCompleted: true });
           useChatStore.getState().setSessionMeta({ pendingCommandMsgId: undefined });
@@ -1743,7 +1743,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         }
 
         // P0-5: Clean up Tauri event listeners for this session to prevent leaks
-        const exitingStdinId = msg.__stdinId || useChatStore.getState().sessionMeta.stdinId;
+        const exitingStdinId = msg.__stdinId || useChatStore.getState().getTab(tabId)?.sessionMeta.stdinId;
         if (exitingStdinId && (window as any).__claudeUnlisteners?.[exitingStdinId]) {
           (window as any).__claudeUnlisteners[exitingStdinId]();
           delete (window as any).__claudeUnlisteners[exitingStdinId];
