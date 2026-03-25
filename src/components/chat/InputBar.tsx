@@ -344,35 +344,7 @@ export function InputBar() {
     return () => window.removeEventListener('tokenicode:rewind', handler);
   }, [canRewind, t]);
 
-  // Double-Esc detection (global — works even when textarea is not focused)
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      // If rewind panel is open, single Esc closes it (handled by RewindPanel itself)
-      if (showRewindPanel) return;
-
-      const now = Date.now();
-      if (now - lastEscTime.current < 400) {
-        // Double Esc within 400ms → toggle rewind
-        lastEscTime.current = 0;
-        if (canRewind) {
-          setShowRewindPanel(true);
-        } else {
-          const tid = useSessionStore.getState().selectedSessionId;
-          if (tid) {
-            useChatStore.getState().addMessage(tid, {
-              id: generateMessageId(), role: 'system', type: 'text',
-              content: t('rewind.disabled'), commandType: 'error', timestamp: Date.now(),
-            });
-          }
-        }
-      } else {
-        lastEscTime.current = now;
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [canRewind, showRewindPanel, t]);
+  // Double-Esc rewind shortcut disabled (#36 / #71) — rewind feature is hidden in TOKENICODE
 
   // Drag state (file drop)
   const [isDragging, setIsDragging] = useState(false);
