@@ -467,16 +467,23 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     });
   },
 
-  setActivityStatus: (tabId, status) =>
+  setActivityStatus: (tabIdOrStatus: any, maybeStatus?: any) => {
+    const isV1 = maybeStatus === undefined && typeof tabIdOrStatus === 'object';
+    const tabId = isV1 ? (useSessionStore.getState().selectedSessionId ?? '') : tabIdOrStatus;
+    const status = isV1 ? tabIdOrStatus : maybeStatus;
+    if (!tabId) return;
     set((state) => {
       const result = updateTab(state.tabs, tabId, (tab) => ({
         ...tab,
         activityStatus: status,
       }));
       return result ?? {};
-    }),
+    });
+  },
 
-  clearMessages: (tabId) =>
+  clearMessages: (tabIdOrUndef?: any) => {
+    const tabId = tabIdOrUndef || useSessionStore.getState().selectedSessionId || '';
+    if (!tabId) return;
     set((state) => {
       const result = updateTab(state.tabs, tabId, (tab) => ({
         ...tab,
