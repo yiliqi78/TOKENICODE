@@ -200,8 +200,8 @@ export function InputBar() {
     prevInputDraftRef.current = inputDraft;
   }, [inputDraft]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const sessionStatus = useChatStore((s) => s.sessionStatus);
-  const activityPhase = useChatStore((s) => s.activityStatus.phase);
+  const sessionStatus = useActiveTab((t) => t.sessionStatus);
+  const activityPhase = useActiveTab((t) => t.activityStatus.phase);
   const addMessage = useChatStore((s) => s.addMessage);
   const setSessionStatus = useChatStore((s) => s.setSessionStatus);
   const setSessionMeta = useChatStore((s) => s.setSessionMeta);
