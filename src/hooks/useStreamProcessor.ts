@@ -1639,7 +1639,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         // Flush any user messages that were queued while AI was processing.
         // These follow-up messages were held to prevent them from being
         // consumed as answers to AskUserQuestion / PlanReview interactions.
-        const pendingMsgs = useChatStore.getState().flushPendingMessages();
+        const pendingMsgs = useChatStore.getState().flushPendingMessages(tabId);
         const flushStdinId = useChatStore.getState().getTab(tabId)?.sessionMeta.stdinId;
         if (pendingMsgs.length > 0 && flushStdinId) {
           const combinedText = pendingMsgs.join('\n\n');
