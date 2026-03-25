@@ -2430,20 +2430,21 @@ async fn list_sessions() -> Result<Vec<Value>, String> {
     Ok(sessions)
 }
 
-/// Extract preview (first user message) and cwd from a session .jsonl file.
-/// Returns (preview, cwd) — cwd may be empty if not found.
-fn extract_session_info(path: &std::path::Path) -> (String, String) {
-    use std::io::BufRead;
+/// Extract preview (first user message), cwd, and last activity timestamp
+/// from a session .jsonl file.
+/// Returns (preview, cwd, last_timestamp_ms) — cwd may be empty, timestamp may be 0.
+fn extract_session_info(path: &std::path::Path) -> (String, String, u64) {
+    use std::io::{BufRead, Read, Seek, SeekFrom};
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
-        Err(_) => return (String::new(), String::new()),
+        Err(_) => return (String::new(), String::new(), 0),
     };
-    let reader = std::io::BufReader::new(file);
+    let mut reader = std::io::BufReader::new(file);
     let mut cwd = String::new();
     let mut preview = String::new();
 
     // Scan up to 100 lines to find cwd and first real user message.
-    for line in reader.lines().take(100) {
+    for line in (&mut reader).lines().take(100) {
         let line = match line {
             Ok(l) => l,
             Err(_) => continue,
@@ -2528,7 +2529,86 @@ fn extract_session_info(path: &std::path::Path) -> (String, String) {
             break;
         }
     }
-    (preview, cwd)
+
+    // Extract last activity timestamp by reading the tail of the file.
+    // Claude CLI may rewrite session files (compaction/migration), making file
+    // mtime unreliable. The JSONL "timestamp" field reflects actual session activity.
+    let last_ts = extract_last_timestamp(&mut reader);
+
+    (preview, cwd, last_ts)
+}
+
+/// Read the last ~32KB of a JSONL file and return the latest "timestamp" value
+/// as epoch milliseconds. Returns 0 if no timestamp is found.
+fn extract_last_timestamp(reader: &mut std::io::BufReader<std::fs::File>) -> u64 {
+    use std::io::{Read, Seek, SeekFrom};
+
+    // Seek to near the end of the file (last 32KB should contain enough lines)
+    let file_len = reader.seek(SeekFrom::End(0)).unwrap_or(0);
+    let tail_start = if file_len > 32768 { file_len - 32768 } else { 0 };
+    if reader.seek(SeekFrom::Start(tail_start)).is_err() {
+        return 0;
+    }
+
+    let mut tail = String::new();
+    if reader.read_to_string(&mut tail).is_err() {
+        return 0;
+    }
+
+    let mut latest_ms: u64 = 0;
+    for line in tail.lines() {
+        // Quick pre-check to avoid parsing lines without timestamps
+        if !line.contains("\"timestamp\"") {
+            continue;
+        }
+        if let Ok(json) = serde_json::from_str::<Value>(line) {
+            if let Some(ts_str) = json["timestamp"].as_str() {
+                if let Some(ms) = parse_iso_timestamp(ts_str) {
+                    if ms > latest_ms {
+                        latest_ms = ms;
+                    }
+                }
+            }
+        }
+    }
+    latest_ms
+}
+
+/// Parse an ISO 8601 timestamp string (e.g. "2026-03-25T15:14:03.585Z") to epoch millis.
+fn parse_iso_timestamp(s: &str) -> Option<u64> {
+    // Format: YYYY-MM-DDTHH:MM:SS.mmmZ or YYYY-MM-DDTHH:MM:SSZ
+    let s = s.trim();
+    if s.len() < 20 {
+        return None;
+    }
+    let date_part = &s[..10]; // YYYY-MM-DD
+    let time_part = &s[11..19]; // HH:MM:SS
+
+    let year: i64 = date_part[..4].parse().ok()?;
+    let month: i64 = date_part[5..7].parse().ok()?;
+    let day: i64 = date_part[8..10].parse().ok()?;
+    let hour: i64 = time_part[..2].parse().ok()?;
+    let min: i64 = time_part[3..5].parse().ok()?;
+    let sec: i64 = time_part[6..8].parse().ok()?;
+
+    // Parse fractional seconds if present
+    let millis: i64 = if s.len() > 20 && s.as_bytes()[19] == b'.' {
+        let frac_end = s.find('Z').unwrap_or(s.len());
+        let frac = &s[20..frac_end];
+        // Pad or truncate to 3 digits
+        let padded = format!("{:0<3}", frac);
+        padded[..3].parse().unwrap_or(0)
+    } else {
+        0
+    };
+
+    // Convert to epoch millis using a simplified calculation (UTC assumed)
+    // Days from epoch (1970-01-01) using the standard algorithm
+    let y = if month <= 2 { year - 1 } else { year };
+    let m = if month <= 2 { month + 9 } else { month - 3 };
+    let days = 365 * y + y / 4 - y / 100 + y / 400 + (m * 306 + 5) / 10 + (day - 1) - 719468;
+    let total_secs = days * 86400 + hour * 3600 + min * 60 + sec;
+    Some((total_secs * 1000 + millis) as u64)
 }
 
 /// Decode project directory name back to readable path.
