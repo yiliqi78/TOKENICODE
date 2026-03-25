@@ -142,10 +142,12 @@ export function QuestionCard({ message, floating }: Props) {
 
   const handleSkip = useCallback(async () => {
     if (isFullyResolved || isSending || awaitingSdkPatch) return;
-    const { sessionMeta, setInteractionState, setSessionStatus, setActivityStatus } = useChatStore.getState();
-    const stdinId = sessionMeta.stdinId;
+    const skipTabId = useSessionStore.getState().selectedSessionId;
+    if (!skipTabId) return;
+    const { setInteractionState, setSessionStatus, setActivityStatus } = useChatStore.getState();
+    const stdinId = getActiveTabState().sessionMeta.stdinId;
     if (!stdinId) return;
-    setInteractionState(message.id, 'sending');
+    setInteractionState(skipTabId, message.id, 'sending');
     try {
       const permData = message.permissionData;
       if (permData?.requestId) {
@@ -154,12 +156,11 @@ export function QuestionCard({ message, floating }: Props) {
       } else {
         await bridge.sendStdin(stdinId, JSON.stringify({ answers: {} }));
       }
-      setInteractionState(message.id, 'resolved');
-      useChatStore.setState({ partialText: '', partialThinking: '' });
-      setSessionStatus('running');
-      setActivityStatus({ phase: 'thinking' });
+      setInteractionState(skipTabId, message.id, 'resolved');
+      setSessionStatus(skipTabId, 'running');
+      setActivityStatus(skipTabId, { phase: 'thinking' });
     } catch (err) {
-      setInteractionState(message.id, 'failed', String(err));
+      setInteractionState(skipTabId, message.id, 'failed', String(err));
     }
   }, [isFullyResolved, isSending, awaitingSdkPatch, message.id]);
 
