@@ -1,0 +1,19 @@
+{
+  "version": "v0.8.23",
+  "notes": "修复智谱API兼容性、文件夹路径检测、报错信息分类、macOS签名公证",
+  "pub_date": "2026-03-21T15:56:48Z",
+  "platforms": {
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUlV5cnBlZC9jK2dScXR0N1JLOWRjUGhQWGtiVUJ2N3o3bFZCT2RWVHk3dEpJRTRScllXUnRyNWxEM2ZtcUJDTi9vMEN5MUZ2Uk5BMVhnZENZbzg3VHlMMnZUUVloTmc4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc0MTA4MjA4CWZpbGU6VE9LRU5JQ09ERS5hcHAudGFyLmd6CkszTzVNeW5tckRpbjhzcjUvRFA2Y0h0Q3B5djc5YnlZQ2tKaVNnQUoyczJuYlZoQjBFdVFUejVzNVpuNkFqZEFHME9tY1FsWFloTjdGcmZKeWlmSkR3PT0K",
+      "url": "https://gitee.com/yiliqiseven/TOKENICODE/releases/download/v0.8.23/TOKENICODE.app.tar.gz"
+    },
+    "darwin-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUlV5cnBlZC9jK2dScXR0N1JLOWRjUGhQWGtiVUJ2N3o3bFZCT2RWVHk3dEpJRTRScllXUnRyNWxEM2ZtcUJDTi9vMEN5MUZ2Uk5BMVhnZENZbzg3VHlMMnZUUVloTmc4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc0MTA4MjA4CWZpbGU6VE9LRU5JQ09ERS5hcHAudGFyLmd6CkszTzVNeW5tckRpbjhzcjUvRFA2Y0h0Q3B5djc5YnlZQ2tKaVNnQUoyczJuYlZoQjBFdVFUejVzNVpuNkFqZEFHME9tY1FsWFloTjdGcmZKeWlmSkR3PT0K",
+      "url": "https://gitee.com/yiliqiseven/TOKENICODE/releases/download/v0.8.23/TOKENICODE.app.tar.gz"
+    },
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUlV5cnBlZC9jK2hJcWV0dHA0OWMwN1hmTUc0K0lSQUc2QlZFb2ZkNTVqQlNhaExZNHlzZ1hkUUdqSlcxazYwSDdlY1M0MFV1WnZSam1qSXRBUWs5Z3BISXlId243L0FnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc0MTA4MjQ3CWZpbGU6VE9LRU5JQ09ERV8wLjguMjNfeDY0LXNldHVwLmV4ZQo2N0NBazNpRW14V3lOK1Vrdlh6cUU3U1l2MXI3NFVybDRzV0ZxK25GNVp2RkxxVWhPTUY1YnNyU0NSdjVDQW1GN3g1dTVjMkpvSVdBUHU4QVBPVzdEdz09Cg==",
+      "url": "https://gitee.com/yiliqiseven/TOKENICODE/releases/download/v0.8.23/TOKENICODE_0.8.23_x64-setup.exe"
+    }
+  }
+}
