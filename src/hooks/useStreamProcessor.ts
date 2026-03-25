@@ -1218,10 +1218,10 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
                   : '';
               const tuId = block.tool_use_id;
               if (tuId && resultText) {
-                const { messages: msgs, updateMessage: um } = useChatStore.getState();
+                const msgs = useChatStore.getState().getTab(tabId)?.messages ?? [];
                 const parent = msgs.find((m) => m.id === tuId);
                 if (parent) {
-                  um(tuId, { toolResultContent: resultText });
+                  useChatStore.getState().updateMessage(tabId, tuId, { toolResultContent: resultText });
                 }
               }
             }
