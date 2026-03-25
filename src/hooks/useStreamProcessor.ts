@@ -1628,7 +1628,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
                 },
               });
               useChatStore.getState().setSessionMeta({ pendingCommandMsgId: undefined });
-              if (useChatStore.getState().sessionStatus === 'running') {
+              if (useChatStore.getState().getTab(tabId)?.sessionStatus === 'running') {
                 useChatStore.getState().setSessionStatus('idle');
               }
             }
