@@ -1783,7 +1783,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           useSessionStore.getState().unregisterStdinTab(exitingStdinId);
         }
         // Bug B fix (#28): Don't discard pending messages — restore to input draft
-        const remainingPending = useChatStore.getState().pendingUserMessages;
+        const remainingPending = useChatStore.getState().getTab(tabId)?.pendingUserMessages;
         if (remainingPending.length > 0) {
           const draft = useChatStore.getState().inputDraft;
           const pendingText = remainingPending.join('\n\n');
