@@ -98,8 +98,10 @@ export function QuestionCard({ message, floating }: Props) {
 
     const isLast = currentIdx >= questions.length - 1;
     if (isLast) {
-      const { sessionMeta, setInteractionState, setSessionStatus, setActivityStatus } = useChatStore.getState();
-      const stdinId = sessionMeta.stdinId;
+      const qTabId = useSessionStore.getState().selectedSessionId;
+      if (!qTabId) return;
+      const { setInteractionState, setSessionStatus, setActivityStatus } = useChatStore.getState();
+      const stdinId = getActiveTabState().sessionMeta.stdinId;
       if (!stdinId) return;
       const answers: Record<string, string> = {};
       questions.forEach((q, qIdx) => {
@@ -115,7 +117,7 @@ export function QuestionCard({ message, floating }: Props) {
           }
         }
       });
-      setInteractionState(message.id, 'sending');
+      setInteractionState(qTabId, message.id, 'sending');
       try {
         // If this question arrived via SDK control_request (permissionData present),
         // respond via respondPermission with answers in updatedInput.
@@ -127,12 +129,12 @@ export function QuestionCard({ message, floating }: Props) {
         } else {
           await bridge.sendStdin(stdinId, JSON.stringify({ answers }));
         }
-        setInteractionState(message.id, 'resolved');
-        useChatStore.setState({ partialText: '', partialThinking: '' });
-        setSessionStatus('running');
-        setActivityStatus({ phase: 'thinking' });
+        setInteractionState(qTabId, message.id, 'resolved');
+        useChatStore.getState().updatePartialMessage(qTabId, '');
+        setSessionStatus(qTabId, 'running');
+        setActivityStatus(qTabId, { phase: 'thinking' });
       } catch (err) {
-        setInteractionState(message.id, 'failed', String(err));
+        setInteractionState(qTabId, message.id, 'failed', String(err));
       }
     } else {
       setCurrentIdx(currentIdx + 1);
