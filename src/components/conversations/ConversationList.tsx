@@ -359,7 +359,7 @@ export function ConversationList() {
       }
       if (selectedId === sessionId) {
         setSelected('');
-        useChatStore.getState().resetSession();
+        useChatStore.getState().resetTab(sessionId);
         useSettingsStore.getState().setWorkingDirectory('');
       }
       useChatStore.getState().removeFromCache(sessionId);
