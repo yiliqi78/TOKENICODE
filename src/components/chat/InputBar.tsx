@@ -1040,13 +1040,15 @@ export function InputBar() {
         // Backup exit detection: if process_exit from stdout stream is missed
         // (e.g., listener was removed), this fires as a safety net.
         const unlistenExit = await onSessionExit(preGeneratedId, () => {
-          const meta = useChatStore.getState().sessionMeta;
+          // Resolve the tab that owns this stdinId
+          const exitTabId = useSessionStore.getState().getTabForStdin(preGeneratedId) || tabId;
+          const exitTab = useChatStore.getState().getTab(exitTabId);
+          if (!exitTab) return;
           // Only act if this is still the active stdinId (avoid stale cleanup)
-          if (meta.stdinId === preGeneratedId) {
-            useChatStore.getState().setSessionMeta({ stdinId: undefined });
-            const status = useChatStore.getState().sessionStatus;
-            if (status === 'running') {
-              useChatStore.getState().setSessionStatus('idle');
+          if (exitTab.sessionMeta.stdinId === preGeneratedId) {
+            useChatStore.getState().setSessionMeta(exitTabId, { stdinId: undefined });
+            if (exitTab.sessionStatus === 'running') {
+              useChatStore.getState().setSessionStatus(exitTabId, 'idle');
             }
           }
         });
