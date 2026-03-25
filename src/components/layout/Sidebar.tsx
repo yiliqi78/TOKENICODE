@@ -24,8 +24,8 @@ export function Sidebar() {
   const toggleSidebar = useSettingsStore((s) => s.toggleSidebar);
   const toggleSettings = useSettingsStore((s) => s.toggleSettings);
   const updateAvailable = useSettingsStore((s) => s.updateAvailable);
-  const sessionMeta = useChatStore((s) => s.sessionMeta);
-  const sessionStatus = useChatStore((s) => s.sessionStatus);
+  const sessionMeta = useActiveTab((t) => t.sessionMeta);
+  const sessionStatus = useActiveTab((t) => t.sessionStatus);
   const t = useT();
 
   // Window dragging handled via CSS -webkit-app-region: drag on the top strip
