@@ -328,19 +328,19 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
       case 'assistant': {
         const content = msg.message?.content;
         if (!Array.isArray(content)) break;
-        // Selectively clear partial in cache — only wipe partialText if a text
+        // Selectively clear partial in tab — only wipe partialText if a text
         // block is present (which supersedes streaming text). Otherwise, preserve
         // it to avoid intermediate thinking-only messages destroying streaming text.
         const bgHasTextBlock = content.some((b: any) => b.type === 'text' && b.text);
-        const snapshot = cache.sessionCache.get(tabId);
-        if (snapshot) {
-          const next = new Map(cache.sessionCache);
+        const bgTab = store.getTab(tabId);
+        if (bgTab) {
+          const newTabs = new Map(store.tabs);
           if (bgHasTextBlock) {
-            next.set(tabId, { ...snapshot, partialText: '', partialThinking: '', isStreaming: false });
-          } else if (snapshot.partialThinking) {
-            next.set(tabId, { ...snapshot, partialThinking: '' });
+            newTabs.set(tabId, { ...bgTab, partialText: '', partialThinking: '', isStreaming: false });
+          } else if (bgTab.partialThinking) {
+            newTabs.set(tabId, { ...bgTab, partialThinking: '' });
           }
-          useChatStore.setState({ sessionCache: next });
+          useChatStore.setState({ tabs: newTabs, sessionCache: newTabs });
         }
         // Skip text blocks when AskUserQuestion is present — the
         // interactive question UI makes them redundant.
@@ -352,14 +352,14 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           if (block.type === 'text') {
             if (bgHasAskUserQuestion) continue;
             const textId = msg.uuid ? `${msg.uuid}_text_${blockIdx}` : generateMessageId();
-            cache.addMessageToCache(tabId, {
+            store.addMessage(tabId, {
               id: textId,
               role: 'assistant', type: 'text',
               content: block.text, timestamp: Date.now(),
             });
           } else if (block.type === 'tool_use') {
             // Code mode: suppress EnterPlanMode/ExitPlanMode (transparent to user)
-            if (useSettingsStore.getState().sessionMode === 'code'
+            if (getEffectiveMode(store.getTab(tabId)?.sessionMeta) === 'code'
                 && (block.name === 'EnterPlanMode' || block.name === 'ExitPlanMode')) {
               if (block.name === 'ExitPlanMode') exitPlanModeSeenRef.current = true;
               continue;
@@ -367,14 +367,14 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             if (block.name === 'AskUserQuestion') {
               const questions = block.input?.questions;
               const bgQuestionId = block.id || generateMessageId();
-              // Guard: skip if question already exists in background cache (resolved or not)
-              const bgSnap = cache.sessionCache.get(tabId);
+              // Guard: skip if question already exists in background tab (resolved or not)
+              const bgSnap = store.getTab(tabId);
               const bgExisting = bgSnap?.messages.find(
                 (m) => m.id === bgQuestionId && m.type === 'question',
               );
               if (bgExisting) break;
 
-              cache.addMessageToCache(tabId, {
+              store.addMessage(tabId, {
                 id: bgQuestionId,
                 role: 'assistant', type: 'question',
                 content: '', toolName: block.name,
@@ -383,7 +383,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
                 resolved: false, timestamp: Date.now(),
               });
             } else if (block.name === 'TodoWrite' && block.input?.todos) {
-              cache.addMessageToCache(tabId, {
+              store.addMessage(tabId, {
                 id: block.id || generateMessageId(),
                 role: 'assistant', type: 'todo',
                 content: '', toolName: block.name,
@@ -393,7 +393,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               });
             } else if (block.name === 'ExitPlanMode') {
               // Show as regular tool_use in plan/bypass modes
-              cache.addMessageToCache(tabId, {
+              store.addMessage(tabId, {
                 id: block.id || generateMessageId(),
                 role: 'assistant', type: 'tool_use',
                 content: '', toolName: block.name,
@@ -401,36 +401,36 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               });
               // Only create plan_review card in Plan mode.
               // Bypass auto-approves via Rust backend — no UI card needed.
-              if (useSettingsStore.getState().sessionMode === 'plan') {
-                const bgSnapshot = cache.sessionCache.get(tabId);
+              if (getEffectiveMode(store.getTab(tabId)?.sessionMeta) === 'plan') {
+                const bgSnap2 = store.getTab(tabId);
                 let bgPlanContent = '';
-                if (bgSnapshot) {
-                  for (let i = bgSnapshot.messages.length - 1; i >= 0; i--) {
-                    const m = bgSnapshot.messages[i];
+                if (bgSnap2) {
+                  for (let i = bgSnap2.messages.length - 1; i >= 0; i--) {
+                    const m = bgSnap2.messages[i];
                     if (m.type === 'tool_use' && m.toolName === 'Write' && m.toolInput?.content) {
                       bgPlanContent = m.toolInput.content;
                       break;
                     }
                   }
                 }
-                const bgToolExists = block.id && bgSnapshot?.messages.some(
+                const bgToolExists = block.id && bgSnap2?.messages.some(
                   (m) => m.id === block.id && m.toolName === 'ExitPlanMode',
                 );
-                const bgResolvedReview = bgSnapshot?.messages.find(
+                const bgResolvedReview = bgSnap2?.messages.find(
                   (m) => m.type === 'plan_review' && m.resolved,
                 );
                 if (!(bgToolExists && bgResolvedReview)) {
-                  cache.addMessageToCache(tabId, {
+                  store.addMessage(tabId, {
                     id: 'plan_review_current',
                     role: 'assistant', type: 'plan_review',
                     content: bgPlanContent, planContent: bgPlanContent,
                     resolved: false, timestamp: Date.now(),
                   });
-                  cache.setActivityInCache(tabId, { phase: 'awaiting' });
+                  store.setActivityStatus(tabId, { phase: 'awaiting' });
                 }
               }
             } else {
-              cache.addMessageToCache(tabId, {
+              store.addMessage(tabId, {
                 id: block.id || generateMessageId(),
                 role: 'assistant', type: 'tool_use',
                 content: '', toolName: block.name,
