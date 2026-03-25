@@ -1767,10 +1767,10 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         }
 
         {
-          const { messages: exitMessages, updateMessage } = useChatStore.getState();
+          const exitMessages = useChatStore.getState().getTab(tabId)?.messages ?? [];
           for (const m of exitMessages) {
             if (['permission', 'question', 'plan_review'].includes(m.type) && !m.resolved) {
-              updateMessage(m.id, {
+              useChatStore.getState().updateMessage(tabId, m.id, {
                 interactionState: 'failed',
                 interactionError: 'CLI process exited',
               });
