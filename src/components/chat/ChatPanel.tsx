@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import { create } from 'zustand';
-import { useChatStore, useActiveTab, getActiveTabState, type ChatMessage } from '../../stores/chatStore';
+import { useChatStore, useActiveTab, type ChatMessage } from '../../stores/chatStore';
 import { MessageBubble } from './MessageBubble';
 import { ToolGroup } from './ToolGroup';
 import { InputBar } from './InputBar';
