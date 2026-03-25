@@ -377,7 +377,12 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   // Tab-level operations
   // ------------------------------------------------------------------
 
-  addMessage: (tabId, message) =>
+  addMessage: (tabIdOrMessage: any, maybeMessage?: any) => {
+    // Backward compat: addMessage(msg) → addMessage(activeTabId, msg)
+    const isV1 = typeof tabIdOrMessage !== 'string' || !maybeMessage;
+    const tabId = isV1 ? (useSessionStore.getState().selectedSessionId ?? '') : tabIdOrMessage;
+    const message = isV1 ? tabIdOrMessage : maybeMessage;
+    if (!tabId) return;
     set((state) => {
       const result = updateTab(state.tabs, tabId, (tab) => {
         // De-duplicate: if a message with the same ID already exists, update it
