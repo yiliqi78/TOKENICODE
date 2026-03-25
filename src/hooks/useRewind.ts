@@ -94,7 +94,9 @@ export function useRewind() {
    * All actions restore the user's original input text to the input box.
    */
   const executeRewind = useCallback(async (turn: Turn, action: RewindAction = 'restore_conversation') => {
-    const state = useChatStore.getState();
+    const tid = useSessionStore.getState().selectedSessionId;
+    if (!tid) return;
+    const state = getActiveTabState();
 
     // Guard: validate turn index
     if (turn.startMsgIdx < 0 || turn.startMsgIdx > state.messages.length) {
