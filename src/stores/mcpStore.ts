@@ -93,6 +93,17 @@ export const useMcpStore = create<McpState>()((set) => ({
     set({ isLoading: true });
     try {
       const json = await readClaudeJson();
+      const rawMcp = json.mcpServers as Record<string, unknown> | undefined;
+      // Auto-fix double-nested mcpServers.mcpServers on disk
+      if (
+        rawMcp &&
+        typeof rawMcp === 'object' &&
+        'mcpServers' in rawMcp &&
+        typeof rawMcp.mcpServers === 'object'
+      ) {
+        json.mcpServers = rawMcp.mcpServers;
+        await writeClaudeJson(json);
+      }
       const servers = parseServers(json.mcpServers as Record<string, unknown> | undefined);
       set({ servers, isLoading: false });
     } catch {
