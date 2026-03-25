@@ -1023,7 +1023,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           } else if (block.type === 'tool_use') {
             // Code mode: EnterPlanMode/ExitPlanMode are transparent — CLI handles internally.
             // Don't show tool cards; track ExitPlanMode for auto-restart if CLI exits.
-            if (useSettingsStore.getState().sessionMode === 'code'
+            if (getEffectiveMode(useChatStore.getState().getTab(tabId)?.sessionMeta) === 'code'
                 && (block.name === 'EnterPlanMode' || block.name === 'ExitPlanMode')) {
               if (block.name === 'ExitPlanMode') exitPlanModeSeenRef.current = true;
               continue;
