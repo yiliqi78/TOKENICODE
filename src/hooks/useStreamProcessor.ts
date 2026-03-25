@@ -646,7 +646,12 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
       return;
     }
 
-    useChatStore.getState().setSessionMeta({ lastProgressAt: Date.now() });
+    // Resolve tabId once for all foreground store calls
+    const tabId = ownerTabId || activeTabId;
+    if (!tabId) return;
+
+    // Update lastProgressAt on every foreground stream event for stall detection
+    useChatStore.getState().setSessionMeta(tabId, { lastProgressAt: Date.now() });
 
     // --- SDK Permission Request (routed through stream channel for reliability) ---
     if (msg.type === 'tokenicode_permission_request') {
@@ -654,15 +659,17 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
       // ExitPlanMode: only show PlanReviewCard in Plan mode.
       // In other modes, auto-approve so the CLI continues without blocking.
       if (msg.tool_name === 'ExitPlanMode') {
-        if (useSettingsStore.getState().sessionMode !== 'plan') {
+        const tabState = useChatStore.getState().getTab(tabId);
+        if (getEffectiveMode(tabState?.sessionMeta) !== 'plan') {
           // Auto-approve: CLI doesn't need user confirmation outside Plan mode
-          const stdinId = useChatStore.getState().sessionMeta.stdinId;
+          const stdinId = tabState?.sessionMeta.stdinId;
           if (stdinId) {
             bridge.respondPermission(stdinId, msg.request_id, true, undefined, msg.tool_use_id, msg.input);
           }
           return;
         }
-        const { messages, updateMessage, addMessage, setActivityStatus } = useChatStore.getState();
+        const chatStore = useChatStore.getState();
+        const messages = tabState?.messages ?? [];
         const permData = {
           requestId: msg.request_id,
           toolName: msg.tool_name,
@@ -672,7 +679,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         };
         const planReview = messages.find((m) => m.id === 'plan_review_current' && !m.resolved);
         if (planReview) {
-          updateMessage('plan_review_current', { permissionData: permData });
+          chatStore.updateMessage(tabId, 'plan_review_current', { permissionData: permData });
         } else {
           // PlanReviewCard not yet created — create one with permission data
           let planContent = '';
