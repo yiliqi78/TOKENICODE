@@ -288,19 +288,6 @@ function createTab(tabId: string): TabSession {
 /** Maximum number of tabs kept in memory. LRU eviction applies to idle tabs. */
 const MAX_CACHE = 8;
 
-/** Resolve tabId: if explicitly provided use it, otherwise infer from active session. */
-function _resolveTabId(tabIdOrOther: unknown): string | undefined {
-  // If it looks like a tabId (string that's a session ID or draft ID), use it
-  if (typeof tabIdOrOther === 'string' && (
-    tabIdOrOther.startsWith('draft_') ||
-    tabIdOrOther.length > 20 || // session UUIDs are long
-    tabIdOrOther.includes('-')  // UUIDs contain dashes
-  )) {
-    return tabIdOrOther;
-  }
-  // Otherwise, infer from active session
-  return useSessionStore.getState().selectedSessionId ?? undefined;
-}
 
 /**
  * Immutable Map update helper: get tab, apply updater, return new Map.
