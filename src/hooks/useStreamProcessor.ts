@@ -518,6 +518,8 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             }
           }
           store.updateMessage(tabId, msg.tool_use_id, bgUpdates);
+          // Auto-refresh file tree when file-mutating tools complete
+          _maybeRefreshFileTree(tabId, msg.tool_use_id, msg.tool_name);
         }
         break;
       }
