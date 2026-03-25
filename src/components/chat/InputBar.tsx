@@ -313,6 +313,13 @@ export function InputBar() {
   const slashCommands = useCommandStore((s) => s.commands);
   const activePrefix = useCommandStore((s) => s.activePrefix);
 
+  // Focus input when activePrefix is set externally (e.g. from SkillsPanel "Use in Input")
+  useEffect(() => {
+    if (activePrefix) {
+      textareaRef.current?.focus();
+    }
+  }, [activePrefix]);
+
   // Rewind state
   const [showRewindPanel, setShowRewindPanel] = useState(false);
   const { showRewind, canRewind } = useRewind();
