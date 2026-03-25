@@ -11,7 +11,7 @@
  *   5. Cancel
  */
 import { useMemo, useCallback } from 'react';
-import { useChatStore, generateMessageId } from '../stores/chatStore';
+import { useChatStore, useActiveTab, getActiveTabState, generateMessageId } from '../stores/chatStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { bridge } from '../lib/tauri-bridge';
@@ -27,9 +27,9 @@ export type RewindAction = 'restore_all' | 'restore_conversation' | 'restore_cod
 async function restoreFilesViaCheckpoint(turn: Turn): Promise<boolean> {
   if (!turn.checkpointUuid) return false;
 
-  const { sessionMeta } = useChatStore.getState();
-  const stdinId = sessionMeta.stdinId;
-  const sessionId = sessionMeta.sessionId;
+  const tabState = getActiveTabState();
+  const stdinId = tabState.sessionMeta.stdinId;
+  const sessionId = tabState.sessionMeta.sessionId;
   const cwd = useSettingsStore.getState().workingDirectory;
   if (!sessionId || !cwd) return false;
 
