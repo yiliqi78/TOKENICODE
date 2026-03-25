@@ -774,7 +774,7 @@ export function InputBar() {
       silentRestartRef.current = false;
     } else {
       // Add user message (show original text, not with prefix)
-      addMessage({
+      addMessage(tabId, {
         id: generateMessageId(),
         role: 'user',
         type: 'text',
@@ -791,14 +791,16 @@ export function InputBar() {
     // Gate: only queue messages when there's an unresolved interaction card
     // (permission/question/plan_review) to prevent them from being consumed as answers.
     // Otherwise, send directly — CLI handles concurrent messages fine.
-    const existingStdinId = useChatStore.getState().sessionMeta.stdinId;
-    const { sessionStatus: currentStatus, messages: currentMsgs } = useChatStore.getState();
+    const currentTabState = getActiveTabState();
+    const existingStdinId = currentTabState.sessionMeta.stdinId;
+    const currentStatus = currentTabState.sessionStatus;
+    const currentMsgs = currentTabState.messages;
     const hasUnresolvedInteraction = currentMsgs.some(
-      (m) => ['permission', 'question', 'plan_review'].includes(m.type) && !m.resolved,
+      (m: import('../../stores/chatStore').ChatMessage) => ['permission', 'question', 'plan_review'].includes(m.type) && !m.resolved,
     );
 
     if (existingStdinId && currentStatus === 'running' && hasUnresolvedInteraction) {
-      useChatStore.getState().addPendingMessage(text);
+      useChatStore.getState().addPendingMessage(tabId, text);
       return;
     }
 
