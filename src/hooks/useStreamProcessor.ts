@@ -154,33 +154,36 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
    * Handle stream messages for a background (non-active) tab — route to cache.
    */
   const handleBackgroundStreamMessage = useCallback((msg: any, tabId: string) => {
-    const cache = useChatStore.getState();
-    cache.setMetaInCache(tabId, { lastProgressAt: Date.now() });
+    const store = useChatStore.getState();
+
+    // Update lastProgressAt for stall detection on background tabs
+    store.setSessionMeta(tabId, { lastProgressAt: Date.now() });
 
     switch (msg.type) {
       case 'tokenicode_permission_request': {
         // ExitPlanMode: auto-approve in non-plan modes; add plan_review card in plan mode
         if (msg.tool_name === 'ExitPlanMode') {
-          if (useSettingsStore.getState().sessionMode !== 'plan') {
+          const bgMeta = store.getTab(tabId)?.sessionMeta;
+          if (getEffectiveMode(bgMeta) !== 'plan') {
             const stdinId = msg.__stdinId;
             if (stdinId) {
               bridge.respondPermission(stdinId, msg.request_id, true, undefined, msg.tool_use_id, msg.input);
             }
             return;
           }
-          const bgSnapshot = cache.sessionCache.get(tabId);
-          const bgExisting = bgSnapshot?.messages.find((m) => m.id === 'plan_review_current' && !m.resolved);
+          const bgTab = store.getTab(tabId);
+          const bgExisting = bgTab?.messages.find((m) => m.id === 'plan_review_current' && !m.resolved);
           if (!bgExisting) {
             let bgPlanContent = '';
-            if (bgSnapshot) {
-              for (let i = bgSnapshot.messages.length - 1; i >= 0; i--) {
-                if (bgSnapshot.messages[i].role === 'assistant' && bgSnapshot.messages[i].type === 'text' && bgSnapshot.messages[i].content) {
-                  bgPlanContent = bgSnapshot.messages[i].content;
+            if (bgTab) {
+              for (let i = bgTab.messages.length - 1; i >= 0; i--) {
+                if (bgTab.messages[i].role === 'assistant' && bgTab.messages[i].type === 'text' && bgTab.messages[i].content) {
+                  bgPlanContent = bgTab.messages[i].content;
                   break;
                 }
               }
             }
-            cache.addMessageToCache(tabId, {
+            store.addMessage(tabId, {
               id: 'plan_review_current',
               role: 'assistant', type: 'plan_review',
               content: bgPlanContent, planContent: bgPlanContent,
@@ -193,7 +196,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               },
             });
           } else {
-            cache.updateMessageInCache(tabId, 'plan_review_current', {
+            store.updateMessage(tabId, 'plan_review_current', {
               permissionData: {
                 requestId: msg.request_id,
                 toolName: msg.tool_name,
@@ -202,17 +205,17 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               },
             });
           }
-          cache.setActivityInCache(tabId, { phase: 'awaiting' });
+          store.setActivityStatus(tabId, { phase: 'awaiting' });
           return;
         }
-        // AskUserQuestion: add question card to cache
+        // AskUserQuestion: add question card to tab
         if (msg.tool_name === 'AskUserQuestion') {
-          const bgSnapshot = cache.sessionCache.get(tabId);
+          const bgTab = store.getTab(tabId);
           const questionId = msg.tool_use_id || 'ask_question_current';
-          const existing = bgSnapshot?.messages.find((m) => m.id === questionId && m.type === 'question')
-            || bgSnapshot?.messages.find((m) => m.type === 'question' && !m.resolved && m.toolName === 'AskUserQuestion');
+          const existing = bgTab?.messages.find((m) => m.id === questionId && m.type === 'question')
+            || bgTab?.messages.find((m) => m.type === 'question' && !m.resolved && m.toolName === 'AskUserQuestion');
           if (existing) {
-            cache.updateMessageInCache(tabId, existing.id, {
+            store.updateMessage(tabId, existing.id, {
               permissionData: {
                 requestId: msg.request_id,
                 toolName: msg.tool_name,
@@ -224,7 +227,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             return;
           }
           const questions = msg.input?.questions;
-          cache.addMessageToCache(tabId, {
+          store.addMessage(tabId, {
             id: questionId,
             role: 'assistant', type: 'question',
             content: '', toolName: 'AskUserQuestion',
@@ -238,18 +241,18 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               toolUseId: msg.tool_use_id,
             },
           });
-          cache.setActivityInCache(tabId, { phase: 'awaiting' });
+          store.setActivityStatus(tabId, { phase: 'awaiting' });
           return;
         }
-        // Regular permission: add permission card to cache
-        const bgSnapshot = cache.sessionCache.get(tabId);
-        const existingPerm = bgSnapshot?.messages.find(
+        // Regular permission: add permission card to tab
+        const bgTab = store.getTab(tabId);
+        const existingPerm = bgTab?.messages.find(
           (m) => m.type === 'permission'
             && m.permissionData?.requestId === msg.request_id
             && m.interactionState !== 'failed'
         );
         if (existingPerm) return;
-        cache.addMessageToCache(tabId, {
+        store.addMessage(tabId, {
           id: generateMessageId(),
           role: 'assistant', type: 'permission',
           content: msg.description || `${msg.tool_name} wants to execute`,
@@ -265,7 +268,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             toolUseId: msg.tool_use_id,
           },
         });
-        cache.setActivityInCache(tabId, { phase: 'awaiting' });
+        store.setActivityStatus(tabId, { phase: 'awaiting' });
         break;
       }
       case 'stream_event': {
