@@ -509,7 +509,7 @@ export function InputBar() {
 
 
       case 'usage': {
-        const meta = useChatStore.getState().sessionMeta;
+        const meta = getActiveTabState().sessionMeta;
         const isOfficialProvider = useProviderStore.getState().activeProviderId === null;
 
         if (isOfficialProvider) {
