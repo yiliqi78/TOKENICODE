@@ -661,17 +661,23 @@ export function InputBar() {
 
   // --- Submit ---
   const handleSubmit = useCallback(async () => {
+    // Capture tabId at the start of submission
+    const tabId = useSessionStore.getState().selectedSessionId;
+    if (!tabId) return;
+    useChatStore.getState().ensureTab(tabId);
+
     // Read input from store directly (not closure) so that async callers
     // like handlePlanApprove (setInput + rAF) always see the latest value.
-    const rawInput = useChatStore.getState().inputDraft || '';
+    const rawInput = getActiveTabState().inputDraft || '';
     let text = rawInput.trim();
 
     // Plan approval shortcut: empty Enter triggers approve & execute flow
-    const pendingPlanReview = useChatStore.getState().messages.find(
-      (m) => m.type === 'plan_review' && !m.resolved,
+    const tabState = getActiveTabState();
+    const pendingPlanReview = tabState.messages.find(
+      (m: import('../../stores/chatStore').ChatMessage) => m.type === 'plan_review' && !m.resolved,
     );
     if (pendingPlanReview && !text && !useCommandStore.getState().activePrefix) {
-      const stdinId = useChatStore.getState().sessionMeta.stdinId;
+      const stdinId = tabState.sessionMeta.stdinId;
       const permData = pendingPlanReview.permissionData;
       if (permData?.requestId && stdinId) {
         try {
