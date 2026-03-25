@@ -831,8 +831,8 @@ export function InputBar() {
 
     try {
       if (!workingDirectory) {
-        setSessionStatus('error');
-        addMessage({
+        setSessionStatus(tabId, 'error');
+        addMessage(tabId, {
           id: generateMessageId(),
           role: 'system',
           type: 'text',
@@ -848,14 +848,14 @@ export function InputBar() {
         const msg = t('provider.noModelMapping')
           .replace('{provider}', modelResolution.providerName)
           .replace('{tier}', modelResolution.tier);
-        addMessage({
+        addMessage(tabId, {
           id: generateMessageId(),
           role: 'system',
           type: 'text',
           content: msg,
           timestamp: Date.now(),
         });
-        setSessionStatus('error');
+        setSessionStatus(tabId, 'error');
         return;
       }
 
