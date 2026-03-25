@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo } from 'react';
-import { type ChatMessage, useChatStore } from '../../stores/chatStore';
+import { type ChatMessage, useChatStore, getActiveTabState } from '../../stores/chatStore';
+import { useSessionStore } from '../../stores/sessionStore';
 import { useSettingsStore, setSessionModeLocal } from '../../stores/settingsStore';
 import { useT } from '../../lib/i18n';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
