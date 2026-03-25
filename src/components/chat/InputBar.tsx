@@ -611,11 +611,11 @@ export function InputBar() {
       // --- All CLI commands: pass through to active session via stdin ---
       // TOKENICODE is a GUI wrapper — all slash commands are handled by Claude Code CLI.
       default: {
-        const stdinId = useChatStore.getState().sessionMeta.stdinId;
-        if (stdinId) {
+        const stdinId = getActiveTabState().sessionMeta.stdinId;
+        if (stdinId && tabId) {
           // Emit a processing card immediately so user sees feedback
           const processingMsgId = generateMessageId();
-          addMessage({
+          addMessage(tabId, {
             id: processingMsgId,
             role: 'system',
             type: 'text',
@@ -626,9 +626,9 @@ export function InputBar() {
             commandCompleted: false,
             timestamp: Date.now(),
           });
-          useChatStore.getState().setSessionMeta({ pendingCommandMsgId: processingMsgId });
-          useChatStore.getState().setSessionStatus('running');
-          useChatStore.getState().setActivityStatus({ phase: 'thinking' });
+          useChatStore.getState().setSessionMeta(tabId, { pendingCommandMsgId: processingMsgId });
+          useChatStore.getState().setSessionStatus(tabId, 'running');
+          useChatStore.getState().setActivityStatus(tabId, { phase: 'thinking' });
           await bridge.sendStdin(stdinId, `/${cmd}${args ? ' ' + args : ''}`);
         } else {
           feedback('error', `/${cmd}: ${t('cmd.noActiveSession')}`, { command: `/${cmd}` });
