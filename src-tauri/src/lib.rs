@@ -386,11 +386,57 @@ fn collect_search_dirs() -> Vec<String> {
         }
     }
 
-    // 4. System-wide paths
+    // 4. System-wide paths + npm global root
     #[cfg(not(target_os = "windows"))]
     {
         push("/usr/local/bin".to_string());
         push("/opt/homebrew/bin".to_string());
+        // npm global installs: `npm root -g` resolves the actual prefix
+        // (covers custom prefix set via npmrc, nvm, etc.)
+        if let Ok(output) = std::process::Command::new("npm")
+            .args(["root", "-g"])
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+        {
+            if output.status.success() {
+                let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                // npm root -g returns e.g. /usr/local/lib/node_modules
+                // The binary lives in the sibling ../bin directory
+                if let Some(lib_dir) = std::path::Path::new(&root).parent() {
+                    let npm_bin = lib_dir.join("bin");
+                    if npm_bin.exists() {
+                        push(npm_bin.to_string_lossy().to_string());
+                    }
+                }
+                // Also check .bin inside node_modules itself (npx-style)
+                let dot_bin = std::path::Path::new(&root).join(".bin");
+                if dot_bin.exists() {
+                    push(dot_bin.to_string_lossy().to_string());
+                }
+            }
+        }
+        // Common npm global lib path (when prefix is /usr/local)
+        push("/usr/local/lib/node_modules/.bin".to_string());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // npm root -g on Windows
+        if let Ok(output) = std::process::Command::new("cmd")
+            .args(["/C", "npm", "root", "-g"])
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .creation_flags(0x08000000)
+            .output()
+        {
+            if output.status.success() {
+                let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                // On Windows, global bin is the parent of node_modules
+                if let Some(lib_dir) = std::path::Path::new(&root).parent() {
+                    push(lib_dir.to_string_lossy().to_string());
+                }
+            }
+        }
     }
 
     // 5. Current process PATH + login shell PATH
