@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
-import { type ChatMessage, useChatStore } from '../../stores/chatStore';
+import { type ChatMessage, useChatStore, getActiveTabState } from '../../stores/chatStore';
+import { useSessionStore } from '../../stores/sessionStore';
 import { bridge } from '../../lib/tauri-bridge';
 import { useT } from '../../lib/i18n';
 
