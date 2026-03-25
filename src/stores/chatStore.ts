@@ -499,7 +499,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         pendingUserMessages: [],
       }));
       return result ?? {};
-    }),
+    });
+  },
 
   resetTab: (tabId) =>
     set((state) => {
@@ -507,43 +508,66 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       return result ?? {};
     }),
 
-  setSessionMeta: (tabId, meta) =>
+  setSessionMeta: (tabIdOrMeta: any, maybeMeta?: any) => {
+    const isV1 = maybeMeta === undefined && typeof tabIdOrMeta === 'object';
+    const tabId = isV1 ? (useSessionStore.getState().selectedSessionId ?? '') : tabIdOrMeta;
+    const meta = isV1 ? tabIdOrMeta : maybeMeta;
+    if (!tabId) return;
     set((state) => {
       const result = updateTab(state.tabs, tabId, (tab) => ({
         ...tab,
         sessionMeta: { ...tab.sessionMeta, ...meta },
       }));
       return result ?? {};
-    }),
+    });
+  },
 
-  setInputDraft: (tabId, text) =>
+  setInputDraft: (tabIdOrText: any, maybeText?: any) => {
+    const isV1 = maybeText === undefined;
+    const tabId = isV1 ? (useSessionStore.getState().selectedSessionId ?? '') : tabIdOrText;
+    const text = isV1 ? tabIdOrText : maybeText;
+    if (!tabId) return;
     set((state) => {
       const result = updateTab(state.tabs, tabId, (tab) => ({
         ...tab,
         inputDraft: text,
       }));
       return result ?? {};
-    }),
+    });
+  },
 
-  setPendingAttachments: (tabId, files) =>
+  setPendingAttachments: (tabIdOrFiles: any, maybeFiles?: any) => {
+    const isV1 = maybeFiles === undefined && Array.isArray(tabIdOrFiles);
+    const tabId = isV1 ? (useSessionStore.getState().selectedSessionId ?? '') : tabIdOrFiles;
+    const files = isV1 ? tabIdOrFiles : maybeFiles;
+    if (!tabId) return;
     set((state) => {
       const result = updateTab(state.tabs, tabId, (tab) => ({
         ...tab,
         pendingAttachments: files,
       }));
       return result ?? {};
-    }),
+    });
+  },
 
-  addPendingMessage: (tabId, text) =>
+  addPendingMessage: (tabIdOrText: any, maybeText?: any) => {
+    const isV1 = maybeText === undefined;
+    const tabId = isV1 ? (useSessionStore.getState().selectedSessionId ?? '') : tabIdOrText;
+    const text = isV1 ? tabIdOrText : maybeText;
+    if (!tabId) return;
     set((state) => {
       const result = updateTab(state.tabs, tabId, (tab) => ({
         ...tab,
         pendingUserMessages: [...tab.pendingUserMessages, text],
       }));
       return result ?? {};
-    }),
+    });
+  },
 
-  flushPendingMessages: (tabId) => {
+  flushPendingMessages: (tabIdOrUndef?: any) => {
+    const tabId = (typeof tabIdOrUndef === 'string' ? tabIdOrUndef : null)
+      || useSessionStore.getState().selectedSessionId || '';
+    if (!tabId) return [];
     const tab = get().tabs.get(tabId);
     if (!tab) return [];
     const msgs = tab.pendingUserMessages;
@@ -557,16 +581,24 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     return msgs;
   },
 
-  clearPendingMessages: (tabId) =>
+  clearPendingMessages: (tabIdOrUndef?: any) => {
+    const tabId = (typeof tabIdOrUndef === 'string' ? tabIdOrUndef : null)
+      || useSessionStore.getState().selectedSessionId || '';
+    if (!tabId) return;
     set((state) => {
       const result = updateTab(state.tabs, tabId, (tab) => ({
         ...tab,
         pendingUserMessages: [],
       }));
       return result ?? {};
-    }),
+    });
+  },
 
-  rewindToTurn: (tabId, startMsgIdx) =>
+  rewindToTurn: (tabIdOrIdx: any, maybeIdx?: any) => {
+    const isV1 = maybeIdx === undefined && typeof tabIdOrIdx === 'number';
+    const tabId = isV1 ? (useSessionStore.getState().selectedSessionId ?? '') : tabIdOrIdx;
+    const startMsgIdx = isV1 ? tabIdOrIdx : maybeIdx;
+    if (!tabId) return;
     set((state) => {
       const result = updateTab(state.tabs, tabId, (tab) => {
         // Guard against invalid index — if out of bounds, keep messages intact
