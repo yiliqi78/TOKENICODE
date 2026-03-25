@@ -117,14 +117,17 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
                     const newShort = option.short;
                     setSelectedModel(option.id);
                     // Insert model-switch tag into chat immediately
-                    useChatStore.getState().addMessage({
-                      id: generateMessageId(),
-                      role: 'system',
-                      type: 'text',
-                      content: `${oldShort} → ${newShort}`,
-                      commandType: 'model-switch',
-                      timestamp: Date.now(),
-                    });
+                    const msTabId = useSessionStore.getState().selectedSessionId;
+                    if (msTabId) {
+                      useChatStore.getState().addMessage(msTabId, {
+                        id: generateMessageId(),
+                        role: 'system',
+                        type: 'text',
+                        content: `${oldShort} → ${newShort}`,
+                        commandType: 'model-switch',
+                        timestamp: Date.now(),
+                      });
+                    }
                   }
                   setOpen(false);
                 }}
