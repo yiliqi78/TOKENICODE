@@ -305,6 +305,25 @@ export const useSettingsStore = create<SettingsState>()(
   ),
 );
 
+// --- Per-session effective value helpers (Phase 4) ---
+// These read the snapshotted value from SessionMeta, falling back to the global store.
+// Import SessionMeta lazily to avoid circular dependency.
+
+/** Get the effective session mode for a given session's meta snapshot */
+export function getEffectiveMode(meta: { snapshotMode?: SessionMode } | undefined): SessionMode {
+  return meta?.snapshotMode ?? useSettingsStore.getState().sessionMode;
+}
+
+/** Get the effective model for a given session's meta snapshot */
+export function getEffectiveModel(meta: { snapshotModel?: string } | undefined): string {
+  return meta?.snapshotModel ?? useSettingsStore.getState().selectedModel;
+}
+
+/** Get the effective thinking level for a given session's meta snapshot */
+export function getEffectiveThinking(meta: { snapshotThinking?: ThinkingLevel } | undefined): ThinkingLevel {
+  return meta?.snapshotThinking ?? useSettingsStore.getState().thinkingLevel;
+}
+
 // --- Runtime mode switching via SDK control protocol ---
 // When sessionMode changes and there's an active CLI session, send set_permission_mode.
 
@@ -334,8 +353,8 @@ useSettingsStore.subscribe((state, prevState) => {
   Promise.all([
     import('../lib/tauri-bridge'),
     import('./chatStore'),
-  ]).then(([{ bridge }, { useChatStore }]) => {
-    const stdinId = useChatStore.getState().sessionMeta.stdinId;
+  ]).then(([{ bridge }, { useChatStore, getActiveTabState }]) => {
+    const stdinId = getActiveTabState().sessionMeta.stdinId;
     if (!stdinId) return; // No active session
 
     bridge.setPermissionMode(stdinId, cliMode).catch((err: unknown) => {
