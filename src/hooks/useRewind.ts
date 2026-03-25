@@ -202,7 +202,7 @@ export function useRewind() {
           }
 
           // Truncate to selected point
-          useChatStore.getState().rewindToTurn(turn.startMsgIdx);
+          useChatStore.getState().rewindToTurn(tid, turn.startMsgIdx);
           resetSession();
 
           // Add summary as a system message (preserves context without full messages)
@@ -212,7 +212,7 @@ export function useRewind() {
             .replace('{to}', String(totalTurns));
           const summaryContent = `**${summaryHeader}**\n\n${summaryParts.join('\n\n')}`;
 
-          useChatStore.getState().addMessage({
+          useChatStore.getState().addMessage(tid, {
             id: generateMessageId(),
             role: 'system',
             type: 'text',
