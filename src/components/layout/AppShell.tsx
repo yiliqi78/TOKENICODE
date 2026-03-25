@@ -207,7 +207,7 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
         style={{ width: showSidebar ? `${sidebarWidth}px` : '0px' }}
       >
         <div
-          className="h-full overflow-y-auto bg-bg-sidebar"
+          className="h-full overflow-y-auto overflow-x-hidden bg-bg-sidebar"
           style={{ width: `${sidebarWidth}px` }}
         >
           {sidebar}
