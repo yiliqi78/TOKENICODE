@@ -475,7 +475,7 @@ export function InputBar() {
 
       // --- Session management ---
       case 'clear':
-        useChatStore.getState().resetSession();
+        if (tabId) useChatStore.getState().resetTab(tabId);
         return;
 
       case 'rewind':
