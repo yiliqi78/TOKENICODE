@@ -34,13 +34,15 @@ export function PermissionCard({ message }: Props) {
     : (typeof message.content === 'string' ? message.content : '');
 
   const handleRespond = useCallback(async (allow: boolean) => {
-    const { sessionMeta, setInteractionState, setSessionStatus, setActivityStatus } = useChatStore.getState();
-    const stdinId = sessionMeta.stdinId;
+    const permTabId = useSessionStore.getState().selectedSessionId;
+    if (!permTabId) return;
+    const { setInteractionState, setSessionStatus, setActivityStatus } = useChatStore.getState();
+    const stdinId = getActiveTabState().sessionMeta.stdinId;
     if (!stdinId) return;
 
     // If we have structured permissionData, use SDK control protocol
     if (permData?.requestId) {
-      setInteractionState(message.id, 'sending');
+      setInteractionState(permTabId, message.id, 'sending');
       try {
         await bridge.respondPermission(
           stdinId,
@@ -50,23 +52,23 @@ export function PermissionCard({ message }: Props) {
           permData.toolUseId,
           allow ? permData.input : undefined,
         );
-        setInteractionState(message.id, 'resolved');
-        setSessionStatus('running');
-        setActivityStatus({ phase: 'thinking' });
+        setInteractionState(permTabId, message.id, 'resolved');
+        setSessionStatus(permTabId, 'running');
+        setActivityStatus(permTabId, { phase: 'thinking' });
       } catch (err) {
-        setInteractionState(message.id, 'failed', String(err));
+        setInteractionState(permTabId, message.id, 'failed', String(err));
       }
     } else {
       // Legacy fallback: send raw y/n to stdin (for bypass/old-style)
-      setInteractionState(message.id, 'sending');
+      setInteractionState(permTabId, message.id, 'sending');
       try {
         await bridge.sendRawStdin(stdinId, allow ? 'y' : 'n');
-        setInteractionState(message.id, 'resolved');
-        setSessionStatus('running');
-        setActivityStatus({ phase: 'thinking' });
+        setInteractionState(permTabId, message.id, 'resolved');
+        setSessionStatus(permTabId, 'running');
+        setActivityStatus(permTabId, { phase: 'thinking' });
       } catch (err) {
         console.warn('[TC:permission] Legacy permission response failed:', err);
-        setInteractionState(message.id, 'failed', String(err));
+        setInteractionState(permTabId, message.id, 'failed', String(err));
       }
     }
     setRetrying(false);
