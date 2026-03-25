@@ -1629,7 +1629,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               });
               useChatStore.getState().setSessionMeta(tabId, { pendingCommandMsgId: undefined });
               if (useChatStore.getState().getTab(tabId)?.sessionStatus === 'running') {
-                useChatStore.getState().setSessionStatus('idle');
+                useChatStore.getState().setSessionStatus(tabId, 'idle');
               }
             }
           }, 15_000); // Bug C fix (#27): reduced from 90s to 15s
