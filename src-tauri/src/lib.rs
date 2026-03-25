@@ -2384,16 +2384,21 @@ async fn list_sessions() -> Result<Vec<Value>, String> {
                                     continue;
                                 }
 
-                                // Get file metadata for timestamp
-                                let modified = std::fs::metadata(&path)
+                                // File mtime as fallback timestamp
+                                let file_mtime = std::fs::metadata(&path)
                                     .and_then(|m| m.modified())
                                     .ok()
                                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                                     .map(|d| d.as_millis() as u64)
                                     .unwrap_or(0);
 
-                                // Read first few lines to extract preview and cwd
-                                let (preview, cwd) = extract_session_info(&path);
+                                // Read first few lines to extract preview and cwd,
+                                // and read tail to get last activity timestamp.
+                                let (preview, cwd, last_ts) = extract_session_info(&path);
+
+                                // Prefer JSONL timestamp (actual session activity) over file
+                                // mtime, which can be reset by CLI compaction/migration.
+                                let modified = if last_ts > 0 { last_ts } else { file_mtime };
 
                                 // Use cwd from JSONL if available (authoritative),
                                 // otherwise fall back to decoding the directory name.
