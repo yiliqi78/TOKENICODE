@@ -48,9 +48,26 @@ async function writeClaudeJson(data: Record<string, unknown>): Promise<void> {
   await bridge.writeFileContent(path, JSON.stringify(data, null, 2));
 }
 
+/** Detect and flatten double-nested mcpServers.mcpServers structure (Issue #33). */
+function normalizeMcpServers(
+  raw: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!raw || typeof raw !== 'object') return raw;
+  // If the only (or first) key is "mcpServers" and its value looks like a server map,
+  // the user has a double-nested config — unwrap one level.
+  if ('mcpServers' in raw && typeof raw.mcpServers === 'object' && raw.mcpServers !== null) {
+    console.warn(
+      '[mcpStore] WARNING: detected double-nested mcpServers.mcpServers in ~/.claude.json, auto-flattening',
+    );
+    return raw.mcpServers as Record<string, unknown>;
+  }
+  return raw;
+}
+
 function parseServers(mcpServers: Record<string, unknown> | undefined): McpServer[] {
-  if (!mcpServers || typeof mcpServers !== 'object') return [];
-  return Object.entries(mcpServers).map(([name, raw]) => {
+  const normalized = normalizeMcpServers(mcpServers);
+  if (!normalized || typeof normalized !== 'object') return [];
+  return Object.entries(normalized).map(([name, raw]) => {
     const cfg = raw as Record<string, unknown>;
     return {
       name,
