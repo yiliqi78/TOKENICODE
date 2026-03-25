@@ -593,7 +593,7 @@ export function InputBar() {
       }
 
       case 'export': {
-        const meta = useChatStore.getState().sessionMeta;
+        const meta = getActiveTabState().sessionMeta;
         const sessions = useSessionStore.getState().sessions;
         const session = sessions.find((s: any) => s.id === meta.sessionId);
         const sessionPath = session?.path;
