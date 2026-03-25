@@ -1,5 +1,5 @@
 import { useSettingsStore, MODEL_OPTIONS } from '../../stores/settingsStore';
-import { useChatStore } from '../../stores/chatStore';
+import { useChatStore, useActiveTab } from '../../stores/chatStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { ConversationList } from '../conversations/ConversationList';
 import { useT } from '../../lib/i18n';
