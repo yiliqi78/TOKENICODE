@@ -57,33 +57,21 @@ function _scheduleStreamFlush(stdinId: string) {
   buf.raf = requestAnimationFrame(() => {
     buf.raf = 0;
 
-    // Check if the buffer's owner session is still the active foreground tab.
-    // If the user switched tabs between buffer accumulation and rAF flush,
-    // route the buffered text to the background cache instead.
-    const ownerTab = useSessionStore.getState().getTabForStdin(stdinId);
-    const activeTab = useSessionStore.getState().selectedSessionId;
-    const isStale = ownerTab && ownerTab !== activeTab;
-
-    if (isStale) {
-      // Route to background cache
-      if (buf.text && ownerTab) {
-        useChatStore.getState().updatePartialInCache(ownerTab, buf.text);
-      }
-      if (buf.thinking && ownerTab) {
-        useChatStore.getState().updatePartialThinkingInCache(ownerTab, buf.thinking);
-      }
+    // Resolve ownerTab from stdinId mapping — all updates go to this tab.
+    const tabId = useSessionStore.getState().getTabForStdin(stdinId);
+    if (!tabId) {
       buf.text = '';
       buf.thinking = '';
       return;
     }
 
-    const { updatePartialMessage, updatePartialThinking } = useChatStore.getState();
+    const store = useChatStore.getState();
     if (buf.text) {
-      updatePartialMessage(buf.text);
+      store.updatePartialMessage(tabId, buf.text);
       buf.text = '';
     }
     if (buf.thinking) {
-      updatePartialThinking(buf.thinking);
+      store.updatePartialThinking(tabId, buf.thinking);
       buf.thinking = '';
     }
   });
