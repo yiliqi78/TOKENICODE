@@ -128,8 +128,8 @@ function PlanToggleButton() {
   const t = useT();
   const isOpen = usePlanPanelStore((s) => s.open);
   const toggle = usePlanPanelStore((s) => s.toggle);
-  const hasPlanMessages = useChatStore((s) =>
-    s.messages.some((m) => m.type === 'plan_review' || m.type === 'plan' || m.planContent),
+  const hasPlanMessages = useActiveTab((t) =>
+    t.messages.some((m) => m.type === 'plan_review' || m.type === 'plan' || m.planContent),
   );
   const inPlanMode = useSettingsStore((s) => s.sessionMode) === 'plan';
 
