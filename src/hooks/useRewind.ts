@@ -57,7 +57,7 @@ export function useRewind() {
 
   /** Kill the current CLI process and clean up listeners */
   const killProcess = useCallback(async () => {
-    const state = useChatStore.getState();
+    const state = getActiveTabState();
     const stdinId = state.sessionMeta.stdinId;
     if (stdinId) {
       await bridge.killSession(stdinId).catch(() => {});
