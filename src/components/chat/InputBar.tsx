@@ -736,7 +736,7 @@ export function InputBar() {
           const modeVal = modeMap[cmdPart];
           const modeKey = `cmd.switchedTo${modeVal.charAt(0).toUpperCase() + modeVal.slice(1)}` as any;
           const iconMap: Record<string, string> = { ask: '💬', plan: '📋', code: '⚡' };
-          addMessage({
+          addMessage(tabId, {
             id: generateMessageId(),
             role: 'system',
             type: 'text',
