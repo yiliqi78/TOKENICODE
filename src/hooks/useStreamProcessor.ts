@@ -1238,10 +1238,10 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           if (Array.isArray(userContent)) {
             for (const block of userContent) {
               if (block.tool_use_id && resultText) {
-                const { messages: msgs, updateMessage: um } = useChatStore.getState();
+                const msgs = useChatStore.getState().getTab(tabId)?.messages ?? [];
                 const parent = msgs.find((m) => m.id === block.tool_use_id);
                 if (parent) {
-                  um(block.tool_use_id, { toolResultContent: resultText });
+                  useChatStore.getState().updateMessage(tabId, block.tool_use_id, { toolResultContent: resultText });
                 }
               }
             }
