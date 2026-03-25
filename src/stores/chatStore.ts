@@ -333,6 +333,32 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   sessionCache: new Map(),   // alias — always kept in sync with tabs
 
   // ------------------------------------------------------------------
+  // Backward compat: top-level getters that proxy to active tab
+  // These are DERIVED — updated via _syncActiveTabFields() after every tab mutation.
+  // ------------------------------------------------------------------
+  get messages() { return getActiveTabState().messages; },
+  get isStreaming() { return getActiveTabState().isStreaming; },
+  get partialText() { return getActiveTabState().partialText; },
+  get partialThinking() { return getActiveTabState().partialThinking; },
+  get sessionStatus() { return getActiveTabState().sessionStatus; },
+  get sessionMeta() { return getActiveTabState().sessionMeta; },
+  get activityStatus() { return getActiveTabState().activityStatus; },
+  get inputDraft() { return getActiveTabState().inputDraft; },
+  get pendingAttachments() { return getActiveTabState().pendingAttachments; },
+  get pendingUserMessages() { return getActiveTabState().pendingUserMessages; },
+
+  /** @deprecated Use resetTab(tabId) instead */
+  resetSession: () => {
+    const tabId = useSessionStore.getState().selectedSessionId;
+    if (tabId) {
+      set((state) => {
+        const result = updateTab(state.tabs, tabId, () => createTab(tabId));
+        return result ?? {};
+      });
+    }
+  },
+
+  // ------------------------------------------------------------------
   // Tab-level operations
   // ------------------------------------------------------------------
 
