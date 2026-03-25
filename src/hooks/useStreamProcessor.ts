@@ -888,7 +888,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             && evt.content_block?.type === 'tool_use'
             && evt.content_block?.name === 'ExitPlanMode'
             && useSettingsStore.getState().sessionMode === 'plan') {
-          const currentMessages = useChatStore.getState().messages;
+          const currentMessages = (useChatStore.getState().getTab(tabId)?.messages ?? []);
 
           // Guard: if plan_review_current already exists and was resolved,
           // this is a replay after plan approval — don't create a new card.
@@ -982,7 +982,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           useChatStore.getState().updateMessage(pendingCmd, {
             commandCompleted: true,
             commandData: {
-              ...useChatStore.getState().messages.find((m) => m.id === pendingCmd)?.commandData,
+              ...(useChatStore.getState().getTab(tabId)?.messages ?? []).find((m) => m.id === pendingCmd)?.commandData,
               completedAt: Date.now(),
             },
           });
@@ -1044,7 +1044,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               // Search by exact ID first, then by any AskUserQuestion card —
               // the control_request handler may have already created one with
               // a different ID (e.g. 'ask_question_current' vs 'toolu_01abc').
-              const currentMessages = useChatStore.getState().messages;
+              const currentMessages = (useChatStore.getState().getTab(tabId)?.messages ?? []);
               const existingQuestion = currentMessages.find(
                 (m) => m.id === questionId && m.type === 'question',
               ) || currentMessages.find(
@@ -1102,7 +1102,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               // In Code mode the CLI handles ExitPlanMode natively.
               // In Bypass mode the Rust backend auto-approves — no UI card needed.
               if (useSettingsStore.getState().sessionMode === 'plan') {
-                const currentMessages = useChatStore.getState().messages;
+                const currentMessages = (useChatStore.getState().getTab(tabId)?.messages ?? []);
 
                 // Guard: skip if already approved (replay)
                 const toolAlreadyExisted = block.id && currentMessages.some(
@@ -1320,7 +1320,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           const pendingText = meta.providerSwitchPendingText || meta.modelSwitchPendingText;
           // Find last user message as fallback retry text when no pendingText is set
           const lastUserMsg = !pendingText
-            ? [...useChatStore.getState().messages].reverse().find((m) => m.role === 'user')?.content
+            ? [...(useChatStore.getState().getTab(tabId)?.messages ?? [])].reverse().find((m) => m.role === 'user')?.content
             : undefined;
           const retryCandidate = pendingText || (typeof lastUserMsg === 'string' ? lastUserMsg : undefined);
           if (isThinkingSignatureError && retryCandidate) {
@@ -1463,7 +1463,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           useChatStore.getState().updateMessage(pendingCmdMsgId, {
             commandCompleted: true,
             commandData: {
-              ...useChatStore.getState().messages.find((m) => m.id === pendingCmdMsgId)?.commandData,
+              ...(useChatStore.getState().getTab(tabId)?.messages ?? []).find((m) => m.id === pendingCmdMsgId)?.commandData,
               output: resultOutput,
               completedAt: Date.now(),
             },
@@ -1493,7 +1493,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           const output = msg.usage?.output_tokens
             ? msg.usage.output_tokens.toLocaleString()
             : '';
-          const cmdMsg = useChatStore.getState().messages.find((m) => m.id === pendingCmdMsgId);
+          const cmdMsg = (useChatStore.getState().getTab(tabId)?.messages ?? []).find((m) => m.id === pendingCmdMsgId);
           if (cmdMsg) {
             useChatStore.getState().updateMessage(pendingCmdMsgId, {
               commandData: {
@@ -1510,7 +1510,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         // 'assistant' event (which is the normal case for stream-json output)
         // AND there's no pending command card (which already displays the output).
         if (resultDisplayText && !pendingCmdMsgId) {
-          const currentMessages = useChatStore.getState().messages;
+          const currentMessages = (useChatStore.getState().getTab(tabId)?.messages ?? []);
           const isDuplicate = currentMessages.some(
             (m) => m.role === 'assistant' && m.type === 'text'
               && m.content === resultDisplayText,
@@ -1562,7 +1562,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           if (sessionId) {
             const customPreviews = useSessionStore.getState().customPreviews;
             if (!customPreviews[sessionId]) {
-              const currentMessages = useChatStore.getState().messages;
+              const currentMessages = (useChatStore.getState().getTab(tabId)?.messages ?? []);
               const userTextMsgs = currentMessages.filter(
                 (m) => m.role === 'user' && m.type === 'text' && m.content,
               );
@@ -1622,7 +1622,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               useChatStore.getState().updateMessage(compactMsgId, {
                 commandCompleted: true,
                 commandData: {
-                  ...useChatStore.getState().messages.find((m) => m.id === compactMsgId)?.commandData,
+                  ...(useChatStore.getState().getTab(tabId)?.messages ?? []).find((m) => m.id === compactMsgId)?.commandData,
                   output: 'Compact timed out',
                   completedAt: Date.now(),
                 },
