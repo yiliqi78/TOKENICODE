@@ -81,10 +81,12 @@ export function PlanReviewCard({ message, floating }: Props) {
           );
         } catch (err) {
           console.error('[TC:plan] Failed to respond to ExitPlanMode permission:', err);
-          useChatStore.getState().updateMessage(message.id, {
-            interactionState: 'failed',
-            interactionError: String(err),
-          });
+          if (planTabId) {
+            useChatStore.getState().updateMessage(planTabId, message.id, {
+              interactionState: 'failed',
+              interactionError: String(err),
+            });
+          }
           setApproving(false);
           return;
         }
