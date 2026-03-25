@@ -1460,7 +1460,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         const pendingCmdMsgId = useChatStore.getState().getTab(tabId)?.sessionMeta.pendingCommandMsgId;
         if (pendingCmdMsgId) {
           const resultOutput = typeof msg.result === 'string' ? msg.result : '';
-          useChatStore.getState().updateMessage(pendingCmdMsgId, {
+          useChatStore.getState().updateMessage(tabId, pendingCmdMsgId, {
             commandCompleted: true,
             commandData: {
               ...(useChatStore.getState().getTab(tabId)?.messages ?? []).find((m) => m.id === pendingCmdMsgId)?.commandData,
@@ -1495,7 +1495,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             : '';
           const cmdMsg = (useChatStore.getState().getTab(tabId)?.messages ?? []).find((m) => m.id === pendingCmdMsgId);
           if (cmdMsg) {
-            useChatStore.getState().updateMessage(pendingCmdMsgId, {
+            useChatStore.getState().updateMessage(tabId, pendingCmdMsgId, {
               commandData: {
                 ...cmdMsg.commandData,
                 costSummary: { cost, duration, turns, input, output },
