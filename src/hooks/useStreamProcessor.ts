@@ -689,7 +689,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               break;
             }
           }
-          addMessage({
+          chatStore.addMessage(tabId, {
             id: 'plan_review_current',
             role: 'assistant',
             type: 'plan_review',
@@ -699,7 +699,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             permissionData: permData,
             timestamp: Date.now(),
           });
-          setActivityStatus({ phase: 'awaiting' });
+          chatStore.setActivityStatus(tabId, { phase: 'awaiting' });
         }
         return;
       }
@@ -707,7 +707,8 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
       // AskUserQuestion: create QuestionCard instead of PermissionCard.
       // User answers are sent back via respondPermission(updatedInput) — NOT sendStdin.
       if (msg.tool_name === 'AskUserQuestion') {
-        const { messages, addMessage, updateMessage, setActivityStatus } = useChatStore.getState();
+        const chatStore = useChatStore.getState();
+        const messages = chatStore.getTab(tabId)?.messages ?? [];
         const questionId = msg.tool_use_id || 'ask_question_current';
         // Search by exact ID first, then fall back to any unresolved AskUserQuestion.
         // This handles the race condition where the assistant message arrives first
@@ -719,7 +720,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           // Patch permissionData so QuestionCard uses respondPermission (SDK path)
           // instead of sendStdin (legacy path). Always update — even if permissionData
           // exists — because a new control_request supersedes a stale one.
-          updateMessage(existing.id, {
+          chatStore.updateMessage(tabId, existing.id, {
             permissionData: {
               requestId: msg.request_id,
               toolName: msg.tool_name,
@@ -731,7 +732,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           return;
         }
         const questions = msg.input?.questions;
-        addMessage({
+        chatStore.addMessage(tabId, {
           id: questionId,
           role: 'assistant',
           type: 'question',
@@ -749,12 +750,13 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             toolUseId: msg.tool_use_id,
           },
         });
-        setActivityStatus({ phase: 'awaiting' });
+        chatStore.setActivityStatus(tabId, { phase: 'awaiting' });
         return;
       }
 
       // Dedup: skip if we already have a non-failed PermissionCard for this request_id
-      const { messages, addMessage, setActivityStatus } = useChatStore.getState();
+      const chatStore = useChatStore.getState();
+      const messages = chatStore.getTab(tabId)?.messages ?? [];
       const existingPerm = messages.find(
         (m) => m.type === 'permission'
           && m.permissionData?.requestId === msg.request_id
@@ -763,7 +765,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
       if (existingPerm) {
         return;
       }
-      addMessage({
+      chatStore.addMessage(tabId, {
         id: generateMessageId(),
         role: 'assistant',
         type: 'permission',
@@ -780,12 +782,15 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           toolUseId: msg.tool_use_id,
         },
       });
-      setActivityStatus({ phase: 'awaiting' });
+      chatStore.setActivityStatus(tabId, { phase: 'awaiting' });
       return;
     }
 
-    const { addMessage,
-      setSessionStatus, setSessionMeta, setActivityStatus } = useChatStore.getState();
+    const cs = useChatStore.getState();
+    const addMessage = (message: ChatMessage) => cs.addMessage(tabId, message);
+    const setSessionStatus = (status: import('../stores/chatStore').SessionStatus) => cs.setSessionStatus(tabId, status);
+    const setSessionMeta = (meta: Partial<import('../stores/chatStore').SessionMeta>) => cs.setSessionMeta(tabId, meta);
+    const setActivityStatus = (status: import('../stores/chatStore').ActivityStatus) => cs.setActivityStatus(tabId, status);
     const agentActions = useAgentStore.getState();
     const agentId = resolveAgentId(msg.parent_tool_use_id, agentActions.agents);
     const agentDepth = getAgentDepth(agentId, agentActions.agents);
