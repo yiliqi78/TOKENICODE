@@ -292,22 +292,24 @@ export function ConversationList() {
 
     // Draft sessions
     if (!sessionPath) {
-      useChatStore.getState().resetSession();
+      useChatStore.getState().ensureTab(sessionId);
+      useChatStore.getState().resetTab(sessionId);
       useAgentStore.getState().clearAgents();
       return;
     }
 
     // Load from disk
+    useChatStore.getState().ensureTab(sessionId);
     useSettingsStore.getState().setWorkingDirectory(resolveProjectPath(projectOrDir));
     const { clearMessages, addMessage, setSessionStatus, setSessionMeta } = useChatStore.getState();
     const agentActions = useAgentStore.getState();
-    clearMessages();
+    clearMessages(sessionId);
     agentActions.clearAgents();
-    setSessionStatus('running');
+    setSessionStatus(sessionId, 'running');
     // TK-329: explicitly clear stdinId when loading from disk — no live process exists yet.
     // Only set the CLI UUID (for resume). Prevents inheriting a stale stdinId
     // from a previous session that might still be alive in the backend.
-    setSessionMeta({ sessionId, stdinId: undefined });
+    setSessionMeta(sessionId, { sessionId, stdinId: undefined });
 
     try {
       const rawMessages = await bridge.loadSession(sessionPath);
