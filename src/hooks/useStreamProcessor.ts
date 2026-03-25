@@ -798,24 +798,23 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
     // Capture the CLI's own session ID from stream events (used for --resume)
     const cliSessionId = msg.session_id || msg.sessionId;
     if (cliSessionId) {
-      const currentId = useChatStore.getState().sessionMeta.sessionId;
+      const currentId = useChatStore.getState().getTab(tabId)?.sessionMeta.sessionId;
       if (currentId !== cliSessionId) {
         setSessionMeta({ sessionId: cliSessionId });
         bridge.trackSession(cliSessionId).catch(() => {});
 
         // Promote draft tab to real session ID so it merges with disk session
-        const currentTabId = useSessionStore.getState().selectedSessionId;
-        if (currentTabId && currentTabId.startsWith('draft_')) {
-          // Migrate cache under old draft key to new real key
+        if (tabId.startsWith('draft_')) {
+          // Migrate tab data under old draft key to new real key
           const chatState = useChatStore.getState();
-          if (chatState.sessionCache.has(currentTabId)) {
-            const snapshot = chatState.sessionCache.get(currentTabId)!;
-            const next = new Map(chatState.sessionCache);
-            next.set(cliSessionId, snapshot);
-            next.delete(currentTabId);
-            useChatStore.setState({ sessionCache: next });
+          const tabData = chatState.getTab(tabId);
+          if (tabData) {
+            const newTabs = new Map(chatState.tabs);
+            newTabs.set(cliSessionId, { ...tabData, tabId: cliSessionId });
+            newTabs.delete(tabId);
+            useChatStore.setState({ tabs: newTabs, sessionCache: newTabs });
           }
-          useSessionStore.getState().promoteDraft(currentTabId, cliSessionId);
+          useSessionStore.getState().promoteDraft(tabId, cliSessionId);
         }
 
         useSessionStore.getState().fetchSessions();
@@ -826,9 +825,11 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
     const clearPartial = () => {
       // Flush any buffered text so the final tokens aren't lost
       flushStreamBuffer();
-      const store = useChatStore.getState();
-      if (store.isStreaming || store.partialText || store.partialThinking) {
-        useChatStore.setState({ partialText: '', partialThinking: '', isStreaming: false });
+      const tabData = useChatStore.getState().getTab(tabId);
+      if (tabData && (tabData.isStreaming || tabData.partialText || tabData.partialThinking)) {
+        const newTabs = new Map(useChatStore.getState().tabs);
+        newTabs.set(tabId, { ...tabData, partialText: '', partialThinking: '', isStreaming: false });
+        useChatStore.setState({ tabs: newTabs, sessionCache: newTabs });
       }
     };
 
