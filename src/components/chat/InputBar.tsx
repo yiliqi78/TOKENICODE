@@ -1012,25 +1012,28 @@ export function InputBar() {
               cache.setActivityInCache(reqOwnerTabId, { phase: 'awaiting' });
               return;
             }
-            const { addMessage, setActivityStatus } = useChatStore.getState();
-            addMessage({
-              id: generateMessageId(),
-              role: 'assistant',
-              type: 'permission',
-              content: req.description || `${req.tool_name} wants to execute`,
-              permissionTool: req.tool_name,
-              permissionDescription: req.description || '',
-              timestamp: Date.now(),
-              interactionState: 'pending',
-              permissionData: {
-                requestId: req.request_id,
-                toolName: req.tool_name,
-                input: req.input,
-                description: req.description,
-                toolUseId: req.tool_use_id,
-              },
-            });
-            setActivityStatus({ phase: 'awaiting' });
+            const { addMessage: addMsg, setActivityStatus: setActivity } = useChatStore.getState();
+            const fgTabId = useSessionStore.getState().selectedSessionId;
+            if (fgTabId) {
+              addMsg(fgTabId, {
+                id: generateMessageId(),
+                role: 'assistant',
+                type: 'permission',
+                content: req.description || `${req.tool_name} wants to execute`,
+                permissionTool: req.tool_name,
+                permissionDescription: req.description || '',
+                timestamp: Date.now(),
+                interactionState: 'pending',
+                permissionData: {
+                  requestId: req.request_id,
+                  toolName: req.tool_name,
+                  input: req.input,
+                  description: req.description,
+                  toolUseId: req.tool_use_id,
+                },
+              });
+              setActivity(fgTabId, { phase: 'awaiting' });
+            }
           }
         );
 
