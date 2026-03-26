@@ -1,7 +1,7 @@
 mod commands;
 mod protocol;
 
-use commands::{BypassModeMap, ManagedProcess, ProcessManager, SessionInfo, StartSessionParams, StdinManager};
+use commands::{ManagedProcess, ProcessManager, SessionInfo, StartSessionParams, StdinManager};
 // protocol module kept for ControlRequest (send_control_request) and tests
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -150,40 +150,16 @@ fn is_valid_executable(path: &std::path::Path) -> bool {
             use std::io::Read;
             let mut magic = [0u8; 4];
             if f.read_exact(&mut magic).is_ok() {
-                let is_binary = matches!(
+                return matches!(
                     magic,
                     [0xCF, 0xFA, 0xED, 0xFE] // Mach-O 64-bit (little-endian, Apple Silicon / Intel)
                     | [0xCE, 0xFA, 0xED, 0xFE] // Mach-O 32-bit (little-endian)
                     | [0xFE, 0xED, 0xFA, 0xCF] // Mach-O 64-bit (big-endian)
                     | [0xFE, 0xED, 0xFA, 0xCE] // Mach-O 32-bit (big-endian)
                     | [0xCA, 0xFE, 0xBA, 0xBE] // Universal/fat binary
+                    | [0x23, 0x21, _, _]        // Shebang script (#!/...)
                     | [0x7F, 0x45, 0x4C, 0x46] // ELF (Linux — valid on Linux hosts)
                 );
-                if is_binary {
-                    return true;
-                }
-                // Shebang script — verify the interpreter exists to avoid ENOENT at spawn.
-                // e.g. #!/usr/bin/env node → check /usr/bin/env exists
-                // e.g. #!/path/to/node → check /path/to/node exists
-                if magic[0] == 0x23 && magic[1] == 0x21 {
-                    use std::io::{BufRead, BufReader, Seek, SeekFrom};
-                    let _ = f.seek(SeekFrom::Start(0));
-                    let mut first_line = String::new();
-                    if BufReader::new(&f).read_line(&mut first_line).is_ok() {
-                        let shebang = first_line.trim_start_matches("#!").trim();
-                        // Extract interpreter path (first token before any args)
-                        let interpreter = shebang.split_whitespace().next().unwrap_or("");
-                        if !interpreter.is_empty() && std::path::Path::new(interpreter).exists() {
-                            return true;
-                        }
-                        // Interpreter not found — skip this script
-                        eprintln!(
-                            "[is_valid_executable] shebang interpreter '{}' not found, skipping {:?}",
-                            interpreter, path
-                        );
-                    }
-                    return false;
-                }
             }
         }
         false
@@ -238,350 +214,191 @@ fn find_git_bash() -> Option<String> {
     None
 }
 
-/// Check if a file is a native binary (Mach-O, PE, ELF, universal — NOT shebang scripts).
-fn is_native_binary(path: &std::path::Path) -> bool {
-    if !path.exists() {
-        return false;
-    }
+fn find_claude_binary() -> Option<String> {
+    // 1. Check if `claude` is already on the system PATH (highest priority)
     #[cfg(target_os = "windows")]
     {
-        if let Ok(mut f) = std::fs::File::open(path) {
-            use std::io::Read;
-            let mut magic = [0u8; 2];
-            if f.read_exact(&mut magic).is_ok() {
-                return magic == [0x4D, 0x5A]; // MZ (PE header)
-            }
-        }
-        false
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let Ok(metadata) = std::fs::metadata(path) else { return false };
-        if metadata.permissions().mode() & 0o111 == 0 { return false; }
-        if let Ok(mut f) = std::fs::File::open(path) {
-            use std::io::Read;
-            let mut magic = [0u8; 4];
-            if f.read_exact(&mut magic).is_ok() {
-                return matches!(
-                    magic,
-                    [0xCF, 0xFA, 0xED, 0xFE] | [0xCE, 0xFA, 0xED, 0xFE]
-                    | [0xFE, 0xED, 0xFA, 0xCF] | [0xFE, 0xED, 0xFA, 0xCE]
-                    | [0xCA, 0xFE, 0xBA, 0xBE] | [0x7F, 0x45, 0x4C, 0x46]
-                );
-            }
-        }
-        false
-    }
-}
-
-/// Collect directories to search for claude binary, in priority order.
-/// System/user paths first, app-local (self-deployed) paths last.
-fn collect_search_dirs() -> Vec<String> {
-    let mut dirs: Vec<String> = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    let mut push = |d: String| { if seen.insert(d.clone()) { dirs.push(d); } };
-
-    #[cfg(target_os = "windows")]
-    let bin_name = "claude.exe";
-    #[cfg(not(target_os = "windows"))]
-    let bin_name = "claude";
-
-    if let Some(home) = dirs::home_dir() {
-        // 1. Claude Desktop bundled CLI (versioned dirs — highest priority)
-        #[cfg(target_os = "windows")]
-        {
-            for base_fn in [dirs::data_local_dir, dirs::data_dir] {
-                if let Some(base) = base_fn() {
-                    let vdir = base.join("Claude").join("claude-code");
-                    if let Some(bin) = find_newest_version_bin(&vdir, bin_name) {
-                        if let Some(p) = std::path::Path::new(&bin).parent() {
-                            push(p.to_string_lossy().to_string());
+        // Windows: use `where` via cmd with CREATE_NO_WINDOW to avoid flashing console.
+        // Prefer claude.cmd first — `where claude` may return the extensionless JS script
+        // which causes error 193 on Windows.
+        for query in ["claude.cmd", "claude"] {
+            if let Ok(output) = std::process::Command::new("cmd")
+                .args(["/C", "where", query])
+                .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                .output()
+            {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    // `where` may return multiple lines; find the first valid executable
+                    for line in stdout.lines() {
+                        let path = line.trim().to_string();
+                        if path.is_empty() {
+                            continue;
+                        }
+                        let p = std::path::Path::new(&path);
+                        // Skip extensionless files (JS scripts) — they cause error 193
+                        if p.extension().is_none() {
+                            continue;
+                        }
+                        if is_valid_executable(p) {
+                            return Some(path);
                         }
                     }
+                }
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(output) = std::process::Command::new("sh")
+            .args(["-l", "-c", "which claude"])
+            .output()
+        {
+            if output.status.success() {
+                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !path.is_empty() && is_valid_executable(std::path::Path::new(&path)) {
+                    return Some(path);
+                }
+            }
+        }
+    }
+
+    if let Some(home) = dirs::home_dir() {
+        // 2. Platform-specific Claude desktop app bundled CLI
+        #[cfg(target_os = "windows")]
+        {
+            // %LOCALAPPDATA%\Claude\claude-code\*\claude.exe
+            if let Some(local_app) = dirs::data_local_dir() {
+                let claude_code_dir = local_app.join("Claude").join("claude-code");
+                if let Some(bin) = find_newest_version_bin(&claude_code_dir, "claude.exe") {
+                    return Some(bin);
+                }
+            }
+            // %APPDATA%\Claude\claude-code\*\claude.exe
+            if let Some(app_data) = dirs::data_dir() {
+                let claude_code_dir = app_data.join("Claude").join("claude-code");
+                if let Some(bin) = find_newest_version_bin(&claude_code_dir, "claude.exe") {
+                    return Some(bin);
                 }
             }
         }
         #[cfg(target_os = "macos")]
         {
-            let vdir = home.join("Library/Application Support/Claude/claude-code");
-            if let Some(bin) = find_newest_version_bin(&vdir, bin_name) {
-                if let Some(p) = std::path::Path::new(&bin).parent() {
-                    push(p.to_string_lossy().to_string());
-                }
+            let claude_code_dir = home.join("Library/Application Support/Claude/claude-code");
+            if let Some(bin) = find_newest_version_bin(&claude_code_dir, "claude") {
+                return Some(bin);
             }
         }
         #[cfg(target_os = "linux")]
-        if let Some(data_dir) = dirs::data_dir() {
-            let vdir = data_dir.join("Claude").join("claude-code");
-            if let Some(bin) = find_newest_version_bin(&vdir, bin_name) {
-                if let Some(p) = std::path::Path::new(&bin).parent() {
-                    push(p.to_string_lossy().to_string());
+        {
+            // ~/.local/share/Claude/claude-code/*/claude
+            if let Some(data_dir) = dirs::data_dir() {
+                let claude_code_dir = data_dir.join("Claude").join("claude-code");
+                if let Some(bin) = find_newest_version_bin(&claude_code_dir, "claude") {
+                    return Some(bin);
                 }
             }
         }
 
-        // 2. Native binary install (~/.claude/local/)
+        // 2b. Native binary install (~/.claude/local/claude)
+        // This is where `curl -fsSL https://claude.ai/install.sh | bash` puts it.
+        // Prefer native over npm to avoid Node.js version compatibility issues
+        // (e.g. --sdk-url bug on Node 22, see anthropics/claude-code#30774).
         #[cfg(not(target_os = "windows"))]
-        push(home.join(".claude/local").to_string_lossy().to_string());
-        #[cfg(target_os = "windows")]
-        push(home.join(".claude\\local").to_string_lossy().to_string());
-
-        // 3. Common user-level install paths
+        {
+            let native = home.join(".claude/local/claude");
+            if is_valid_executable(&native) {
+                return Some(native.to_string_lossy().to_string());
+            }
+        }
         #[cfg(target_os = "windows")]
         {
+            let native = home.join(".claude\\local\\claude.exe");
+            if is_valid_executable(&native) {
+                return Some(native.to_string_lossy().to_string());
+            }
+        }
+
+        // 3. Common global install paths
+        #[cfg(target_os = "windows")]
+        {
+            // npm global: %APPDATA%\npm\claude.cmd
             if let Some(app_data) = dirs::data_dir() {
-                push(app_data.join("npm").to_string_lossy().to_string());
-            }
-            if let Some(local_data) = dirs::data_local_dir() {
-                push(local_data.join("Programs\\claude-code").to_string_lossy().to_string());
-            }
-            push(home.join("scoop\\shims").to_string_lossy().to_string());
-            push(home.join(".volta\\bin").to_string_lossy().to_string());
-            push(home.join(".bun\\bin").to_string_lossy().to_string());
-            // nvm-windows: scan for newest Node version
-            let nvm_dir = home.join("AppData\\Roaming\\nvm");
-            if let Some(bin) = find_newest_version_bin(&nvm_dir, bin_name) {
-                if let Some(p) = std::path::Path::new(&bin).parent() {
-                    push(p.to_string_lossy().to_string());
+                for name in ["claude.cmd", "claude.exe", "claude.ps1"] {
+                    let candidate = app_data.join("npm").join(name);
+                    if is_valid_executable(&candidate) {
+                        return Some(candidate.to_string_lossy().to_string());
+                    }
                 }
             }
-            // fnm on Windows
-            let fnm_default = home.join(".fnm\\aliases\\default");
-            if fnm_default.exists() {
-                push(fnm_default.to_string_lossy().to_string());
+            // Scoop: ~/scoop/shims/claude.cmd
+            let scoop_candidate = home.join("scoop").join("shims").join("claude.cmd");
+            if is_valid_executable(&scoop_candidate) {
+                return Some(scoop_candidate.to_string_lossy().to_string());
+            }
+            // nvm-windows / fnm / volta node paths
+            for sub in [
+                "AppData\\Roaming\\nvm",
+                ".volta\\bin",
+                "AppData\\Local\\fnm_multishells",
+            ] {
+                let candidate = home.join(sub).join("claude.cmd");
+                if is_valid_executable(&candidate) {
+                    return Some(candidate.to_string_lossy().to_string());
+                }
             }
         }
         #[cfg(not(target_os = "windows"))]
         {
-            push(home.join(".local/bin").to_string_lossy().to_string());
-            push(home.join(".npm-global/bin").to_string_lossy().to_string());
-            push(home.join(".volta/bin").to_string_lossy().to_string());
-            push(home.join(".bun/bin").to_string_lossy().to_string());
-            // fnm: ~/.fnm/aliases/default/bin/
-            let fnm_bin = home.join(".fnm/aliases/default/bin");
-            if fnm_bin.exists() {
-                push(fnm_bin.to_string_lossy().to_string());
-            }
-            // NVM: scan ~/.nvm/versions/node/<version>/bin/ for newest version
-            let nvm_base = home.join(".nvm/versions/node");
-            if nvm_base.exists() {
-                if let Ok(entries) = std::fs::read_dir(&nvm_base) {
-                    let mut versions: Vec<_> = entries.flatten().filter(|e| e.path().is_dir()).collect();
-                    versions.sort_by(|a, b| {
-                        let parse = |name: &std::ffi::OsStr| -> Vec<u64> {
-                            name.to_string_lossy().split('.').filter_map(|s| s.parse::<u64>().ok()).collect()
-                        };
-                        parse(&b.file_name()).cmp(&parse(&a.file_name()))
-                    });
-                    for entry in &versions {
-                        let bin_dir = entry.path().join("bin");
-                        if bin_dir.join(bin_name).exists() {
-                            push(bin_dir.to_string_lossy().to_string());
-                            break;
-                        }
-                    }
+            for candidate in [
+                home.join(".npm-global/bin/claude"),
+                home.join(".local/bin/claude"),
+            ] {
+                if is_valid_executable(&candidate) {
+                    return Some(candidate.to_string_lossy().to_string());
                 }
             }
         }
     }
 
-    // 4. System-wide paths + npm global root
+    // 4. System-wide paths (Unix only)
     #[cfg(not(target_os = "windows"))]
     {
-        push("/usr/local/bin".to_string());
-        push("/opt/homebrew/bin".to_string());
-        // npm global installs: `npm root -g` resolves the actual prefix
-        // (covers custom prefix set via npmrc, nvm, etc.)
-        if let Ok(output) = std::process::Command::new("npm")
-            .args(["root", "-g"])
-            .stdin(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .output()
-        {
-            if output.status.success() {
-                let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                // npm root -g returns e.g. /usr/local/lib/node_modules
-                // The binary lives in the sibling ../bin directory
-                if let Some(lib_dir) = std::path::Path::new(&root).parent() {
-                    let npm_bin = lib_dir.join("bin");
-                    if npm_bin.exists() {
-                        push(npm_bin.to_string_lossy().to_string());
-                    }
-                }
-                // Also check .bin inside node_modules itself (npx-style)
-                let dot_bin = std::path::Path::new(&root).join(".bin");
-                if dot_bin.exists() {
-                    push(dot_bin.to_string_lossy().to_string());
-                }
+        for candidate in ["/usr/local/bin/claude", "/opt/homebrew/bin/claude"] {
+            if is_valid_executable(std::path::Path::new(candidate)) {
+                return Some(candidate.to_string());
             }
         }
-        // Common npm global lib path (when prefix is /usr/local)
-        push("/usr/local/lib/node_modules/.bin".to_string());
     }
+
+    // 5. App-local and npm-global (lowest priority — fallback for self-deployed CLI)
     #[cfg(target_os = "windows")]
-    {
-        // npm root -g on Windows
-        if let Ok(output) = std::process::Command::new("cmd")
-            .args(["/C", "npm", "root", "-g"])
-            .stdin(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .creation_flags(0x08000000)
-            .output()
-        {
-            if output.status.success() {
-                let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                // On Windows, global bin is the parent of node_modules
-                if let Some(lib_dir) = std::path::Path::new(&root).parent() {
-                    push(lib_dir.to_string_lossy().to_string());
-                }
-            }
-        }
-    }
-
-    // 5. Current process PATH + login shell PATH
-    let sep = if cfg!(windows) { ';' } else { ':' };
-    let current_path = std::env::var("PATH").unwrap_or_default();
-    for entry in current_path.split(sep) {
-        if !entry.is_empty() { push(entry.to_string()); }
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        for entry in login_shell_extra_path().split(':') {
-            if !entry.is_empty() { push(entry.to_string()); }
-        }
-    }
-
-    // 6. App-local paths (lowest priority — self-deployed CLI fallback)
-    if let Some(cli_dir) = cli_download_dir() {
-        push(cli_dir.to_string_lossy().to_string());
-    }
     if let Some(npm_bin) = get_npm_global_bin() {
-        push(npm_bin.to_string_lossy().to_string());
+        for name in &["claude.cmd", "claude.exe"] {
+            let path = npm_bin.join(name);
+            if is_valid_executable(&path) {
+                return Some(path.to_string_lossy().to_string());
+            }
+        }
     }
 
-    // 7. Last resort: `which`/`where` fallback (catches any PATH we missed)
+    if let Some(cli_dir) = cli_download_dir() {
+        #[cfg(target_os = "windows")]
+        let bin_name = "claude.exe";
+        #[cfg(not(target_os = "windows"))]
+        let bin_name = "claude";
+        let path = cli_dir.join(bin_name);
+        if path.exists() && is_valid_executable(&path) {
+            return Some(path.to_string_lossy().to_string());
+        }
+    }
+
     #[cfg(not(target_os = "windows"))]
-    {
-        if let Ok(output) = std::process::Command::new("which").arg(bin_name)
-            .stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null())
-            .output()
-        {
-            if output.status.success() {
-                let p = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if let Some(dir) = std::path::Path::new(&p).parent() {
-                    push(dir.to_string_lossy().to_string());
-                }
-            }
-        }
-    }
-    #[cfg(target_os = "windows")]
-    {
-        if let Ok(output) = std::process::Command::new("cmd").args(["/C", "where", bin_name])
-            .stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null())
-            .creation_flags(0x08000000)
-            .output()
-        {
-            if output.status.success() {
-                if let Some(line) = String::from_utf8_lossy(&output.stdout).lines().next() {
-                    let p = line.trim().to_string();
-                    if let Some(dir) = std::path::Path::new(&p).parent() {
-                        push(dir.to_string_lossy().to_string());
-                    }
-                }
-            }
-        }
-    }
-
-    dirs
-}
-
-fn find_claude_binary() -> Option<String> {
-    let dirs = collect_search_dirs();
-
-    #[cfg(target_os = "windows")]
-    let names: &[&str] = &["claude.exe", "claude.cmd"];
-    #[cfg(not(target_os = "windows"))]
-    let names: &[&str] = &["claude"];
-
-    // Phase 1: prefer native binaries (Mach-O, PE, ELF) — no interpreter dependency
-    for dir in &dirs {
-        for name in names {
-            let candidate = std::path::Path::new(dir).join(name);
-            if is_native_binary(&candidate) {
-                return Some(candidate.to_string_lossy().to_string());
-            }
-        }
-    }
-
-    // Phase 2: accept any valid executable (including shebang scripts, .cmd wrappers)
-    for dir in &dirs {
-        for name in names {
-            let candidate = std::path::Path::new(dir).join(name);
-            if is_valid_executable(&candidate) {
-                return Some(candidate.to_string_lossy().to_string());
-            }
-        }
-    }
-
-    // Phase 3: detect broken symlinks and log warnings.
-    // A renamed project folder can leave ~/.local/bin/claude pointing at nothing.
-    // symlink_metadata succeeds for broken symlinks (unlike metadata/exists).
-    #[cfg(not(target_os = "windows"))]
-    {
-        for dir in &dirs {
-            for name in names {
-                let candidate = std::path::Path::new(dir).join(name);
-                if let Ok(meta) = std::fs::symlink_metadata(&candidate) {
-                    if meta.file_type().is_symlink() && !candidate.exists() {
-                        eprintln!(
-                            "[find_claude_binary] WARNING: broken symlink at '{}' \
-                             (target no longer exists). Consider re-running `npm i -g @anthropic-ai/claude-code`.",
-                            candidate.display()
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    // Phase 4: direct `which`/`where` fallback — resolves the binary even if
-    // the directory scan missed it (e.g. installed via a package manager whose
-    // bin dir isn't in our search list).
-    #[cfg(not(target_os = "windows"))]
-    {
-        if let Ok(output) = std::process::Command::new("which")
-            .arg("claude")
-            .stdin(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .output()
-        {
-            if output.status.success() {
-                let p = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !p.is_empty() && std::path::Path::new(&p).exists() {
-                    eprintln!("[find_claude_binary] found via `which` fallback: {}", p);
-                    return Some(p);
-                }
-            }
-        }
-    }
-    #[cfg(target_os = "windows")]
-    {
-        if let Ok(output) = std::process::Command::new("cmd")
-            .args(["/C", "where", "claude"])
-            .stdin(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .creation_flags(0x08000000)
-            .output()
-        {
-            if output.status.success() {
-                if let Some(line) = String::from_utf8_lossy(&output.stdout).lines().next() {
-                    let p = line.trim().to_string();
-                    if !p.is_empty() && std::path::Path::new(&p).exists() {
-                        eprintln!("[find_claude_binary] found via `where` fallback: {}", p);
-                        return Some(p);
-                    }
-                }
+    if let Some(npm_bin) = get_npm_global_bin() {
+        for name in &["claude"] {
+            let path = npm_bin.join(name);
+            if is_valid_executable(&path) {
+                return Some(path.to_string_lossy().to_string());
             }
         }
     }
@@ -589,43 +406,128 @@ fn find_claude_binary() -> Option<String> {
     None
 }
 
-/// Like find_claude_binary() but skips app-local paths (cli_download_dir, npm-global).
+/// Like find_claude_binary() but skips app-local and npm-global candidates.
 /// Used as a fallback when the primary binary hangs (e.g. broken Bun-compiled binary).
 fn find_claude_binary_skip_app_local() -> Option<String> {
-    let dirs = collect_search_dirs();
-    let app_local_prefixes: Vec<String> = [cli_download_dir(), get_npm_global_bin()]
-        .into_iter()
-        .flatten()
-        .map(|p| p.to_string_lossy().to_string())
-        .collect();
-
-    let is_app_local = |dir: &str| -> bool {
-        app_local_prefixes.iter().any(|prefix| dir.starts_with(prefix.as_str()))
-    };
-
+    // 1. System PATH
     #[cfg(target_os = "windows")]
-    let names: &[&str] = &["claude.exe", "claude.cmd"];
+    {
+        for query in ["claude.cmd", "claude"] {
+            if let Ok(output) = std::process::Command::new("cmd")
+                .args(["/C", "where", query])
+                .creation_flags(0x08000000)
+                .output()
+            {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    for line in stdout.lines() {
+                        let path = line.trim().to_string();
+                        if path.is_empty() {
+                            continue;
+                        }
+                        let p = std::path::Path::new(&path);
+                        if p.extension().is_none() {
+                            continue;
+                        }
+                        if is_valid_executable(p) {
+                            return Some(path);
+                        }
+                    }
+                }
+            }
+        }
+    }
     #[cfg(not(target_os = "windows"))]
-    let names: &[&str] = &["claude"];
-
-    // Phase 1: native binaries, skip app-local
-    for dir in &dirs {
-        if is_app_local(dir) { continue; }
-        for name in names {
-            let candidate = std::path::Path::new(dir).join(name);
-            if is_native_binary(&candidate) {
-                return Some(candidate.to_string_lossy().to_string());
+    {
+        if let Ok(output) = std::process::Command::new("sh")
+            .args(["-l", "-c", "which claude"])
+            .output()
+        {
+            if output.status.success() {
+                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !path.is_empty() && is_valid_executable(std::path::Path::new(&path)) {
+                    return Some(path);
+                }
             }
         }
     }
 
-    // Phase 2: any executable, skip app-local
-    for dir in &dirs {
-        if is_app_local(dir) { continue; }
-        for name in names {
-            let candidate = std::path::Path::new(dir).join(name);
-            if is_valid_executable(&candidate) {
-                return Some(candidate.to_string_lossy().to_string());
+    if let Some(home) = dirs::home_dir() {
+        // 2. Claude desktop app bundled CLI
+        #[cfg(target_os = "windows")]
+        {
+            if let Some(local_app) = dirs::data_local_dir() {
+                let claude_code_dir = local_app.join("Claude").join("claude-code");
+                if let Some(bin) = find_newest_version_bin(&claude_code_dir, "claude.exe") {
+                    return Some(bin);
+                }
+            }
+            if let Some(app_data) = dirs::data_dir() {
+                let claude_code_dir = app_data.join("Claude").join("claude-code");
+                if let Some(bin) = find_newest_version_bin(&claude_code_dir, "claude.exe") {
+                    return Some(bin);
+                }
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let claude_code_dir = home.join("Library/Application Support/Claude/claude-code");
+            if let Some(bin) = find_newest_version_bin(&claude_code_dir, "claude") {
+                return Some(bin);
+            }
+        }
+        // 2b. Native binary install (~/.claude/local/claude)
+        #[cfg(not(target_os = "windows"))]
+        {
+            let native = home.join(".claude/local/claude");
+            if is_valid_executable(&native) {
+                return Some(native.to_string_lossy().to_string());
+            }
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let native = home.join(".claude\\local\\claude.exe");
+            if is_valid_executable(&native) {
+                return Some(native.to_string_lossy().to_string());
+            }
+        }
+
+        // 3. Common global install paths
+        #[cfg(target_os = "windows")]
+        {
+            let scoop_candidate = home.join("scoop").join("shims").join("claude.cmd");
+            if is_valid_executable(&scoop_candidate) {
+                return Some(scoop_candidate.to_string_lossy().to_string());
+            }
+            for sub in [
+                "AppData\\Roaming\\nvm",
+                ".volta\\bin",
+                "AppData\\Local\\fnm_multishells",
+            ] {
+                let candidate = home.join(sub).join("claude.cmd");
+                if is_valid_executable(&candidate) {
+                    return Some(candidate.to_string_lossy().to_string());
+                }
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            for candidate in [
+                home.join(".npm-global/bin/claude"),
+                home.join(".local/bin/claude"),
+            ] {
+                if is_valid_executable(&candidate) {
+                    return Some(candidate.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        for candidate in ["/usr/local/bin/claude", "/opt/homebrew/bin/claude"] {
+            if is_valid_executable(std::path::Path::new(candidate)) {
+                return Some(candidate.to_string());
             }
         }
     }
@@ -664,60 +566,33 @@ fn find_newest_version_bin(base_dir: &std::path::Path, bin_name: &str) -> Option
 /// managers (nvm, volta, fnm) that are set up in login-shell config files.
 /// This function spawns a login shell once, captures its PATH, and caches it
 /// for the lifetime of the process via OnceLock.
-/// Run a shell command with a 3-second timeout. Returns stdout on success, empty string on timeout/failure.
-#[cfg(not(target_os = "windows"))]
-fn shell_with_timeout(shell: &str, args: &[&str], label: &str) -> String {
-    let mut child = match std::process::Command::new(shell)
-        .args(args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("{label} spawn failed: {e}");
-            return String::new();
-        }
-    };
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                if status.success() {
-                    let mut buf = String::new();
-                    if let Some(mut stdout) = child.stdout.take() {
-                        use std::io::Read;
-                        let _ = stdout.read_to_string(&mut buf);
-                    }
-                    return buf.trim().to_string();
-                }
-                return String::new();
-            }
-            Ok(None) => {
-                if std::time::Instant::now() > deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    eprintln!("{label} timed out (3s), killed");
-                    return String::new();
-                }
-                std::thread::sleep(std::time::Duration::from_millis(20));
-            }
-            Err(_) => return String::new(),
-        }
-    }
-}
-
 #[cfg(not(target_os = "windows"))]
 fn login_shell_extra_path() -> &'static str {
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     CACHE.get_or_init(|| {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-        let p = shell_with_timeout(&shell, &["-l", "-c", "echo $PATH"], "login shell PATH");
-        if !p.is_empty() {
-            eprintln!("login shell PATH captured ({} entries)", p.split(':').count());
+        let output = std::process::Command::new(&shell)
+            .args(["-l", "-c", "echo $PATH"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output();
+        match output {
+            Ok(o) if o.status.success() => {
+                let p = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if !p.is_empty() {
+                    eprintln!(
+                        "login shell PATH captured ({} entries)",
+                        p.split(':').count()
+                    );
+                }
+                p
+            }
+            _ => {
+                eprintln!("login shell PATH capture failed");
+                String::new()
+            }
         }
-        p
     })
 }
 
@@ -882,60 +757,6 @@ fn truncate_large_content(value: &mut Value, max_bytes: usize) {
             }
         }
         _ => {}
-    }
-}
-
-/// Patch ~/.claude.json to raise `tengu_hawthorn_window` for models with 1M context.
-///
-/// Claude Code's compaction threshold is controlled by the GrowthBook feature flag
-/// `tengu_hawthorn_window` (default 200K). For third-party models like MiMo v2 Pro
-/// that support 1M context, this limit is too aggressive. We patch the cached flag
-/// so the CLI uses the correct window at startup.
-///
-/// Idempotent: only patches if current value < target. Fire-and-forget (errors logged).
-fn patch_claude_context_window(model: Option<&str>) {
-    let Some(model_name) = model else { return };
-    let m = model_name.to_lowercase();
-    // Match mimo-v2-pro[1m] or any future model with [1m] suffix
-    if !m.contains("mimo") && !m.contains("[1m]") {
-        return;
-    }
-    let target: u64 = 1_000_000;
-    let Ok(Some(home)) = dirs::home_dir().map(Some).ok_or(()).map_err(|_| ()) else {
-        return;
-    };
-    let claude_json = home.join(".claude.json");
-    if !claude_json.exists() {
-        return;
-    }
-    let Ok(content) = std::fs::read_to_string(&claude_json) else {
-        return;
-    };
-    let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) else {
-        return;
-    };
-    let current = json
-        .get("cachedGrowthBookFeatures")
-        .and_then(|f| f.get("tengu_hawthorn_window"))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-    if current >= target {
-        return; // Already high enough
-    }
-    if let Some(features) = json.get_mut("cachedGrowthBookFeatures") {
-        if let Some(obj) = features.as_object_mut() {
-            obj.insert(
-                "tengu_hawthorn_window".to_string(),
-                serde_json::Value::from(target),
-            );
-            eprintln!(
-                "[TK] Patched tengu_hawthorn_window: {} → {} for model {}",
-                current, target, model_name
-            );
-            if let Ok(patched) = serde_json::to_string_pretty(&json) {
-                let _ = std::fs::write(&claude_json, patched);
-            }
-        }
     }
 }
 
@@ -1497,23 +1318,9 @@ fn resolve_provider_env(
             if v.is_empty() {
                 keys_to_remove.push(k.clone());
             } else {
-                // Support ${API_KEY} placeholder for providers that need the key
-                // in a different env var (e.g. OpenRouter uses ANTHROPIC_AUTH_TOKEN)
-                let resolved = if v.contains("${API_KEY}") {
-                    let key = provider.api_key.as_deref().unwrap_or("");
-                    v.replace("${API_KEY}", key)
-                } else {
-                    v.clone()
-                };
-                env.insert(k.clone(), resolved);
+                env.insert(k.clone(), v.clone());
             }
         }
-    }
-
-    // Ensure keys marked for removal are also purged from the env HashMap,
-    // so they don't get re-inserted during spawn.
-    for k in &keys_to_remove {
-        env.remove(k);
     }
 
     // No extra CLI args needed — env vars set on the process take precedence.
@@ -1525,51 +1332,11 @@ fn resolve_provider_env(
     Ok((env, keys_to_remove, extra_args))
 }
 
-/// Read user-configured MCP servers from ~/.claude.json.
-/// Returns a JSON string for --mcp-config if servers exist, None otherwise.
-/// Auto-fixes double-nested `mcpServers.mcpServers` structure (Issue #33).
-fn read_user_mcp_servers() -> Option<String> {
-    let home = dirs::home_dir()?;
-    let claude_json_path = home.join(".claude.json");
-    let content = std::fs::read_to_string(&claude_json_path).ok()?;
-    let mut json: serde_json::Value = serde_json::from_str(&content).ok()?;
-
-    let servers_val = json.get("mcpServers")?;
-
-    // Detect double-nested mcpServers.mcpServers and auto-flatten
-    let servers = if let Some(inner) = servers_val.get("mcpServers") {
-        if inner.is_object() {
-            eprintln!(
-                "[read_user_mcp_servers] WARNING: detected double-nested mcpServers.mcpServers in ~/.claude.json, auto-flattening"
-            );
-            // Auto-fix the file: flatten the nesting
-            let flattened = inner.clone();
-            json["mcpServers"] = flattened;
-            if let Ok(fixed) = serde_json::to_string_pretty(&json) {
-                let _ = std::fs::write(&claude_json_path, fixed);
-            }
-            json.get("mcpServers")?
-        } else {
-            servers_val
-        }
-    } else {
-        servers_val
-    };
-
-    let obj = servers.as_object()?;
-    if obj.is_empty() {
-        return None;
-    }
-    let mcp_config = serde_json::json!({ "mcpServers": servers });
-    Some(mcp_config.to_string())
-}
-
 #[tauri::command]
 async fn start_claude_session(
     app: AppHandle,
     state: State<'_, ProcessManager>,
     stdin_mgr: State<'_, StdinManager>,
-    bypass_modes: State<'_, BypassModeMap>,
     params: StartSessionParams,
 ) -> Result<SessionInfo, String> {
     let session_id = params
@@ -1590,20 +1357,11 @@ async fn start_claude_session(
         "--verbose".to_string(),
         "--include-partial-messages".to_string(),
         "--replay-user-messages".to_string(),
+        // Skip global MCP servers from ~/.claude.json to avoid slow cold start.
+        // MCP servers (chrome-devtools, codex, gemini, pencil etc.) add 20-30s startup
+        // overhead as each must initialize before the CLI accepts input.
+        "--strict-mcp-config".to_string(),
     ];
-
-    // MCP server handling: if user has configured servers in ~/.claude.json,
-    // pass them via --mcp-config so they are loaded. Otherwise use --strict-mcp-config
-    // to skip global servers and avoid 20-30s cold start overhead.
-    match read_user_mcp_servers() {
-        Some(mcp_json) => {
-            args.push("--mcp-config".to_string());
-            args.push(mcp_json);
-        }
-        None => {
-            args.push("--strict-mcp-config".to_string());
-        }
-    }
 
     // Resume an existing CLI session if requested
     if let Some(ref resume_id) = params.resume_session_id {
@@ -1666,12 +1424,8 @@ async fn start_claude_session(
     // Append provider-specific CLI args (e.g. --setting-sources project,local)
     args.extend(provider_extra_args);
 
-    // Third-party providers (identified by ANTHROPIC_BASE_URL) don't support
-    // CLAUDE_CODE_* env vars — skip injecting them to avoid breaking the CLI.
-    let is_third_party = resolved_env.contains_key("ANTHROPIC_BASE_URL");
-
     // Inject effort level env var for non-off thinking levels
-    if thinking_level != "off" && !is_third_party {
+    if thinking_level != "off" {
         resolved_env.insert(
             "CLAUDE_CODE_EFFORT_LEVEL".to_string(),
             thinking_level.to_string(),
@@ -1681,11 +1435,9 @@ async fn start_claude_session(
     // Raise the per-turn output token cap from the CLI default (32K) to 64K.
     // This prevents "response exceeded the 32000 output token maximum" errors
     // when generating large files (e.g. HTML presentations).
-    if !is_third_party {
-        resolved_env
-            .entry("CLAUDE_CODE_MAX_OUTPUT_TOKENS".to_string())
-            .or_insert_with(|| "64000".to_string());
-    }
+    resolved_env
+        .entry("CLAUDE_CODE_MAX_OUTPUT_TOKENS".to_string())
+        .or_insert_with(|| "64000".to_string());
 
     // Enable CLI-managed file checkpoints for rewind functionality.
     // With --replay-user-messages, user messages in stream output carry a uuid
@@ -1738,9 +1490,6 @@ async fn start_claude_session(
             }
         }
     }
-
-    // Patch ~/.claude.json context window for 1M models (MiMo v2 Pro etc.)
-    patch_claude_context_window(params.model.as_deref());
 
     // On Windows, .cmd/.bat files must be launched via cmd /C
     #[cfg(target_os = "windows")]
@@ -1896,36 +1645,6 @@ async fn start_claude_session(
                     )
                 })?
             }
-            Err(e) if e.raw_os_error() == Some(2) => {
-                // ENOENT — binary or its shebang interpreter not found.
-                // Common cause: npm-installed claude script has a shebang pointing to
-                // an app-local Node.js that was deleted or moved.
-                eprintln!(
-                    "ENOENT on '{}' (binary or interpreter not found), trying alternative...",
-                    claude_bin
-                );
-                // Remove the broken npm-global script so it doesn't get picked up again
-                let broken_path = std::path::Path::new(&claude_bin);
-                if broken_path.exists() {
-                    let _ = std::fs::remove_file(broken_path);
-                    eprintln!("Removed broken script: {}", claude_bin);
-                }
-                let alt_bin = find_claude_binary().unwrap_or_else(|| "claude".to_string());
-                if alt_bin == claude_bin || alt_bin == "claude" {
-                    return Err(format!(
-                        "Failed to spawn claude (tried '{}', interpreter not found — \
-                         please reinstall CLI from Settings): {}",
-                        claude_bin, e
-                    ));
-                }
-                eprintln!("Retrying with alternative: {}", alt_bin);
-                spawn_unix(&alt_bin).map_err(|e2| {
-                    format!(
-                        "Failed to spawn claude (tried '{}' then '{}'): {}",
-                        claude_bin, alt_bin, e2
-                    )
-                })?
-            }
             Err(e) => {
                 return Err(format!(
                     "Failed to spawn claude (tried '{}'): {}",
@@ -1979,8 +1698,7 @@ async fn start_claude_session(
     let app_clone = app.clone();
     let sid_clone = sid.clone();
     let stdin_clone = stdin_mgr.inner().clone();
-    let is_bypass_flag = bypass_modes.register(&sid, permission_mode == "bypassPermissions").await;
-    let bypass_modes_clone = bypass_modes.inner().clone();
+    let is_bypass = permission_mode == "bypassPermissions";
     tokio::spawn(async move {
         let stream_event = format!("claude:stream:{}", sid_clone);
         // Use a large buffer (1MB) to efficiently read large NDJSON lines from Claude CLI.
@@ -1995,16 +1713,11 @@ async fn start_claude_session(
             // Log first 10 lines with timing to diagnose startup delay
             if line_count <= 10 {
                 let elapsed = spawn_time.elapsed().as_millis();
-                let end = if line.len() > 150 {
-                    let mut i = 150;
-                    while i > 0 && !line.is_char_boundary(i) {
-                        i -= 1;
-                    }
-                    i
+                let preview = if line.len() > 150 {
+                    &line[..150]
                 } else {
-                    line.len()
+                    &line
                 };
-                let preview = &line[..end];
                 eprintln!(
                     "[TOKENICODE:stdout] #{} @{}ms type={} preview={}",
                     line_count,
@@ -2041,7 +1754,7 @@ async fn start_claude_session(
                         .unwrap_or_default();
 
                     // Bypass mode: auto-approve everything except user interactions.
-                    if is_bypass_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                    if is_bypass {
                         let tool_name = request
                             .get("tool_name")
                             .or_else(|| request.get("toolName"))
@@ -2183,9 +1896,6 @@ async fn start_claude_session(
                 eprintln!("[TOKENICODE] emit_to_frontend failed: {}", e);
             }
         }
-        // Clean up bypass mode flag for this session
-        bypass_modes_clone.remove(&sid_clone).await;
-
         // Emit process_exit on the stream channel (primary detection)
         let _ = emit_to_frontend(
             &app_clone,
@@ -2314,7 +2024,6 @@ async fn respond_permission(
 #[tauri::command]
 async fn send_control_request(
     stdin_mgr: State<'_, StdinManager>,
-    bypass_modes: State<'_, BypassModeMap>,
     session_id: String,
     subtype: String,
     payload: Value,
@@ -2328,8 +2037,6 @@ async fn send_control_request(
                 .and_then(|v| v.as_str())
                 .ok_or("Missing 'mode' in payload")?
                 .to_string();
-            // Sync bypass flag so stdout reader uses updated mode
-            bypass_modes.set_bypass(&session_id, mode == "bypassPermissions").await;
             ControlRequest::set_permission_mode(mode)
         }
         "set_model" => {
@@ -2515,21 +2222,16 @@ async fn list_sessions() -> Result<Vec<Value>, String> {
                                     continue;
                                 }
 
-                                // File mtime as fallback timestamp
-                                let file_mtime = std::fs::metadata(&path)
+                                // Get file metadata for timestamp
+                                let modified = std::fs::metadata(&path)
                                     .and_then(|m| m.modified())
                                     .ok()
                                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                                     .map(|d| d.as_millis() as u64)
                                     .unwrap_or(0);
 
-                                // Read first few lines to extract preview and cwd,
-                                // and read tail to get last activity timestamp.
-                                let (preview, cwd, last_ts) = extract_session_info(&path);
-
-                                // Prefer JSONL timestamp (actual session activity) over file
-                                // mtime, which can be reset by CLI compaction/migration.
-                                let modified = if last_ts > 0 { last_ts } else { file_mtime };
+                                // Read first few lines to extract preview and cwd
+                                let (preview, cwd) = extract_session_info(&path);
 
                                 // Use cwd from JSONL if available (authoritative),
                                 // otherwise fall back to decoding the directory name.
@@ -2566,21 +2268,20 @@ async fn list_sessions() -> Result<Vec<Value>, String> {
     Ok(sessions)
 }
 
-/// Extract preview (first user message), cwd, and last activity timestamp
-/// from a session .jsonl file.
-/// Returns (preview, cwd, last_timestamp_ms) — cwd may be empty, timestamp may be 0.
-fn extract_session_info(path: &std::path::Path) -> (String, String, u64) {
+/// Extract preview (first user message) and cwd from a session .jsonl file.
+/// Returns (preview, cwd) — cwd may be empty if not found.
+fn extract_session_info(path: &std::path::Path) -> (String, String) {
     use std::io::BufRead;
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
-        Err(_) => return (String::new(), String::new(), 0),
+        Err(_) => return (String::new(), String::new()),
     };
-    let mut reader = std::io::BufReader::new(file);
+    let reader = std::io::BufReader::new(file);
     let mut cwd = String::new();
     let mut preview = String::new();
 
     // Scan up to 100 lines to find cwd and first real user message.
-    for line in (&mut reader).lines().take(100) {
+    for line in reader.lines().take(100) {
         let line = match line {
             Ok(l) => l,
             Err(_) => continue,
@@ -2665,86 +2366,7 @@ fn extract_session_info(path: &std::path::Path) -> (String, String, u64) {
             break;
         }
     }
-
-    // Extract last activity timestamp by reading the tail of the file.
-    // Claude CLI may rewrite session files (compaction/migration), making file
-    // mtime unreliable. The JSONL "timestamp" field reflects actual session activity.
-    let last_ts = extract_last_timestamp(&mut reader);
-
-    (preview, cwd, last_ts)
-}
-
-/// Read the last ~32KB of a JSONL file and return the latest "timestamp" value
-/// as epoch milliseconds. Returns 0 if no timestamp is found.
-fn extract_last_timestamp(reader: &mut std::io::BufReader<std::fs::File>) -> u64 {
-    use std::io::{Read, Seek, SeekFrom};
-
-    // Seek to near the end of the file (last 32KB should contain enough lines)
-    let file_len = reader.seek(SeekFrom::End(0)).unwrap_or(0);
-    let tail_start = if file_len > 32768 { file_len - 32768 } else { 0 };
-    if reader.seek(SeekFrom::Start(tail_start)).is_err() {
-        return 0;
-    }
-
-    let mut tail = String::new();
-    if reader.read_to_string(&mut tail).is_err() {
-        return 0;
-    }
-
-    let mut latest_ms: u64 = 0;
-    for line in tail.lines() {
-        // Quick pre-check to avoid parsing lines without timestamps
-        if !line.contains("\"timestamp\"") {
-            continue;
-        }
-        if let Ok(json) = serde_json::from_str::<Value>(line) {
-            if let Some(ts_str) = json["timestamp"].as_str() {
-                if let Some(ms) = parse_iso_timestamp(ts_str) {
-                    if ms > latest_ms {
-                        latest_ms = ms;
-                    }
-                }
-            }
-        }
-    }
-    latest_ms
-}
-
-/// Parse an ISO 8601 timestamp string (e.g. "2026-03-25T15:14:03.585Z") to epoch millis.
-fn parse_iso_timestamp(s: &str) -> Option<u64> {
-    // Format: YYYY-MM-DDTHH:MM:SS.mmmZ or YYYY-MM-DDTHH:MM:SSZ
-    let s = s.trim();
-    if s.len() < 20 {
-        return None;
-    }
-    let date_part = &s[..10]; // YYYY-MM-DD
-    let time_part = &s[11..19]; // HH:MM:SS
-
-    let year: i64 = date_part[..4].parse().ok()?;
-    let month: i64 = date_part[5..7].parse().ok()?;
-    let day: i64 = date_part[8..10].parse().ok()?;
-    let hour: i64 = time_part[..2].parse().ok()?;
-    let min: i64 = time_part[3..5].parse().ok()?;
-    let sec: i64 = time_part[6..8].parse().ok()?;
-
-    // Parse fractional seconds if present
-    let millis: i64 = if s.len() > 20 && s.as_bytes()[19] == b'.' {
-        let frac_end = s.find('Z').unwrap_or(s.len());
-        let frac = &s[20..frac_end];
-        // Pad or truncate to 3 digits
-        let padded = format!("{:0<3}", frac);
-        padded[..3].parse().unwrap_or(0)
-    } else {
-        0
-    };
-
-    // Convert to epoch millis using a simplified calculation (UTC assumed)
-    // Days from epoch (1970-01-01) using the standard algorithm
-    let y = if month <= 2 { year - 1 } else { year };
-    let m = if month <= 2 { month + 9 } else { month - 3 };
-    let days = 365 * y + y / 4 - y / 100 + y / 400 + (m * 306 + 5) / 10 + (day - 1) - 719468;
-    let total_secs = days * 86400 + hour * 3600 + min * 60 + sec;
-    Some((total_secs * 1000 + millis) as u64)
+    (preview, cwd)
 }
 
 /// Decode project directory name back to readable path.
@@ -3083,22 +2705,13 @@ async fn share_file(path: String, app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Share a file to WeChat.
-/// macOS: invokes WeChat's NSSharingService extension directly (native share dialog).
-/// Windows: copies file to clipboard and opens WeChat for manual pasting.
+/// Directly invoke WeChat's sharing service for a file (macOS only).
 #[tauri::command]
-#[allow(deprecated)]
 async fn share_to_wechat(path: String, app: AppHandle) -> Result<(), String> {
-    if !std::path::Path::new(&path).exists() {
-        return Err("File not found".to_string());
-    }
-
     #[cfg(target_os = "macos")]
     {
-        let (tx, rx) = std::sync::mpsc::channel::<bool>();
-
         app.run_on_main_thread(move || {
-            let found = objc::rc::autoreleasepool(|| -> bool {
+            objc::rc::autoreleasepool(|| {
                 unsafe {
                     use objc::msg_send;
                     use objc::runtime::{Class, Object};
@@ -3107,14 +2720,16 @@ async fn share_to_wechat(path: String, app: AppHandle) -> Result<(), String> {
 
                     let file_url = create_nsurl_from_path(&path);
                     if file_url.is_null() {
-                        return false;
+                        return;
                     }
 
+                    // Create NSArray with the URL
                     let nsarray_class = Class::get("NSArray").unwrap();
                     let items: *mut Object = msg_send![nsarray_class,
                         arrayWithObject: file_url
                     ];
 
+                    // Get all sharing services for this file
                     let service_class = Class::get("NSSharingService").unwrap();
                     let services: *mut Object = msg_send![service_class,
                         sharingServicesForItems: items
@@ -3122,6 +2737,7 @@ async fn share_to_wechat(path: String, app: AppHandle) -> Result<(), String> {
 
                     let count: usize = msg_send![services, count];
 
+                    // Find WeChat's sharing service by title
                     for i in 0..count {
                         let service: *mut Object = msg_send![services, objectAtIndex: i];
                         let title: *mut Object = msg_send![service, title];
@@ -3132,52 +2748,33 @@ async fn share_to_wechat(path: String, app: AppHandle) -> Result<(), String> {
                         let title_str = std::ffi::CStr::from_ptr(utf8).to_string_lossy();
                         if title_str.contains("WeChat") || title_str.contains("微信") {
                             let _: () = msg_send![service, performWithItems: items];
-                            return true;
+                            return;
                         }
                     }
-                    false
+
+                    // WeChat service not found — log for debugging
+                    eprintln!(
+                        "[share_to_wechat] WeChat sharing service not found. Available services:"
+                    );
+                    for i in 0..count {
+                        let service: *mut Object = msg_send![services, objectAtIndex: i];
+                        let title: *mut Object = msg_send![service, title];
+                        let utf8: *const std::ffi::c_char = msg_send![title, UTF8String];
+                        if !utf8.is_null() {
+                            let t = std::ffi::CStr::from_ptr(utf8).to_string_lossy();
+                            eprintln!("  - {}", t);
+                        }
+                    }
                 }
             });
-            let _ = tx.send(found);
         })
         .map_err(|e| format!("Failed to share to WeChat: {}", e))?;
-
-        // Block until main thread closure completes
-        match rx.recv() {
-            Ok(true) => {},
-            _ => return Err("WeChat sharing service not found".to_string()),
-        }
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        let _ = app;
-
-        // Copy file to clipboard via PowerShell
-        let ps_script = format!(
-            "Add-Type -AssemblyName System.Windows.Forms; \
-             $f = New-Object System.Collections.Specialized.StringCollection; \
-             $f.Add('{}'); \
-             [System.Windows.Forms.Clipboard]::SetFileDropList($f)",
-            path.replace('\'', "''")
-        );
-
-        std::process::Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
-            .output()
-            .map_err(|e| format!("Clipboard copy failed: {}", e))?;
-
-        // Best effort: open WeChat via protocol handler
-        let _ = std::process::Command::new("cmd")
-            .args(["/c", "start", "", "weixin://"])
-            .spawn();
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(not(target_os = "macos"))]
     {
         let _ = app;
         let _ = path;
-        return Err("Not supported on this platform".to_string());
     }
 
     Ok(())
@@ -3544,10 +3141,6 @@ async fn watch_directory(
     path: String,
 ) -> Result<(), String> {
     use notify::{Event, EventKind, RecursiveMode, Watcher};
-
-    if !std::path::Path::new(&path).exists() {
-        return Err("Directory does not exist".to_string());
-    }
 
     // Stop existing watcher for this path if any
     {
@@ -4478,48 +4071,7 @@ struct CliStatus {
     installed: bool,
     path: Option<String>,
     version: Option<String>,
-    version_compatible: bool,
     git_bash_missing: bool,
-}
-
-/// Minimum CLI version that supports all required flags:
-/// --strict-mcp-config, --replay-user-messages, --permission-prompt-tool stdio
-const MIN_CLI_VERSION: (u32, u32, u32) = (1, 0, 0);
-
-/// Parse version string like "1.0.26" or "Claude Code v2.1.76" into (major, minor, patch).
-fn parse_cli_version(version_str: &str) -> Option<(u32, u32, u32)> {
-    // Extract version number — strip common prefixes and pre-release suffixes
-    let cleaned = version_str
-        .trim()
-        .trim_start_matches("Claude Code")
-        .trim()
-        .trim_start_matches('v')
-        .trim();
-    // Take first whitespace-separated token, then strip pre-release: "2.1.77-rc.1" → "2.1.77"
-    let ver_token = cleaned.split_whitespace().next().unwrap_or(cleaned);
-    let base_ver = ver_token.split('-').next().unwrap_or(ver_token);
-    let parts: Vec<&str> = base_ver.split('.').collect();
-    if parts.len() >= 3 {
-        let major = parts[0].parse().ok()?;
-        let minor = parts[1].parse().ok()?;
-        let patch = parts[2].parse().ok()?;
-        Some((major, minor, patch))
-    } else if parts.len() == 2 {
-        let major = parts[0].parse().ok()?;
-        let minor = parts[1].parse().ok()?;
-        Some((major, minor, 0))
-    } else {
-        None
-    }
-}
-
-fn is_version_compatible(version_str: &str) -> bool {
-    match parse_cli_version(version_str) {
-        Some((major, minor, patch)) => {
-            (major, minor, patch) >= MIN_CLI_VERSION
-        }
-        None => false, // Can't parse → assume incompatible
-    }
 }
 
 /// Run a Claude CLI subcommand (e.g. `claude doctor`) as a one-shot process
@@ -4627,7 +4179,6 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
                                     installed: true,
                                     path: Some(alt_path),
                                     version: None,
-                                    version_compatible: false,
                                     git_bash_missing,
                                 })
                             }
@@ -4635,7 +4186,6 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
                                 installed: false,
                                 path: None,
                                 version: None,
-                                version_compatible: false,
                                 git_bash_missing: false,
                             }),
                         };
@@ -4668,7 +4218,6 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
                                 installed: true,
                                 path: Some(alt_path),
                                 version: None,
-                                version_compatible: false,
                                 git_bash_missing,
                             })
                         }
@@ -4676,7 +4225,6 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
                             installed: false,
                             path: None,
                             version: None,
-                            version_compatible: false,
                             git_bash_missing: false,
                         }),
                     };
@@ -4716,14 +4264,12 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
                                     installed: true,
                                     path: Some(alt_path),
                                     version: None,
-                                    version_compatible: false,
                                     git_bash_missing,
                                 }),
                                 None => Ok(CliStatus {
                                     installed: false,
                                     path: None,
                                     version: None,
-                                    version_compatible: false,
                                     git_bash_missing: false,
                                 }),
                             };
@@ -4738,7 +4284,6 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
                         installed: false,
                         path: Some(path),
                         version: None,
-                        version_compatible: false,
                         git_bash_missing,
                     });
                 }
@@ -4749,12 +4294,10 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
             #[cfg(not(target_os = "windows"))]
             let git_bash_missing = false;
 
-            let version_compatible = version.as_ref().map_or(false, |v| is_version_compatible(v));
             Ok(CliStatus {
                 installed: true,
                 path: Some(path),
                 version,
-                version_compatible,
                 git_bash_missing,
             })
         }
@@ -4762,7 +4305,6 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
             installed: false,
             path: None,
             version: None,
-            version_compatible: false,
             git_bash_missing: false,
         }),
     }
@@ -4944,286 +4486,35 @@ async fn install_cli_via_npm(app: &AppHandle, china: bool) -> Result<(), String>
     Err(last_err)
 }
 
-/// GCS bucket base URL for Claude Code native binary releases.
-const CLAUDE_CODE_GCS_BUCKET: &str = "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases";
-
-/// China mirror base URL for Claude Code native binary releases (herear.cn).
-const CLAUDE_CODE_CHINA_MIRROR: &str = "https://herear.cn:8443/releases/claude-code";
-
-/// Detect the current platform string for Claude Code binary downloads.
-fn detect_claude_platform() -> Result<&'static str, String> {
-    match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("macos", "aarch64") => Ok("darwin-arm64"),
-        ("macos", "x86_64") => Ok("darwin-x64"),
-        ("windows", "x86_64") => Ok("win32-x64"),
-        ("windows", "aarch64") => Ok("win32-arm64"),
-        ("linux", "x86_64") => Ok("linux-x64"),
-        ("linux", "aarch64") => Ok("linux-arm64"),
-        (os, arch) => Err(format!("Unsupported platform: {}-{}", os, arch)),
-    }
-}
-
-/// Download Claude Code as a native binary and run `claude install` to place it
-/// in the official directory (~/.local/share/claude/versions/ on Unix,
-/// equivalent on Windows). This ensures the binary is at the same path
-/// as the official installer (`curl -fsSL https://claude.ai/install.sh | bash`).
-async fn install_cli_via_native_binary(app: &AppHandle, china: bool) -> Result<(), String> {
-    let platform = detect_claude_platform()?;
-
-    #[cfg(target_os = "windows")]
-    let bin_name = "claude.exe";
-    #[cfg(not(target_os = "windows"))]
-    let bin_name = "claude";
-
-    let mirrors: Vec<&str> = if china {
-        vec![CLAUDE_CODE_CHINA_MIRROR, CLAUDE_CODE_GCS_BUCKET]
-    } else {
-        vec![CLAUDE_CODE_GCS_BUCKET, CLAUDE_CODE_CHINA_MIRROR]
-    };
-
-    let client = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .timeout(std::time::Duration::from_secs(600))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
-
-    // Phase 1: Get latest version
-    let _ = app.emit(
-        "setup:download:progress",
-        serde_json::json!({
-            "downloaded": 0, "total": 0, "percent": 5, "phase": "native_version"
-        }),
-    );
-
-    let mut version = String::new();
-    for mirror in &mirrors {
-        let url = format!("{}/latest", mirror);
-        eprintln!("Fetching latest version from {}", url);
-        match client.get(&url).send().await {
-            Ok(resp) if resp.status().is_success() => {
-                if let Ok(text) = resp.text().await {
-                    let v = text.trim().to_string();
-                    if !v.is_empty() && v.starts_with(|c: char| c.is_ascii_digit()) {
-                        version = v;
-                        eprintln!("Latest version: {}", version);
-                        break;
-                    }
-                }
-            }
-            Ok(resp) => eprintln!("Version check failed ({}): HTTP {}", mirror, resp.status()),
-            Err(e) => eprintln!("Version check failed ({}): {}", mirror, e),
-        }
-    }
-    if version.is_empty() {
-        return Err("Could not determine latest Claude Code version from any mirror".to_string());
-    }
-
-    // Phase 2: Download manifest for SHA256
-    let _ = app.emit(
-        "setup:download:progress",
-        serde_json::json!({
-            "downloaded": 0, "total": 0, "percent": 10, "phase": "native_manifest"
-        }),
-    );
-
-    let mut expected_sha: Option<String> = None;
-    for mirror in &mirrors {
-        let url = format!("{}/{}/manifest.json", mirror, version);
-        if let Ok(resp) = client.get(&url).send().await {
-            if resp.status().is_success() {
-                if let Ok(manifest) = resp.json::<serde_json::Value>().await {
-                    if let Some(sha) = manifest
-                        .get("platforms")
-                        .and_then(|ps| ps.get(platform))
-                        .and_then(|p| p.get("checksum"))
-                        .and_then(|s| s.as_str())
-                    {
-                        expected_sha = Some(sha.to_string());
-                        eprintln!("Got SHA256 for {}: {}...", platform, &sha[..12.min(sha.len())]);
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    // Phase 3: Download binary
-    let _ = app.emit(
-        "setup:download:progress",
-        serde_json::json!({
-            "downloaded": 0, "total": 0, "percent": 15, "phase": "native_download"
-        }),
-    );
-
-    let download_dir = dirs::home_dir()
-        .ok_or("Cannot determine home directory")?
-        .join(".claude")
-        .join("downloads");
-    std::fs::create_dir_all(&download_dir)
-        .map_err(|e| format!("Failed to create download dir: {}", e))?;
-
-    let download_path = download_dir.join(format!("claude-{}-{}", version, platform));
-    #[cfg(target_os = "windows")]
-    let download_path = download_dir.join(format!("claude-{}-{}.exe", version, platform));
-
-    let mut last_err = String::new();
-    for mirror in &mirrors {
-        let url = format!("{}/{}/{}/{}", mirror, version, platform, bin_name);
-        eprintln!("Downloading {} (~190MB)...", url);
-
-        match client.get(&url).send().await {
-            Ok(resp) if resp.status().is_success() => {
-                let total_size = resp.content_length().unwrap_or(0);
-                let mut downloaded: u64 = 0;
-                let mut stream = resp.bytes_stream();
-                let mut file = tokio::fs::File::create(&download_path)
-                    .await
-                    .map_err(|e| format!("Failed to create download file: {}", e))?;
-
-                use tokio::io::AsyncWriteExt;
-                while let Some(chunk) = stream.next().await {
-                    match chunk {
-                        Ok(bytes) => {
-                            file.write_all(&bytes)
-                                .await
-                                .map_err(|e| format!("Write error: {}", e))?;
-                            downloaded += bytes.len() as u64;
-                            if total_size > 0 {
-                                let pct = 15 + (downloaded as f64 / total_size as f64 * 70.0) as u64;
-                                let _ = app.emit(
-                                    "setup:download:progress",
-                                    serde_json::json!({
-                                        "downloaded": downloaded,
-                                        "total": total_size,
-                                        "percent": pct.min(85),
-                                        "phase": "native_download"
-                                    }),
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            last_err = format!("Stream error from {}: {}", mirror, e);
-                            eprintln!("{}", last_err);
-                            let _ = tokio::fs::remove_file(&download_path).await;
-                            continue;
-                        }
-                    }
-                }
-                file.flush().await.map_err(|e| format!("Flush error: {}", e))?;
-                drop(file);
-
-                eprintln!("Download complete: {} bytes", downloaded);
-
-                // Phase 4: SHA256 verification
-                if let Some(ref expected) = expected_sha {
-                    let _ = app.emit(
-                        "setup:download:progress",
-                        serde_json::json!({
-                            "downloaded": downloaded, "total": total_size, "percent": 88, "phase": "native_verify"
-                        }),
-                    );
-
-                    let file_bytes = std::fs::read(&download_path)
-                        .map_err(|e| format!("Cannot read downloaded file: {}", e))?;
-                    use sha2::Digest;
-                    let actual = format!("{:x}", sha2::Sha256::digest(&file_bytes));
-                    if actual != *expected {
-                        last_err = format!(
-                            "SHA256 mismatch: expected {}... got {}...",
-                            &expected[..12.min(expected.len())],
-                            &actual[..12]
-                        );
-                        eprintln!("{}", last_err);
-                        let _ = std::fs::remove_file(&download_path);
-                        continue;
-                    }
-                    eprintln!("SHA256 verified OK");
-                }
-
-                // Phase 5: Make executable and run `claude install`
-                #[cfg(not(target_os = "windows"))]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    let _ = std::fs::set_permissions(
-                        &download_path,
-                        std::fs::Permissions::from_mode(0o755),
-                    );
-                }
-
-                let _ = app.emit(
-                    "setup:download:progress",
-                    serde_json::json!({
-                        "downloaded": downloaded, "total": total_size, "percent": 92, "phase": "native_install"
-                    }),
-                );
-
-                eprintln!("Running `claude install`...");
-                let install_result = tokio::process::Command::new(download_path.to_string_lossy().to_string())
-                    .args(["install", "--yes"])
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .output()
-                    .await;
-
-                match install_result {
-                    Ok(output) if output.status.success() => {
-                        eprintln!("`claude install` succeeded");
-                        let _ = std::fs::remove_file(&download_path);
-
-                        let _ = app.emit(
-                            "setup:download:progress",
-                            serde_json::json!({
-                                "downloaded": 0, "total": 0, "percent": 100, "phase": "complete"
-                            }),
-                        );
-                        return Ok(());
-                    }
-                    Ok(output) => {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        let stdout = String::from_utf8_lossy(&output.stdout);
-                        last_err = format!(
-                            "`claude install` failed (exit {}): stdout={}, stderr={}",
-                            output.status, stdout.trim(), stderr.trim()
-                        );
-                        eprintln!("{}", last_err);
-                        let _ = std::fs::remove_file(&download_path);
-                    }
-                    Err(e) => {
-                        last_err = format!("`claude install` could not run: {}", e);
-                        eprintln!("{}", last_err);
-                        let _ = std::fs::remove_file(&download_path);
-                    }
-                }
-                continue;
-            }
-            Ok(resp) => {
-                last_err = format!("Download failed ({}): HTTP {}", mirror, resp.status());
-                eprintln!("{}", last_err);
-            }
-            Err(e) => {
-                last_err = format!("Download failed ({}): {}", mirror, e);
-                eprintln!("{}", last_err);
-            }
-        }
-    }
-
-    Err(format!("Native binary install failed: {}", last_err))
-}
-
-/// Install the Claude CLI with a two-tier strategy:
-/// 1. Native binary download (official path, zero dependencies)
-/// 2. npm fallback (for edge cases where native download fails)
+/// Install the Claude CLI via npm with network-aware mirror selection:
+/// 0. Detect network environment (China vs Global)
+/// 1. (Windows) Ensure git-bash is available — auto-install PortableGit if missing
+/// 2. Ensure npm is available — download Node.js locally if needed
+/// 3. Install CLI via npm with region-appropriate registry mirrors
 #[tauri::command]
 async fn install_claude_cli(app: AppHandle) -> Result<(), String> {
-    // Always proceed — user explicitly requested install/reinstall.
-    // Old logic skipped if CLI found, causing "reinstall" to complete in 1 second.
-    let _existing_cli = find_claude_binary();
+    // Skip installation if CLI already exists on system.
+    // On Windows, still continue when git-bash is missing because reinstall is the repair path.
+    let existing_cli = find_claude_binary();
     #[cfg(target_os = "windows")]
-    { /* git-bash check happens below */ }
+    let can_skip_install = existing_cli.is_some() && find_git_bash().is_some();
+    #[cfg(not(target_os = "windows"))]
+    let can_skip_install = existing_cli.is_some();
+    if can_skip_install {
+        eprintln!("CLI already found on system, skipping installation");
+        let _ = app.emit(
+            "setup:download:progress",
+            serde_json::json!({
+                "downloaded": 0, "total": 0, "percent": 100, "phase": "complete"
+            }),
+        );
+        return Ok(());
+    }
 
+    // Phase 0: Detect network environment (used by all subsequent phases)
     let china = is_china_network().await;
 
+    // Phase 1 (Windows only): Ensure git-bash is available
     #[cfg(target_os = "windows")]
     {
         if find_git_bash().is_none() {
@@ -5237,6 +4528,7 @@ async fn install_claude_cli(app: AppHandle) -> Result<(), String> {
             })?;
         }
 
+        // If CLI is already installed (only git-bash was missing), skip download phases
         if find_claude_binary().is_some() {
             eprintln!("CLI already installed, git-bash was the only missing dependency");
             finalize_cli_install_paths(&app);
@@ -5244,20 +4536,7 @@ async fn install_claude_cli(app: AppHandle) -> Result<(), String> {
         }
     }
 
-    // Try native binary first
-    eprintln!("Attempting native binary install...");
-    match install_cli_via_native_binary(&app, china).await {
-        Ok(()) => {
-            eprintln!("Native binary install succeeded");
-            finalize_cli_install_paths(&app);
-            return Ok(());
-        }
-        Err(e) => {
-            eprintln!("Native binary install failed: {}. Falling back to npm...", e);
-        }
-    }
-
-    // Fallback: npm
+    // Phase 2: Ensure npm is available
     let has_npm = is_system_npm_available().await || get_local_node_bin().is_some();
 
     if !has_npm {
@@ -5270,11 +4549,12 @@ async fn install_claude_cli(app: AppHandle) -> Result<(), String> {
         })?;
     }
 
+    // Phase 3: Install CLI via npm
     install_cli_via_npm(&app, china)
         .await
         .map_err(|npm_err| format!("CLI installation failed via npm: {}", npm_err))?;
 
-    eprintln!("CLI installed via npm (fallback)");
+    eprintln!("CLI installed via npm");
     finalize_cli_install_paths(&app);
     Ok(())
 }
@@ -5412,31 +4692,6 @@ fn finalize_cli_install_paths(app: &AppHandle) {
             inject_unix_shell_path(&npm_bin.to_string_lossy());
         }
         let _ = app;
-    }
-
-    // Inject new directories into CURRENT PROCESS PATH so spawned CLI processes
-    // and subsequent find_claude_binary() calls work without app restart.
-    {
-        let mut extra_dirs: Vec<String> = vec![];
-        if let Some(cli_dir) = cli_download_dir() {
-            extra_dirs.push(cli_dir.to_string_lossy().to_string());
-        }
-        if let Some(node_bin) = get_local_node_bin() {
-            extra_dirs.push(node_bin.to_string_lossy().to_string());
-        }
-        if let Some(npm_bin) = get_npm_global_bin() {
-            extra_dirs.push(npm_bin.to_string_lossy().to_string());
-        }
-        if !extra_dirs.is_empty() {
-            let current = std::env::var("PATH").unwrap_or_default();
-            #[cfg(target_os = "windows")]
-            let sep = ";";
-            #[cfg(not(target_os = "windows"))]
-            let sep = ":";
-            let new_path = format!("{}{}{}", extra_dirs.join(sep), sep, current);
-            std::env::set_var("PATH", &new_path);
-            eprintln!("[TC CLI] Injected into current process PATH: {:?}", extra_dirs);
-        }
     }
 
     let _ = app.emit(
@@ -5702,17 +4957,6 @@ async fn install_node_env_inner(app: &AppHandle, china: bool) -> Result<(), Stri
 
         match download_with_progress(app, &client, url, "node_downloading").await {
             Ok(bytes) => {
-                // Node.js archive is ~25-40MB. If we got less than 1MB, CDN likely
-                // returned an HTML error page (common with China ISP/CDN hijacking).
-                if bytes.len() < 1_000_000 {
-                    let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(200)]);
-                    last_err = format!(
-                        "Source {}: downloaded only {} bytes (expected ~30MB), likely CDN error: {}",
-                        url, bytes.len(), preview
-                    );
-                    eprintln!("{}", last_err);
-                    continue;
-                }
                 eprintln!("Node.js download succeeded from source {}", i);
                 archive_bytes = Some(bytes);
                 break;
@@ -5859,17 +5103,6 @@ async fn install_git_bash_inner(app: &AppHandle, china: bool) -> Result<(), Stri
 
         match download_with_progress(app, &client, url, "git_downloading").await {
             Ok(bytes) => {
-                // PortableGit 7z.exe is ~60MB. If we got less than 1MB, the CDN likely
-                // returned an HTML error page (common with China ISP/CDN hijacking).
-                if bytes.len() < 1_000_000 {
-                    let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(200)]);
-                    last_err = format!(
-                        "Source {}: downloaded only {} bytes (expected ~60MB), likely CDN error: {}",
-                        url, bytes.len(), preview
-                    );
-                    eprintln!("{}", last_err);
-                    continue;
-                }
                 eprintln!("PortableGit download succeeded ({} bytes)", bytes.len());
                 archive_bytes = Some(bytes);
                 break;
@@ -5899,7 +5132,7 @@ async fn install_git_bash_inner(app: &AppHandle, china: bool) -> Result<(), Stri
     // Run the self-extracting archive silently: -o<dir> -y
     eprintln!("Extracting PortableGit to {:?}...", install_dir);
     let extract_result = tokio::time::timeout(
-        std::time::Duration::from_secs(300),
+        std::time::Duration::from_secs(120),
         Command::new(&temp_path)
             .args([&format!("-o{}", install_dir.display()), "-y"])
             .stdin(Stdio::null())
@@ -5926,7 +5159,7 @@ async fn install_git_bash_inner(app: &AppHandle, china: bool) -> Result<(), Stri
             return Err(format!("Failed to run PortableGit extractor: {}", e));
         }
         Err(_) => {
-            return Err("PortableGit local extraction timed out after 300s (not a network issue)".to_string());
+            return Err("PortableGit extraction timed out after 120s".to_string());
         }
     }
 
@@ -6623,26 +5856,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(ProcessManager::new())
         .manage(StdinManager::new())
-        .manage(BypassModeMap::new())
         .manage(WatcherManager::default())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
-            // Raise file descriptor limit for macOS GUI processes.
-            // launchd gives GUI apps a soft limit of 256, which is too low
-            // for Claude CLI. Raise it to min(hard_limit, 65536).
-            #[cfg(unix)]
-            {
-                use libc::{getrlimit, setrlimit, rlimit, RLIMIT_NOFILE};
-                let mut rlim = rlimit { rlim_cur: 0, rlim_max: 0 };
-                if unsafe { getrlimit(RLIMIT_NOFILE, &mut rlim) } == 0 {
-                    let target = rlim.rlim_max.min(65536);
-                    if rlim.rlim_cur < target {
-                        rlim.rlim_cur = target;
-                        unsafe { setrlimit(RLIMIT_NOFILE, &rlim); }
-                    }
-                }
-            }
-
             // titleBarStyle: "Overlay" in tauri.conf.json handles macOS traffic lights
             // and native titlebar drag/double-click-to-maximize automatically.
 
