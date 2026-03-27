@@ -19,6 +19,34 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.9.2',
+    date: '2026-03-28',
+    highlights: {
+      zh: ['流式输出卡住修复 + 字体上限提升'],
+      en: ['Streaming freeze fix + font size limit raised'],
+    },
+    categories: [
+      {
+        label: { zh: '修复', en: 'Fixed' },
+        items: {
+          zh: [
+            '流式输出不再卡住 — 映射丢失时自动修复，后端完成但前端不渲染的问题已解决',
+          ],
+          en: [
+            'Streaming no longer freezes — auto-repair on mapping loss, fixes backend-complete-but-not-rendered issue',
+          ],
+        },
+      },
+      {
+        label: { zh: '优化', en: 'Improved' },
+        items: {
+          zh: ['字体大小上限从 24 提升到 36'],
+          en: ['Font size upper limit raised from 24 to 36'],
+        },
+      },
+    ],
+  },
+  {
     version: '0.9.1',
     date: '2026-03-26',
     highlights: {
