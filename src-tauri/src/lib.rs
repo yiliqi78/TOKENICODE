@@ -762,6 +762,10 @@ fn resolve_proxy_url() -> Option<String> {
             }
         }
     }
+    // 4. Probe common local proxy ports (Clash 7890, Surge 6152, SOCKS 1080)
+    if let Some(url) = probe_local_proxy() {
+        return Some(url);
+    }
     None
 }
 
