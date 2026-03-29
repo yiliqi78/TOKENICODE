@@ -1626,16 +1626,35 @@ async fn start_claude_session(
         }
     }
 
-    // Fallback: inject proxy env vars from login shell / system proxy if not already set.
-    // GUI apps launched from Finder/Dock don't inherit shell proxy settings, causing
-    // API calls to fail in regions that require a proxy (e.g. China → Anthropic API).
+    // Auto-detect and inject proxy env vars into CLI subprocess.
+    // GUI apps launched from Finder/Dock don't inherit shell proxy settings.
+    // Detection order: login shell > macOS system proxy > local port probing.
     #[cfg(not(target_os = "windows"))]
     {
         let proxy_env = login_shell_proxy_env();
         for (k, v) in proxy_env {
-            // Only inject if neither the resolved_env nor the current process env has it
             if !resolved_env.contains_key(k) && std::env::var(k).is_err() {
                 resolved_env.insert(k.clone(), v.clone());
+            }
+        }
+    }
+
+    // If still no proxy env vars, try system proxy + port probing
+    {
+        let has_proxy = resolved_env.keys().any(|k| {
+            let kl = k.to_lowercase();
+            kl == "https_proxy" || kl == "http_proxy" || kl == "all_proxy"
+        });
+        if !has_proxy {
+            // resolve_proxy_url checks: process env > system proxy > login shell > port probing
+            if let Some(url) = resolve_proxy_url() {
+                for key in &["https_proxy", "http_proxy", "HTTPS_PROXY", "HTTP_PROXY"] {
+                    resolved_env.insert(key.to_string(), url.clone());
+                }
+                if url.starts_with("socks") {
+                    resolved_env.insert("all_proxy".to_string(), url.clone());
+                    resolved_env.insert("ALL_PROXY".to_string(), url.clone());
+                }
             }
         }
     }
