@@ -1226,11 +1226,15 @@ export function InputBar() {
         return true;
       }
       if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.isComposing)) {
-        e.preventDefault();
         if (filtered[slashIndex]) {
+          e.preventDefault();
           handleSlashSelect(filtered[slashIndex]);
+          return true;
         }
-        return true;
+        // No matching command — close popover, let Enter fall through to submit
+        if (e.key === 'Enter') {
+          setSlashVisible(false);
+        }
       }
       if (e.key === 'Escape') {
         e.preventDefault();

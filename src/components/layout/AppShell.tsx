@@ -81,6 +81,7 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
 
   const handleRightMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     isRightDragging.current = true;
     rightStartX.current = e.clientX;
     rightStartWidth.current = isFilePreviewModeRef.current
@@ -134,6 +135,11 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      // Safety: reset body styles if component unmounts mid-drag
+      if (isRightDragging.current) {
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
     };
   }, []);
 
@@ -147,6 +153,7 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
 
   const handleSidebarMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     isSidebarDragging.current = true;
     sidebarStartX.current = e.clientX;
     sidebarStartW.current = sidebarWidthRef.current;
@@ -183,6 +190,10 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
     return () => {
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
+      if (isSidebarDragging.current) {
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
     };
   }, []);
 
@@ -217,7 +228,7 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
       {showSidebar && (
         <div
           onMouseDown={handleSidebarMouseDown}
-          className="w-[9px] -ml-1 -mr-1 h-full flex-shrink-0 relative cursor-col-resize z-10
+          className="w-[9px] -ml-px -mr-px h-full flex-shrink-0 relative cursor-col-resize z-10
             flex items-center justify-center group"
         >
           <div className="w-px h-full bg-border-subtle group-hover:bg-accent/40 transition-colors" />
@@ -233,7 +244,7 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
       {isFilePreviewMode && (
         <div
           onMouseDown={handleRightMouseDown}
-          className="w-[9px] -ml-1 -mr-1 h-full flex-shrink-0 relative cursor-col-resize z-10
+          className="w-[9px] -ml-px -mr-px h-full flex-shrink-0 relative cursor-col-resize z-10
             flex items-center justify-center group"
         >
           <div className="w-px h-full bg-border-subtle group-hover:bg-accent/40 transition-colors" />
@@ -254,7 +265,7 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
       {secondary && showSecondary && (
         <div
           onMouseDown={handleRightMouseDown}
-          className="w-[9px] -ml-1 -mr-1 h-full flex-shrink-0 relative cursor-col-resize z-10
+          className="w-[9px] -ml-px -mr-px h-full flex-shrink-0 relative cursor-col-resize z-10
             flex items-center justify-center group"
         >
           <div className="w-px h-full bg-border-subtle group-hover:bg-accent/40 transition-colors" />

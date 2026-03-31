@@ -57,6 +57,18 @@ export const PROVIDER_PRESETS: PresetProvider[] = [
     },
   },
   {
+    id: 'kimi-code',
+    name: 'Kimi Code',
+    baseUrl: 'https://api.kimi.com/coding/',
+    apiFormat: 'anthropic',
+    extra_env: {
+      ENABLE_TOOL_SEARCH: 'false',
+    },
+    keyUrl: 'https://www.kimi.com/code/console',
+    thinkingSupport: 'full',
+    defaultModel: 'kimi-for-coding',
+  },
+  {
     id: 'minimax',
     name: 'MiniMax',
     baseUrl: 'https://api.minimaxi.com/anthropic',

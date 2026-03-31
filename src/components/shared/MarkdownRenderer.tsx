@@ -193,6 +193,10 @@ const SANITIZE_SCHEMA = {
     ...defaultSchema.attributes,
     '*': [...(defaultSchema.attributes?.['*'] || []), 'className'],
   },
+  protocols: {
+    ...defaultSchema.protocols,
+    src: [...(defaultSchema.protocols?.src || []), 'data'],
+  },
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -321,25 +325,40 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
       <td className="px-3 py-2 text-text-primary border-b border-border-subtle
         text-xs">{children}</td>
     ),
-    a: ({ href, children }: { href?: string; children?: ReactNode }) => (
-      <a
-        href={href}
-        onClick={(e) => {
-          e.preventDefault();
-          if (href) openUrl(href);
-        }}
-        className="text-accent hover:underline inline-flex items-center
-          gap-0.5 cursor-pointer"
-        title={href}
-      >
-        {children}
-        <svg width="10" height="10" viewBox="0 0 12 12" fill="none"
-          stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
-          className="flex-shrink-0 opacity-60">
-          <path d="M4.5 1.5h6v6M10.5 1.5L4 8" />
-        </svg>
-      </a>
-    ),
+    a: ({ href, children }: { href?: string; children?: ReactNode }) => {
+      // Detect false-positive autolinks: remark-gfm treats file-like text
+      // (e.g. AGENTS.md, config.rs) as URLs because some extensions are
+      // valid TLDs (.md = Moldova, .rs = Serbia, .sh = St. Helena, etc.)
+      const childText = typeof children === 'string' ? children : '';
+      const FILE_EXT_RE = /\.(md|txt|json|ts|tsx|js|jsx|py|rs|go|toml|yaml|yml|html|css|sh|log|env|cfg|ini|xml|csv|sql|lock|swift|kt|java|c|h|cpp|hpp|rb|lua|zig|vue|svelte)$/i;
+      if (
+        href &&
+        FILE_EXT_RE.test(childText) &&
+        (href === `http://${childText}` || href === `https://${childText}`)
+      ) {
+        return <code className="rounded bg-black/[0.06] px-1 py-0.5 text-[0.9em] dark:bg-white/[0.08]">{children}</code>;
+      }
+
+      return (
+        <a
+          href={href}
+          onClick={(e) => {
+            e.preventDefault();
+            if (href) openUrl(href);
+          }}
+          className="text-accent hover:underline inline-flex items-center
+            gap-0.5 cursor-pointer"
+          title={href}
+        >
+          {children}
+          <svg width="10" height="10" viewBox="0 0 12 12" fill="none"
+            stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
+            className="flex-shrink-0 opacity-60">
+            <path d="M4.5 1.5h6v6M10.5 1.5L4 8" />
+          </svg>
+        </a>
+      );
+    },
     img: ({ src, alt }: { src?: string; alt?: string }) => {
       // Resolve relative paths against the working directory
       let resolvedSrc = src || '';

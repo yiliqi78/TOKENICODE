@@ -6,6 +6,22 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Kimi Code 预设** — 新增 Kimi Code 接入点（`api.kimi.com/coding`），与 Kimi 开放平台（moonshot）分开配置，模型 `kimi-for-coding`
+
+### Fixed
+
+- **斜杠命令回车发不出（回归）** — `slashVisible` 为 true 但无匹配项时 Enter 被无条件拦截，改为无匹配时关闭 popover 并 fall through 到 submit（#65）
+- **文件路径被误识别为 URL** — remark-gfm autolink 将 `AGENTS.md` 等文件名当作域名（.md 是摩尔多瓦 TLD），点击后跳转浏览器；现检测 autolink 生成的文件扩展名链接，渲染为 `<code>` 而非超链接（#62）
+- **Base64 图片无法渲染** — rehype-sanitize 默认 schema 不允许 `data:` 协议，Base64 嵌入图片的 src 被剥离；现将 `data` 加入 `src` 允许的协议列表（#61）
+- **拖拽操作被 resize handler 抢占** — resize handle 负 margin 过大（4px overlap）导致面板边缘交互被拦截；收窄至 1px overlap + 添加 stopPropagation + 修复 unmount 时 body style 泄露（#60）
+- **Bedrock beta flag 400 报错** — 自动检测 Bedrock URL（含 `bedrock` 或 `amazonaws.com`），注入 `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1`，用户无需手动设置环境变量（#59）
+
+---
+
 ## [0.9.2] - 2026-03-28
 
 ### Fixed

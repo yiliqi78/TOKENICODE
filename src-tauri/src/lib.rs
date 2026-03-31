@@ -1463,6 +1463,14 @@ fn resolve_provider_env(
         }
     }
 
+    // Auto-disable experimental betas for AWS Bedrock — the upstream CLI sends
+    // beta flags that Bedrock's API doesn't recognise, causing 400 errors (#59).
+    let base_lower = provider.base_url.to_lowercase();
+    if base_lower.contains("bedrock") || base_lower.contains("amazonaws.com") {
+        env.entry("CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS".to_string())
+            .or_insert_with(|| "1".to_string());
+    }
+
     // No extra CLI args needed — env vars set on the process take precedence.
     // Previously we used --setting-sources project,local to skip user settings,
     // but that broke directories without .claude/ (e.g. empty/new folders) because
