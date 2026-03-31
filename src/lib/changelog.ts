@@ -19,6 +19,48 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.9.4',
+    date: '2026-03-31',
+    highlights: {
+      zh: ['一次修了 5 个共性 Bug + 新增 Kimi Code 渠道'],
+      en: ['5 shared bug fixes in one go + Kimi Code provider added'],
+    },
+    categories: [
+      {
+        label: { zh: '新功能', en: 'Added' },
+        items: {
+          zh: [
+            'Kimi Code 预设 — 新增 Kimi Code 编程专用接入点，与 Kimi 开放平台分开配置',
+          ],
+          en: [
+            'Kimi Code preset — dedicated coding endpoint, separate from Kimi open platform',
+          ],
+        },
+      },
+      {
+        label: { zh: '修复', en: 'Fixed' },
+        items: {
+          zh: [
+            '斜杠命令回车发不出 — 输入命令后按回车现在能正常发送了',
+            '文件路径不再跳浏览器 — AGENTS.md 这类文件名不会被当成链接了',
+            'Base64 图片能正常显示了',
+            '面板边缘拖拽不再触发意外 resize',
+            'Bedrock 渠道不再报 400 错误 — 自动处理兼容性问题',
+            '关闭提示现在有中英文了',
+          ],
+          en: [
+            'Slash command Enter key — now sends correctly instead of being swallowed',
+            'File paths no longer open browser — AGENTS.md etc. render as code, not links',
+            'Base64 images render properly in Markdown preview',
+            'Panel edge drag no longer triggers accidental resize',
+            'Bedrock provider 400 error — auto-disables incompatible beta flags',
+            'Exit confirmation dialog now localized',
+          ],
+        },
+      },
+    ],
+  },
+  {
     version: '0.9.3',
     date: '2026-03-29',
     highlights: {
