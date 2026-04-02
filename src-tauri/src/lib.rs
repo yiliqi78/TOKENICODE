@@ -2669,8 +2669,8 @@ fn search_session_file(path: &std::path::Path, query_lower: &str) -> Option<serd
             {
                 let original_chars: Vec<char> = full_text.chars().collect();
                 let total_chars = original_chars.len();
-                let start = if char_pos > 50 { char_pos - 50 } else { 0 };
-                let end = std::cmp::min(total_chars, char_pos + query_lower.chars().count() + 50);
+                let start = if char_pos > 75 { char_pos - 75 } else { 0 };
+                let end = std::cmp::min(total_chars, char_pos + query_lower.chars().count() + 75);
 
                 let mut snippet: String = original_chars[start..end].iter().collect();
                 if start > 0 {

@@ -600,6 +600,17 @@ export function ConversationList() {
               className="flex-1 bg-transparent text-xs text-text-primary
                 placeholder:text-text-tertiary outline-none"
             />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="flex-shrink-0 p-0.5 rounded text-text-tertiary
+                  hover:text-text-primary transition-smooth">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
+                  stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M4 4l8 8M12 4l-8 8" />
+                </svg>
+              </button>
+            )}
           </div>
 
           {/* Archive toggle */}
@@ -681,6 +692,7 @@ export function ConversationList() {
                 displayName={displayName(session)}
                 contentSnippet={result?.snippet}
                 matchCount={result?.match_count}
+                searchQuery={searchQuery}
                 multiSelect={multiSelect}
                 isChecked={selectedIds.has(session.id)}
                 onSelect={handleLoadSession}

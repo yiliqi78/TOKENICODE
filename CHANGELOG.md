@@ -6,13 +6,17 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
-## [Unreleased]
+## [0.9.5] - 2026-04-02
+
+### Added
+
+- **任务内容模糊搜索** — 搜索框输入 2 字以上时，除了标题匹配，还会异步搜索所有对话内容，匹配结果显示在「内容匹配」分区，带上下文 snippet + 关键词高亮
+- **搜索框一键清除** — 搜索框有内容时右侧显示 × 按钮
 
 ### Fixed
 
-- **[严重] 更新/重启后聊天记录丢失** — `tracked_sessions.txt` 索引丢失时自动从 `~/.claude/projects/` 扫描重建，所有会话自动恢复（#67）
+- **[严重] 更新/重启后聊天记录丢失** — `tracked_sessions.txt` 索引丢失时自动从 `~/.claude/projects/` 扫描重建，用 `session_names.json` 做隔离过滤，所有会话自动恢复（#67）
 - **Session 索引原子写入** — cleanup 和 delete 改用 temp+rename 防止崩溃时文件截断
-- **Resume guard 幽灵锁** — 启动时清空所有 resume guard + 前端遇到锁冲突自动清除 sessionId 重试
 
 ---
 

@@ -21,6 +21,32 @@ function formatRelativeTime(ms: number): string {
   return new Date(ms).toLocaleDateString();
 }
 
+/** Renders snippet text with query matches highlighted in accent color */
+function HighlightedSnippet({ text, query }: { text: string; query: string }) {
+  if (!query || query.length < 2) return <span className="line-clamp-3">{text}</span>;
+  const lower = text.toLowerCase();
+  const qLower = query.toLowerCase();
+  const parts: { text: string; highlight: boolean }[] = [];
+  let lastEnd = 0;
+  let idx = lower.indexOf(qLower);
+  while (idx !== -1) {
+    if (idx > lastEnd) parts.push({ text: text.slice(lastEnd, idx), highlight: false });
+    parts.push({ text: text.slice(idx, idx + query.length), highlight: true });
+    lastEnd = idx + query.length;
+    idx = lower.indexOf(qLower, lastEnd);
+  }
+  if (lastEnd < text.length) parts.push({ text: text.slice(lastEnd), highlight: false });
+  if (parts.length === 0) return <span className="line-clamp-3">{text}</span>;
+  return (
+    <span className="line-clamp-3">
+      {parts.map((p, i) => p.highlight
+        ? <mark key={i} className="bg-amber-300/60 dark:bg-amber-500/40 text-inherit rounded-sm px-px">{p.text}</mark>
+        : <span key={i}>{p.text}</span>
+      )}
+    </span>
+  );
+}
+
 interface SessionItemProps {
   session: SessionListItem;
   isSelected: boolean;
@@ -36,6 +62,7 @@ interface SessionItemProps {
   onToggleCheck?: (sessionId: string, shiftKey?: boolean) => void;
   contentSnippet?: string;
   matchCount?: number;
+  searchQuery?: string;
   triggerRename?: boolean;
   onRenameDone?: () => void;
 }
@@ -54,6 +81,7 @@ export function SessionItem({
   onRename,
   contentSnippet,
   matchCount,
+  searchQuery,
   onToggleCheck,
   triggerRename,
   onRenameDone,
@@ -187,17 +215,19 @@ export function SessionItem({
         )}
       </div>
       {contentSnippet && (
-        <div className="flex items-center gap-1 mt-0.5 text-[10px] text-text-muted leading-tight">
+        <div className="flex gap-1 mt-0.5 text-[10px] text-text-muted leading-relaxed">
           <svg width="8" height="8" viewBox="0 0 16 16" fill="none"
             stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-            className="flex-shrink-0 text-accent/40">
+            className="flex-shrink-0 mt-[3px] text-accent/40">
             <circle cx="7" cy="7" r="5" />
             <path d="M14 14l-3-3" />
           </svg>
-          {matchCount && matchCount > 1 && (
-            <span className="text-accent/60 font-medium flex-shrink-0">{matchCount}x</span>
-          )}
-          <span className="truncate">{contentSnippet}</span>
+          <div className="min-w-0">
+            {matchCount != null && matchCount > 1 && (
+              <span className="text-accent/60 font-medium mr-1">{matchCount}x</span>
+            )}
+            <HighlightedSnippet text={contentSnippet} query={searchQuery || ''} />
+          </div>
         </div>
       )}
     </button>
