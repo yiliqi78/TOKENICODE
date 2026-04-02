@@ -93,6 +93,8 @@ const messages: Record<Locale, Record<string, string>> = {
     'conv.showArchived': '显示归档',
     'conv.selectMode': '选择',
     'conv.selected': '已选 {n} 个',
+    'conv.contentMatches': '内容匹配',
+    'conv.searchingContent': '搜索会话内容...',
 
     // ExportMenu
     'export.title': '导出任务',
