@@ -58,6 +58,10 @@ interface SessionState {
   runningSessions: Set<string>;
   /** Map stdinId → tabId so stream events can be routed to the correct session */
   stdinToTab: Record<string, string>;
+  /** Content search results keyed by session ID */
+  contentSearchResults: Map<string, ContentSearchResult>;
+  isContentSearching: boolean;
+  contentSearchQuery: string;
 
   fetchSessions: () => Promise<void>;
   setSearchQuery: (query: string) => void;
