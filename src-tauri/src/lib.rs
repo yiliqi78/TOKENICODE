@@ -2306,8 +2306,13 @@ fn load_tracked_sessions() -> std::collections::HashSet<String> {
                             let _ = writeln!(f, "{}", id);
                         }
                     }
+                    // Note: rebuild includes ALL sessions from ~/.claude/projects/,
+                    // which may include Claude Code CLI sessions. This is intentional —
+                    // showing extra sessions is far better than losing data. Users can
+                    // delete unwanted CLI sessions from the conversation list.
                     eprintln!(
-                        "[TOKENICODE] Rebuilt tracked_sessions.txt from disk: {} sessions recovered",
+                        "[TOKENICODE] Rebuilt tracked_sessions.txt from disk: {} sessions recovered \
+                         (may include Claude Code CLI sessions)",
                         set.len()
                     );
                 }
