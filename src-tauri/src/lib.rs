@@ -6333,6 +6333,7 @@ pub fn run() {
             track_session,
             delete_session,
             list_sessions,
+            search_sessions,
             load_session,
             read_file_tree,
             read_file_content,
