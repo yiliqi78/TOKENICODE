@@ -253,6 +253,19 @@ export function ConversationList() {
     return entries;
   }, [filtered]);
 
+  // Content-only matches: sessions hit by content search but NOT by metadata filter
+  const contentOnlyMatches = useMemo(() => {
+    if (!searchQuery.trim() || contentSearchResults.size === 0) return [];
+    const metadataIds = new Set(filtered.map((s) => s.id));
+    return sessions.filter((s) => {
+      if (metadataIds.has(s.id)) return false;
+      if (!contentSearchResults.has(s.id)) return false;
+      // Respect archive filter
+      if (showArchived) return archivedSessions.has(s.id);
+      return !archivedSessions.has(s.id);
+    });
+  }, [sessions, filtered, contentSearchResults, searchQuery, showArchived, archivedSessions]);
+
   // Smart expand: expand if contains selected, or manually expanded
   const isExpanded = useCallback((key: string) => {
     if (manualCollapsed.has(key)) return false;
