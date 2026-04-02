@@ -657,8 +657,54 @@ export function ConversationList() {
         />
       ))}
 
+      {/* Content matches section (async, appears after metadata results) */}
+      {searchQuery.trim() && contentOnlyMatches.length > 0 && (
+        <div className="mt-3 mb-1">
+          <div className="flex items-center gap-2 px-3 py-1">
+            <div className="flex-1 h-px bg-border-subtle" />
+            <span className="text-[10px] text-text-tertiary font-medium uppercase tracking-wider">
+              {t('conv.contentMatches')} ({contentOnlyMatches.length})
+            </span>
+            <div className="flex-1 h-px bg-border-subtle" />
+          </div>
+          {contentOnlyMatches.map((session) => {
+            const result = contentSearchResults.get(session.id);
+            return (
+              <SessionItem
+                key={session.id}
+                session={session}
+                isSelected={selectedId === session.id}
+                isRunning={runningSessions.has(session.id)}
+                isPinned={pinnedSessions.has(session.id)}
+                isArchived={archivedSessions.has(session.id)}
+                displayName={displayName(session)}
+                contentSnippet={result?.snippet}
+                matchCount={result?.match_count}
+                multiSelect={multiSelect}
+                isChecked={selectedIds.has(session.id)}
+                onSelect={handleLoadSession}
+                onContextMenu={handleContextMenu}
+                onRename={handleRename}
+                onToggleCheck={handleToggleCheck}
+                triggerRename={renamingSessionId === session.id}
+                onRenameDone={() => setRenamingSessionId(null)}
+              />
+            );
+          })}
+        </div>
+      )}
+
+      {/* Content search loading spinner */}
+      {searchQuery.trim() && isContentSearching && (
+        <div className="flex items-center justify-center gap-1.5 py-3 text-text-tertiary">
+          <div className="w-3 h-3 border-[1.5px] border-text-tertiary/20
+            border-t-text-tertiary/60 rounded-full animate-spin" />
+          <span className="text-[10px]">{t('conv.searchingContent')}</span>
+        </div>
+      )}
+
       {/* Empty state */}
-      {!isLoading && filtered.length === 0 && (
+      {!isLoading && filtered.length === 0 && contentOnlyMatches.length === 0 && !isContentSearching && (
         <div className="text-center py-8 px-4">
           <div className="text-text-tertiary text-xs">
             {searchQuery ? t('conv.noMatch') : t('conv.noConv')}
