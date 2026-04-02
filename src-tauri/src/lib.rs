@@ -2271,23 +2271,42 @@ fn load_tracked_sessions() -> std::collections::HashSet<String> {
     }
 
     // Fallback: if tracking file is missing/empty, rebuild from disk.
-    // All JSONL files in ~/.claude/projects/ are real sessions — adopt them all.
+    // Use session_names.json (tokenicode_session_names.json) as a filter to avoid
+    // importing Claude Code CLI or Her sessions. Only if session_names is also
+    // missing do we fall back to importing all sessions (better than losing data).
     if set.is_empty() {
         if let Some(home) = dirs::home_dir() {
             let claude_projects = home.join(".claude").join("projects");
-            if claude_projects.exists() {
-                if let Ok(entries) = std::fs::read_dir(&claude_projects) {
-                    for entry in entries.flatten() {
-                        if entry.path().is_dir() {
-                            if let Ok(files) = std::fs::read_dir(entry.path()) {
-                                for file in files.flatten() {
-                                    let p = file.path();
-                                    if p.extension().map_or(false, |e| e == "jsonl") {
-                                        if let Some(stem) = p.file_stem() {
-                                            let id = stem.to_string_lossy().to_string();
-                                            if !id.starts_with("desk_") {
-                                                set.insert(id);
-                                            }
+            if !claude_projects.exists() {
+                return set;
+            }
+
+            // Load session_names as ownership filter (only sessions this app touched)
+            let names_filter: Option<std::collections::HashSet<String>> =
+                session_names_path().ok().and_then(|p| {
+                    std::fs::read_to_string(&p).ok().and_then(|content| {
+                        serde_json::from_str::<serde_json::Value>(&content).ok().map(|v| {
+                            v.as_object()
+                                .map(|obj| obj.keys().cloned().collect())
+                                .unwrap_or_default()
+                        })
+                    })
+                });
+
+            if let Ok(entries) = std::fs::read_dir(&claude_projects) {
+                for entry in entries.flatten() {
+                    if entry.path().is_dir() {
+                        if let Ok(files) = std::fs::read_dir(entry.path()) {
+                            for file in files.flatten() {
+                                let p = file.path();
+                                if p.extension().map_or(false, |e| e == "jsonl") {
+                                    if let Some(stem) = p.file_stem() {
+                                        let id = stem.to_string_lossy().to_string();
+                                        if id.starts_with("desk_") { continue; }
+                                        if let Some(ref filter) = names_filter {
+                                            if filter.contains(&id) { set.insert(id); }
+                                        } else {
+                                            set.insert(id);
                                         }
                                     }
                                 }
@@ -2295,27 +2314,19 @@ fn load_tracked_sessions() -> std::collections::HashSet<String> {
                         }
                     }
                 }
-                // Persist the rebuilt index so subsequent loads are fast
-                if !set.is_empty() {
-                    if let Some(parent) = path.parent() {
-                        let _ = std::fs::create_dir_all(parent);
-                    }
-                    use std::io::Write;
-                    if let Ok(mut f) = std::fs::File::create(&path) {
-                        for id in &set {
-                            let _ = writeln!(f, "{}", id);
-                        }
-                    }
-                    // Note: rebuild includes ALL sessions from ~/.claude/projects/,
-                    // which may include Claude Code CLI sessions. This is intentional —
-                    // showing extra sessions is far better than losing data. Users can
-                    // delete unwanted CLI sessions from the conversation list.
-                    eprintln!(
-                        "[TOKENICODE] Rebuilt tracked_sessions.txt from disk: {} sessions recovered \
-                         (may include Claude Code CLI sessions)",
-                        set.len()
-                    );
+            }
+            if !set.is_empty() {
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
                 }
+                use std::io::Write;
+                if let Ok(mut f) = std::fs::File::create(&path) {
+                    for id in &set {
+                        let _ = writeln!(f, "{}", id);
+                    }
+                }
+                let mode = if names_filter.is_some() { "filtered by session_names" } else { "all (no filter)" };
+                eprintln!("[TOKENICODE] Rebuilt tracked_sessions.txt: {} sessions ({})", set.len(), mode);
             }
         }
     }
