@@ -194,7 +194,7 @@ TOKENICODE v0.8.0 采用 Claude CLI 原生控制协议处理权限：
 ![流式对话](screenshots/streaming-chat.png?v=2)
 
 **会话管理** — 置顶、归档、日期分组、批量操作
-![会话管理](screenshots/文件管理.png?v=2)
+![会话管理](screenshots/session-management.png?v=2)
 
 **文件浏览器** — SVG 图标、变更标记、扁平搜索
 ![文件浏览器](screenshots/file-explorer.png?v=2)

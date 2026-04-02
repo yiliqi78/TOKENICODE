@@ -194,7 +194,7 @@ Manage Claude Code skills (edit, enable/disable, right-click context menu) and M
 ![Streaming Chat](screenshots/streaming-chat.png?v=2)
 
 **Session Management** — Pin, archive, date groups, batch operations
-![Session Management](screenshots/文件管理.png?v=2)
+![Session Management](screenshots/session-management.png?v=2)
 
 **File Explorer** — SVG icons, change markers, flat search
 ![File Explorer](screenshots/file-explorer.png?v=2)
