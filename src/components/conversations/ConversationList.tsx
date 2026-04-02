@@ -190,6 +190,18 @@ export function ConversationList() {
     return () => { unlisten?.(); };
   }, [fetchSessions]);
 
+  // Debounce content search: 300ms after searchQuery changes, ≥2 chars
+  useEffect(() => {
+    if (!searchQuery.trim() || searchQuery.trim().length < 2) {
+      clearContentSearch();
+      return;
+    }
+    const timer = setTimeout(() => {
+      searchSessionContent(searchQuery.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, searchSessionContent, clearContentSearch]);
+
   // Display name resolver
   const displayName = useCallback((session: SessionListItem) => {
     return customPreviews[session.id] || session.preview || '';
