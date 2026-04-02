@@ -758,6 +758,8 @@ const messages: Record<Locale, Record<string, string>> = {
     'conv.showArchived': 'Show Archived',
     'conv.selectMode': 'Select',
     'conv.selected': '{n} selected',
+    'conv.contentMatches': 'Content matches',
+    'conv.searchingContent': 'Searching content...',
 
     // ExportMenu
     'export.title': 'Export task',
