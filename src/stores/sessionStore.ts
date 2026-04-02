@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { bridge, SessionListItem } from '../lib/tauri-bridge';
+import { bridge, SessionListItem, ContentSearchResult } from '../lib/tauri-bridge';
 
 // Persist custom session names in localStorage as fast cache,
 // and sync to disk via Tauri backend for durability.
