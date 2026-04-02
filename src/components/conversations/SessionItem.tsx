@@ -34,6 +34,8 @@ interface SessionItemProps {
   onContextMenu: (e: React.MouseEvent, session: SessionListItem) => void;
   onRename: (sessionId: string, newName: string) => void;
   onToggleCheck?: (sessionId: string, shiftKey?: boolean) => void;
+  contentSnippet?: string;
+  matchCount?: number;
   triggerRename?: boolean;
   onRenameDone?: () => void;
 }
