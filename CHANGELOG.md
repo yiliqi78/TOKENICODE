@@ -6,6 +6,16 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **[严重] 更新/重启后聊天记录丢失** — `tracked_sessions.txt` 索引丢失时自动从 `~/.claude/projects/` 扫描重建，所有会话自动恢复（#67）
+- **Session 索引原子写入** — cleanup 和 delete 改用 temp+rename 防止崩溃时文件截断
+- **Resume guard 幽灵锁** — 启动时清空所有 resume guard + 前端遇到锁冲突自动清除 sessionId 重试
+
+---
+
 ## [0.9.4] - 2026-03-31
 
 ### Added
