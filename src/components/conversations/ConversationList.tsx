@@ -10,6 +10,7 @@ import { save } from '@tauri-apps/plugin-dialog';
 import { useT } from '../../lib/i18n';
 import { parseSessionMessages } from '../../lib/session-loader';
 import { SessionGroup } from './SessionGroup';
+import { SessionItem } from './SessionItem';
 import { SessionContextMenu, ProjectContextMenu } from './SessionContextMenu';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
 
