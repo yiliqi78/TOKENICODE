@@ -767,18 +767,16 @@ export function InputBar() {
 
     clearFiles();
 
-    // Gate: only queue messages when there's an unresolved interaction card
-    // (permission/question/plan_review) to prevent them from being consumed as answers.
-    // Otherwise, send directly — CLI handles concurrent messages fine.
+    // Gate: queue follow-up messages while AI is actively processing (#142).
+    // Previously only queued when an interaction card was pending, but direct stdin
+    // writes during streaming are unreliable — CLI may silently drop them.
+    // Now we always queue during running state; messages are flushed FIFO when the
+    // current turn completes (result event in useStreamProcessor).
     const currentTabState = getActiveTabState();
     const existingStdinId = currentTabState.sessionMeta.stdinId;
     const currentStatus = currentTabState.sessionStatus;
-    const currentMsgs = currentTabState.messages;
-    const hasUnresolvedInteraction = currentMsgs.some(
-      (m: import('../../stores/chatStore').ChatMessage) => ['permission', 'question', 'plan_review'].includes(m.type) && !m.resolved,
-    );
 
-    if (existingStdinId && currentStatus === 'running' && hasUnresolvedInteraction) {
+    if (existingStdinId && currentStatus === 'running') {
       useChatStore.getState().addPendingMessage(tabId, text);
       return;
     }

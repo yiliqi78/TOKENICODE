@@ -572,6 +572,28 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             });
           }
         }
+        // FIFO drain for background tabs (#142/#70): same logic as foreground.
+        {
+          const bgDrainTab = store.getTab(tabId);
+          const bgNextMsg = store.shiftPendingMessage(tabId);
+          const bgFlushStdinId = bgDrainTab?.sessionMeta.stdinId;
+          if (bgNextMsg && bgFlushStdinId) {
+            store.setSessionStatus(tabId, 'running');
+            store.setSessionMeta(tabId, { turnStartTime: Date.now(), lastProgressAt: Date.now(), inputTokens: 0, outputTokens: 0 });
+            store.setActivityStatus(tabId, { phase: 'thinking' });
+            bridge.sendStdin(bgFlushStdinId, bgNextMsg).catch((err) => {
+              console.error('[TC:bg] Failed to send pending message:', err);
+              const bgRemaining = store.getTab(tabId)?.pendingUserMessages ?? [];
+              const bgAllFailed = [bgNextMsg, ...bgRemaining];
+              const bgDraft = store.getTab(tabId)?.inputDraft ?? '';
+              const bgFailedText = bgAllFailed.join('\n\n');
+              store.setInputDraft(tabId, bgDraft ? `${bgDraft}\n\n${bgFailedText}` : bgFailedText);
+              store.clearPendingMessages(tabId);
+              store.setSessionStatus(tabId, 'error');
+            });
+          }
+        }
+
         useSessionStore.getState().fetchSessions();
 
         // AI Title Generation for background tabs (same 3rd-turn logic)
@@ -624,6 +646,9 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         break;
       }
       case 'process_exit': {
+        // Flush any remaining stream buffer before cleanup (#64)
+        flushStreamBuffer(msg.__stdinId);
+
         // P0-5: Clean up Tauri event listeners for background tab.
         // __claudeUnlisteners is keyed by stdinId (desk_xxx), NOT tabId (session uuid).
         // Use msg.__stdinId (tagged by the listener closure) to find the correct entry.
@@ -637,6 +662,14 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         // Clean up stdinToTab mapping to prevent memory leak
         if (bgStdinId) {
           useSessionStore.getState().unregisterStdinTab(bgStdinId);
+        }
+        // Restore pending messages to input draft (#142/#70)
+        const bgExitPending = store.getTab(tabId)?.pendingUserMessages ?? [];
+        if (bgExitPending.length > 0) {
+          const bgExitDraft = store.getTab(tabId)?.inputDraft ?? '';
+          const bgPendingText = bgExitPending.join('\n\n');
+          store.setInputDraft(tabId, bgExitDraft ? `${bgExitDraft}\n\n${bgPendingText}` : bgPendingText);
+          store.clearPendingMessages(tabId);
         }
         useSessionStore.getState().fetchSessions();
         break;
@@ -1737,35 +1770,45 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           break; // Skip pending message flush — compact takes priority
         }
 
-        // Flush any user messages that were queued while AI was processing.
-        // These follow-up messages were held to prevent them from being
-        // consumed as answers to AskUserQuestion / PlanReview interactions.
-        const pendingMsgs = useChatStore.getState().flushPendingMessages(tabId);
-        const flushStdinId = useChatStore.getState().getTab(tabId)?.sessionMeta.stdinId;
-        if (pendingMsgs.length > 0 && flushStdinId) {
-          const combinedText = pendingMsgs.join('\n\n');
-          const nextTurnStartedAt = Date.now();
-          setSessionStatus('running');
-          setSessionMeta({
-            turnStartTime: nextTurnStartedAt,
-            lastProgressAt: nextTurnStartedAt,
-            inputTokens: 0,
-            outputTokens: 0,
-          });
-          setActivityStatus({ phase: 'thinking' });
-          agentActions.clearAgents();
-          agentActions.upsertAgent({
-            id: 'main',
-            parentId: null,
-            description: combinedText.slice(0, 100),
-            phase: 'spawning',
-            startTime: Date.now(),
-            isMain: true,
-          });
-          bridge.sendStdin(flushStdinId, combinedText).catch((err) => {
-            console.error('[TOKENICODE] Failed to send pending messages:', err);
-            setSessionStatus('error');
-          });
+        // FIFO drain: dequeue ONE pending message and send it (#142/#70).
+        // When this turn completes, the next result event will dequeue the next one.
+        // Previously all pending messages were joined and sent at once, which could
+        // overwhelm the CLI. Sequential turn-by-turn processing is safer.
+        {
+          const drainTab = useChatStore.getState().getTab(tabId);
+          const nextMsg = useChatStore.getState().shiftPendingMessage(tabId);
+          const flushStdinId = drainTab?.sessionMeta.stdinId;
+          if (nextMsg && flushStdinId) {
+            const nextTurnStartedAt = Date.now();
+            setSessionStatus('running');
+            setSessionMeta({
+              turnStartTime: nextTurnStartedAt,
+              lastProgressAt: nextTurnStartedAt,
+              inputTokens: 0,
+              outputTokens: 0,
+            });
+            setActivityStatus({ phase: 'thinking' });
+            agentActions.clearAgents();
+            agentActions.upsertAgent({
+              id: 'main',
+              parentId: null,
+              description: nextMsg.slice(0, 100),
+              phase: 'spawning',
+              startTime: Date.now(),
+              isMain: true,
+            });
+            bridge.sendStdin(flushStdinId, nextMsg).catch((err) => {
+              console.error('[TC] Failed to send pending message:', err);
+              // Restore failed message + remaining queue to input draft
+              const remaining = useChatStore.getState().getTab(tabId)?.pendingUserMessages ?? [];
+              const allFailed = [nextMsg, ...remaining];
+              const draft = useChatStore.getState().getTab(tabId)?.inputDraft ?? '';
+              const failedText = allFailed.join('\n\n');
+              useChatStore.getState().setInputDraft(tabId, draft ? `${draft}\n\n${failedText}` : failedText);
+              useChatStore.getState().clearPendingMessages(tabId);
+              setSessionStatus('error');
+            });
+          }
         }
 
         break;

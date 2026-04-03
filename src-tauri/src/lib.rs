@@ -1463,10 +1463,16 @@ fn resolve_provider_env(
         }
     }
 
-    // Auto-disable experimental betas for AWS Bedrock — the upstream CLI sends
-    // beta flags that Bedrock's API doesn't recognise, causing 400 errors (#59).
+    // Auto-disable experimental betas for non-Anthropic providers (#69).
+    // Beta flags (cache_control.scope, structured-outputs, eager_input_streaming)
+    // are only supported by Anthropic's native API. Bedrock, Vertex, and all
+    // third-party proxies (including those that route through Bedrock internally)
+    // will return 400 errors if these flags are present.
+    // Only keep betas enabled when the base URL is explicitly Anthropic's native API.
     let base_lower = provider.base_url.to_lowercase();
-    if base_lower.contains("bedrock") || base_lower.contains("amazonaws.com") {
+    let is_native_anthropic = base_lower.is_empty()
+        || base_lower.contains("api.anthropic.com");
+    if !is_native_anthropic {
         env.entry("CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS".to_string())
             .or_insert_with(|| "1".to_string());
     }
@@ -1874,8 +1880,17 @@ async fn start_claude_session(
         let reader = BufReader::with_capacity(1024 * 1024, stdout);
         let mut lines = reader.lines();
         let mut line_count: u64 = 0;
+        let mut emit_fail_count: u32 = 0;
         let spawn_time = std::time::Instant::now();
-        while let Ok(Some(line)) = lines.next_line().await {
+        loop {
+            let line = match lines.next_line().await {
+                Ok(Some(line)) => line,
+                Ok(None) => break,  // normal EOF
+                Err(e) => {
+                    eprintln!("[TOKENICODE:CRITICAL] stdout read error after {} lines: {}", line_count, e);
+                    break;
+                }
+            };
             line_count += 1;
             // Log first 10 lines with timing to diagnose startup delay
             if line_count <= 10 {
@@ -2060,7 +2075,16 @@ async fn start_claude_session(
                 }
             };
             if let Err(e) = emit_to_frontend(&app_clone, &stream_event, json_to_emit) {
-                eprintln!("[TOKENICODE] emit_to_frontend failed: {}", e);
+                emit_fail_count += 1;
+                eprintln!("[TOKENICODE] emit_to_frontend failed (#{emit_fail_count}): {e}");
+                // If emit fails repeatedly, the frontend is likely unreachable.
+                // Break the loop to trigger process_exit cleanup (#64).
+                if emit_fail_count >= 10 {
+                    eprintln!("[TOKENICODE:CRITICAL] {} consecutive emit failures — frontend unreachable, stopping stream", emit_fail_count);
+                    break;
+                }
+            } else {
+                emit_fail_count = 0;  // reset on success
             }
         }
         // Emit process_exit on the stream channel (primary detection)

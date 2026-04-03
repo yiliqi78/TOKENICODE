@@ -159,6 +159,38 @@ export function useFileAttachments() {
           } catch {
             // Ignore — size will show as 0
           }
+
+          // Generate thumbnail for image files (#70) so they display as
+          // visual previews in FileUploadChips instead of bare paths.
+          let preview: string | undefined;
+          if (isImg) {
+            try {
+              const b64 = await bridge.readFileBase64(filePath);
+              const dataUrl = `data:${mime};base64,${b64}`;
+              preview = await new Promise<string | undefined>((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                  const canvas = document.createElement('canvas');
+                  const maxSize = 64;
+                  const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
+                  canvas.width = img.width * scale;
+                  canvas.height = img.height * scale;
+                  const ctx = canvas.getContext('2d');
+                  if (ctx) {
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    resolve(canvas.toDataURL('image/jpeg', 0.7));
+                  } else {
+                    resolve(undefined);
+                  }
+                };
+                img.onerror = () => resolve(undefined);
+                img.src = dataUrl;
+              });
+            } catch {
+              // Ignore — no thumbnail, still functional
+            }
+          }
+
           newFiles.push({
             id: generateFileId(),
             name,
@@ -166,7 +198,7 @@ export function useFileAttachments() {
             size: fileSize,
             type: mime,
             isImage: isImg,
-            preview: undefined,  // Could read + thumbnail, but skip for speed
+            preview,
           });
         } catch (err) {
           console.error('Failed to add dropped file:', filePath, err);
@@ -241,8 +273,27 @@ export function useFileAttachments() {
             })();
           }
         } else {
-          // Drop onto chat area → insert as inline file chips
+          // Split: images → file attachments (with preview), non-images → inline chips.
+          // This ensures images show as visual thumbnails in FileUploadChips and
+          // their paths are properly included in the message sent to CLI (#70).
+          const imagePaths: string[] = [];
+          const otherPaths: string[] = [];
           for (const p of paths) {
+            const name = p.split(/[\\/]/).pop() || '';
+            if (isImageExt(name)) {
+              imagePaths.push(p);
+            } else {
+              otherPaths.push(p);
+            }
+          }
+
+          // Images → attachment system (addFilePaths generates thumbnails)
+          if (imagePaths.length > 0) {
+            addFilePaths(imagePaths);
+          }
+
+          // Non-images → inline file chips
+          for (const p of otherPaths) {
             window.dispatchEvent(new CustomEvent('tokenicode:tree-file-inline', { detail: p }));
           }
         }

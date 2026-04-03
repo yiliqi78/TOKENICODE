@@ -196,6 +196,8 @@ interface ChatState {
   setInputDraft: (tabId: string, text: string) => void;
   setPendingAttachments: (tabId: string, files: FileAttachment[]) => void;
   addPendingMessage: (tabId: string, text: string) => void;
+  /** Dequeue the first pending message (FIFO). Returns undefined if empty. */
+  shiftPendingMessage: (tabId: string) => string | undefined;
   flushPendingMessages: (tabId: string) => string[];
   clearPendingMessages: (tabId: string) => void;
   rewindToTurn: (tabId: string, startMsgIdx: number) => void;
@@ -452,6 +454,20 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       }));
       return result ?? {};
     }),
+
+  shiftPendingMessage: (tabId) => {
+    const tab = get().tabs.get(tabId);
+    if (!tab || tab.pendingUserMessages.length === 0) return undefined;
+    const first = tab.pendingUserMessages[0];
+    set((state) => {
+      const r = updateTab(state.tabs, tabId, (t) => ({
+        ...t,
+        pendingUserMessages: t.pendingUserMessages.slice(1),
+      }));
+      return r ?? {};
+    });
+    return first;
+  },
 
   flushPendingMessages: (tabId) => {
     const tab = get().tabs.get(tabId);
