@@ -1,15 +1,15 @@
 {
-  "version": "0.9.6",
-  "notes": "消息队列 + 图片拖拽 + 第三方渠道兼容 + 流式稳定性修复",
-  "pub_date": "2026-04-03T11:51:23.000Z",
+  "version": "0.9.7",
+  "notes": "CLI 一键更新 + MiMo Token Plan + 模型/对比度修复",
+  "pub_date": "2026-04-04T03:52:56.000Z",
   "platforms": {
     "darwin-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUlV5cnBlZC9jK3JvRlBWUkxMM1pIOEQ0MWtRS3RWSSt0UGhvUU5WdHRNVGZ3eDNBMm5KQlR3cmVIdFhRTXJiY0RDVm9QbDliM3U1eFlRNk1MR3NQQitWdmdDYWs3UEFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1MjE2OTU1CWZpbGU6VE9LRU5JQ09ERS5hcHAudGFyLmd6Cm80ZExmMlR2T1Q1MXJUUkE2VGtlOW1UVW9TLzBOTUtFemtKdDM1NFZBRXU1S3hRRkxvRFE3QjJUVjlrejB2NjIrRENGL1ZzZFo1bTdzdksrN0tKdkF3PT0K",
-      "url": "https://herear.cn:8443/releases/tokenicode/v0.9.6/TOKENICODE_x64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUlV5cnBlZC9jK24wOVBqQmp4T0dvcGFDbDZNenZaWVJuaEhUMS9ncjNHUFpwUWxKeEFMZ1RlYkwyd2V1VHBxT0dWLzJmL1BKV1NLSTd3TzgwMU50NWtpREFRaFFubkFJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1Mjc0NzE5CWZpbGU6VE9LRU5JQ09ERS5hcHAudGFyLmd6CmFXVzQwMzhkakhTWmI0SXFkSnRnQzhEclY5ZFlsai83eDhUNHF6Y3BQdmtZeTVRRTNkNFFHN2pZWk0zMzJiWUt1QVQ2S0FFcm5yOFlNZGZCSjJsREFBPT0K",
+      "url": "https://herear.cn:8443/releases/tokenicode/v0.9.7/TOKENICODE_x64.app.tar.gz"
     },
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUlV5cnBlZC9jK2pjMUJndFlGRi9IcWh3ZWpIczlxMWJzeUlJMWtISlZsK241OFFaZVdFY0ltOXJzNzdNdG12RzFNcE13RUt5dEliNktRTjB2WjljUGxzMWYwRW1HM2d3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1MjE2ODYwCWZpbGU6VE9LRU5JQ09ERS5hcHAudGFyLmd6CmRJOTdtYm5Pa3R1amdJN0NiYThzSVVnS1lhK2YwWmtZYW5ORE5yNm90WlcvNlNDN2xQR09pUFpYMkQvU2xtUlBzZmtZelRWYTcrNWVpVkorMThkZEJ3PT0K",
-      "url": "https://herear.cn:8443/releases/tokenicode/v0.9.6/TOKENICODE_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUlV5cnBlZC9jK3NXQ0p3WWxKL0thOVFoQmhBczNuQjhvbVNWZHVXWllUOEwyV3prb3h2MU9iZTJ3cUpvb25hRDhtbElHMlRFaXNncmQwalZnS1c0QXV3NEdBYURtZndJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1Mjc0NjM4CWZpbGU6VE9LRU5JQ09ERS5hcHAudGFyLmd6CjQrbnZ5QkJHOFlKRzV2NjBxRXV0dkJ4VHdhQXNFZXZndnJuaWgrRGtHd0VRbHRrMmF1WnRKQ2lFcHhUaG54VDRZdFpaREdnb015clNZLzZzMGpmQkJRPT0K",
+      "url": "https://herear.cn:8443/releases/tokenicode/v0.9.7/TOKENICODE_aarch64.app.tar.gz"
     }
   }
 }
