@@ -1,15 +1,19 @@
 {
-  "version": "0.9.7",
-  "notes": "CLI 一键更新 + MiMo Token Plan + 模型/对比度修复",
-  "pub_date": "2026-04-04T03:52:56.000Z",
+  "version": "0.10.0",
+  "notes": "CLI 管理面板 + 发现机制重构",
+  "pub_date": "2026-04-04T18:19:29.000Z",
   "platforms": {
-    "darwin-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUlV5cnBlZC9jK24wOVBqQmp4T0dvcGFDbDZNenZaWVJuaEhUMS9ncjNHUFpwUWxKeEFMZ1RlYkwyd2V1VHBxT0dWLzJmL1BKV1NLSTd3TzgwMU50NWtpREFRaFFubkFJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1Mjc0NzE5CWZpbGU6VE9LRU5JQ09ERS5hcHAudGFyLmd6CmFXVzQwMzhkakhTWmI0SXFkSnRnQzhEclY5ZFlsai83eDhUNHF6Y3BQdmtZeTVRRTNkNFFHN2pZWk0zMzJiWUt1QVQ2S0FFcm5yOFlNZGZCSjJsREFBPT0K",
-      "url": "https://herear.cn:8443/releases/tokenicode/v0.9.7/TOKENICODE_x64.app.tar.gz"
-    },
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUlV5cnBlZC9jK3NXQ0p3WWxKL0thOVFoQmhBczNuQjhvbVNWZHVXWllUOEwyV3prb3h2MU9iZTJ3cUpvb25hRDhtbElHMlRFaXNncmQwalZnS1c0QXV3NEdBYURtZndJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1Mjc0NjM4CWZpbGU6VE9LRU5JQ09ERS5hcHAudGFyLmd6CjQrbnZ5QkJHOFlKRzV2NjBxRXV0dkJ4VHdhQXNFZXZndnJuaWgrRGtHd0VRbHRrMmF1WnRKQ2lFcHhUaG54VDRZdFpaREdnb015clNZLzZzMGpmQkJRPT0K",
-      "url": "https://herear.cn:8443/releases/tokenicode/v0.9.7/TOKENICODE_aarch64.app.tar.gz"
+      "url": "https://github.com/yiliqi78/TOKENICODE/releases/download/v0.10.0/TOKENICODE_aarch64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUlV5cnBlZC9jK2x3QWZONFBIeGcwemtJczBVQ1lGOHFteTZUQzhmM0FiUjE0aXQ4bThrWjF5RW9BbWFJUDl1MmxwOVRkMktHUXdMZ0RvbzRUZEhtcGxDeUZoWUQzSEFBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1MzI1NzI3CWZpbGU6VE9LRU5JQ09ERS5hcHAudGFyLmd6CkRjaDQwMjgvUzdUOGtkUjQ5WXI1WUJ6ZW9FR3d1bUlVTWdkSzRjMTdMbjFhY096d2lTYUNQR0pDZnp5T3NNZlN6WHgrTkpqbHhVQ1N6NkQvYVlqYUNRPT0K"
+    },
+    "darwin-x86_64": {
+      "url": "https://github.com/yiliqi78/TOKENICODE/releases/download/v0.10.0/TOKENICODE_x64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUlV5cnBlZC9jK25DR2FtN3lId1AzdlZZdnlwRk44VWhkRmFKakFweHVSQVlwYzEzT2w3UldrSU9HWmlOU2VzWXRQUFJrd2FleVlGMVdwV01DSkZidFlMTVZPNUNDRmc4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1MzI2MTQwCWZpbGU6VE9LRU5JQ09ERS5hcHAudGFyLmd6CjVjdnRxdEFVTVZTRlpSNVo1aHBXeVJld2swQ0M4d29INmF2aDZmVlpQV0JRVytoL3lmcGo1RHVpTWo1SFRrc2EzaEpCRDBFTUJkb1FvWjdGRHJvekNRPT0K"
+    },
+    "windows-x86_64": {
+      "url": "https://github.com/yiliqi78/TOKENICODE/releases/download/v0.10.0/TOKENICODE_0.10.0_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUlV5cnBlZC9jK3RNbCtKY1FvQ3JUdU1kTlU5QkN4c1pFNjNqNnUzMjNsR28xcURUTTdtVENSdFNJOC85RjdOZE9kZWFMRHZ0dUdkZWo5OXdOdGVDVE1ONFhqbjVaK0FvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1MzI2NDU0CWZpbGU6VE9LRU5JQ09ERV8wLjEwLjBfeDY0LXNldHVwLmV4ZQpyUjNwa3hEdzMxd0ZxRVp3Z09hc1NEZ2tUMjd6N3ZOa09XT0FESlZEQk80WnNPaDdHS2ZYTTlmb0V0RE10eURnODFIbWtOY1d2YVZISEtxUUhQQURDQT09Cg=="
     }
   }
 }
