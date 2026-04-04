@@ -1,0 +1,19 @@
+{
+  "version": "0.9.9",
+  "notes": "CLI 更新进度条 + npm 镜像版本校验 + 版本检查修复 + 设置页红点",
+  "pub_date": "2026-04-04T07:00:38.000Z",
+  "platforms": {
+    "darwin-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUlV5cnBlZC9jK281RE56eklPcU1rMWdvNFkrcGJ1MXArVmFtNTU0aURub0dxZGJuV3h4RkFRbkNMVG1VYjE4b09oWHp3YnRIZHpsaXJINzNnYkN0cHlxcXQ5MUkvNEFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1Mjg1ODE2CWZpbGU6VE9LRU5JQ09ERS5hcHAudGFyLmd6ClpjRDU1VWxEeUdOWVBka3RJN3N4bHBGSnk3VExIY29McWlCQlB0empHOWdGTmRzMXd4RFR2TU91NVhKU1ZTTnFyQUNkWWJ5SHo4ZlJNZUc1elNzWUFnPT0K",
+      "url": "https://herear.cn:8443/releases/tokenicode/v0.9.9/TOKENICODE_x64.app.tar.gz"
+    },
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUlV5cnBlZC9jK25hcG1CRFhIajlLajd0Wm1BUTZOVWE0YXM5MXdXZTZmVmMyN0ZRVXRXT291RDV6T0xwVVJwMjhSOHpHbUN5SEI0REFFcnlxMmxyQmFoQVlmcHc2MWcwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1Mjg1ODMwCWZpbGU6VE9LRU5JQ09ERS5hcHAudGFyLmd6CmdnZXVaWm9aNzRyT0FBYXdIQStCQU5nUzZ3OENFVEZkeC9ZV2ljdFdwZjhLcDhQd1VIak9YcEd1TUJYQ2NDZjd0Y0JOSkhhdWJzMG5leVphNUtocUN3PT0K",
+      "url": "https://herear.cn:8443/releases/tokenicode/v0.9.9/TOKENICODE_aarch64.app.tar.gz"
+    },
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUlV5cnBlZC9jK3ZVOWkwYytFYVdLTnQxUWF4MCtTR1FuTEZ4K1RIU2RRSFIxMjN3SUNHSzZYUU44Ti84OC8zNHZacU9GMXNseVU3VEYrWW9aZ1h3NjlZZUsvblFKbndVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1Mjg1Nzk3CWZpbGU6VE9LRU5JQ09ERV8wLjkuOV94NjQtc2V0dXAuZXhlCkJ4ejlPcmVlTWNHUkJRNnJwOWhvdW5HeWVQdWxhRXlQZlRQTHVhZGVVQ2xTd0pSM0ZVbTBnaTBlOGlBa2xROTBYR1VPbEY0WGRBRHI3MzBodEtqQ0NnPT0K",
+      "url": "https://herear.cn:8443/releases/tokenicode/v0.9.9/TOKENICODE_0.9.9_x64-setup.exe"
+    }
+  }
+}
