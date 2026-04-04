@@ -1,19 +1,19 @@
 {
-  "version": "v0.8.23",
-  "notes": "修复智谱API兼容性、文件夹路径检测、报错信息分类、macOS签名公证",
-  "pub_date": "2026-03-21T15:56:48Z",
+  "version": "0.9.8",
+  "notes": "CLI 更新走自有镜像 + 版本比较修复 + 中国用户版本检查加速",
+  "pub_date": "2026-04-04T05:30:41.000Z",
   "platforms": {
-    "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUlV5cnBlZC9jK2dScXR0N1JLOWRjUGhQWGtiVUJ2N3o3bFZCT2RWVHk3dEpJRTRScllXUnRyNWxEM2ZtcUJDTi9vMEN5MUZ2Uk5BMVhnZENZbzg3VHlMMnZUUVloTmc4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc0MTA4MjA4CWZpbGU6VE9LRU5JQ09ERS5hcHAudGFyLmd6CkszTzVNeW5tckRpbjhzcjUvRFA2Y0h0Q3B5djc5YnlZQ2tKaVNnQUoyczJuYlZoQjBFdVFUejVzNVpuNkFqZEFHME9tY1FsWFloTjdGcmZKeWlmSkR3PT0K",
-      "url": "https://herear.cn:8443/releases/tokenicode/v0.8.23/TOKENICODE.app.tar.gz"
-    },
     "darwin-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUlV5cnBlZC9jK2dScXR0N1JLOWRjUGhQWGtiVUJ2N3o3bFZCT2RWVHk3dEpJRTRScllXUnRyNWxEM2ZtcUJDTi9vMEN5MUZ2Uk5BMVhnZENZbzg3VHlMMnZUUVloTmc4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc0MTA4MjA4CWZpbGU6VE9LRU5JQ09ERS5hcHAudGFyLmd6CkszTzVNeW5tckRpbjhzcjUvRFA2Y0h0Q3B5djc5YnlZQ2tKaVNnQUoyczJuYlZoQjBFdVFUejVzNVpuNkFqZEFHME9tY1FsWFloTjdGcmZKeWlmSkR3PT0K",
-      "url": "https://herear.cn:8443/releases/tokenicode/v0.8.23/TOKENICODE.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUlV5cnBlZC9jK3UrYTNxOHFieFhhL2lUZEZXQjhuV1R3T24vVEF1QWN5Mnd6dVhHVXp1M0IyQW5nc3RDZ0I0SGNWOVlRc2thSDdJbHd4WGt3TnA2NXhLMFRqM0UzUEFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1MjgwNDMyCWZpbGU6VE9LRU5JQ09ERS5hcHAudGFyLmd6CmJBaHBwVC9Fa1Zoa1VGeldJMlNrWDlpQnhyZGZjQlIzUzhzZ2tjc0lQOFNvSUdiaTlXNWdUL2QwTTJRTkxlZFErODFhVE9TQ0dnR3NTeERJcG9FcENnPT0K",
+      "url": "https://herear.cn:8443/releases/tokenicode/v0.9.8/TOKENICODE_x64.app.tar.gz"
+    },
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUlV5cnBlZC9jK3U2dXR5YnZMSGpzNDc2bjJ0VVhwck84UEhsTTYzZys5UGkwMTd5S05scEJieGxjWTNqOE5sdmk5YjhnTWFXSU5JUGRpMVVUMnFiYWp2c3VKWE5Xb1FVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1MjgwMzQxCWZpbGU6VE9LRU5JQ09ERS5hcHAudGFyLmd6CjgrdWVPbjRPbEZ0SXc1V1c2dGxNTmo5TnF4VVNUVUo3TVRRdUJGV0hkb1pMRnNhajhTbHRQcHIzT0g5N0xtMGhOL0ZhTWtSWE9Nc05KTDVqY055eUNBPT0K",
+      "url": "https://herear.cn:8443/releases/tokenicode/v0.9.8/TOKENICODE_aarch64.app.tar.gz"
     },
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUlV5cnBlZC9jK2hJcWV0dHA0OWMwN1hmTUc0K0lSQUc2QlZFb2ZkNTVqQlNhaExZNHlzZ1hkUUdqSlcxazYwSDdlY1M0MFV1WnZSam1qSXRBUWs5Z3BISXlId243L0FnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc0MTA4MjQ3CWZpbGU6VE9LRU5JQ09ERV8wLjguMjNfeDY0LXNldHVwLmV4ZQo2N0NBazNpRW14V3lOK1Vrdlh6cUU3U1l2MXI3NFVybDRzV0ZxK25GNVp2RkxxVWhPTUY1YnNyU0NSdjVDQW1GN3g1dTVjMkpvSVdBUHU4QVBPVzdEdz09Cg==",
-      "url": "https://herear.cn:8443/releases/tokenicode/v0.8.23/TOKENICODE_0.8.23_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUlV5cnBlZC9jK2xKck90T3ArMXBPVUJIM2lyVlJGd1F3RmZidjFuMTZkOGx4ODlXMU9oSS8xR3p3MEM0SXhIUGxBZ3FmNWd3UUNNazJ5SEgwM01HbnZoa2U1VXFkdFE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1MjgwNDAwCWZpbGU6VE9LRU5JQ09ERV8wLjkuOF94NjQtc2V0dXAuZXhlClZvUzYwUjJRWFQ2Wk9oRVpZYmdrOW5EbzRIVHlRcmhtay9WN3VUc1J0M3grZzU4V0tud2FaSllBWFd0UllwYnVyU2RTZzBTcWVydllSL0ZlNk5rVUNBPT0K",
+      "url": "https://herear.cn:8443/releases/tokenicode/v0.9.8/TOKENICODE_0.9.8_x64-setup.exe"
     }
   }
 }
