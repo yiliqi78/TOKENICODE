@@ -91,7 +91,7 @@ const CLI_GCS_BASE: &str = "https://storage.googleapis.com/claude-code-dist-86c5
 const CLI_MIRROR_BASE: &str = "https://herear.cn:8443/releases/claude-code";
 
 /// Path to the CLI download directory under the app's local data dir.
-fn cli_download_dir() -> Option<std::path::PathBuf> {
+pub(crate) fn cli_download_dir() -> Option<std::path::PathBuf> {
     dirs::data_local_dir().map(|d| d.join(APP_DATA_DIR_NAME).join("cli"))
 }
 
@@ -115,67 +115,12 @@ fn get_local_git_bash() -> Option<String> {
     }
 }
 
-/// Find the claude binary by checking common installation paths
-/// Validate that a file is a real executable (PE header check on Windows, file-exists on Unix)
-fn is_valid_executable(path: &std::path::Path) -> bool {
-    if !path.exists() {
-        return false;
-    }
-    #[cfg(target_os = "windows")]
-    {
-        // Script wrappers (.cmd, .bat, .ps1) are valid if they exist
-        if let Some(ext) = path.extension() {
-            let ext_lower = ext.to_string_lossy().to_lowercase();
-            if matches!(ext_lower.as_str(), "cmd" | "bat" | "ps1") {
-                return true;
-            }
-        }
-        // Binary executables — check MZ magic bytes (PE header)
-        if let Ok(mut f) = std::fs::File::open(path) {
-            use std::io::Read;
-            let mut magic = [0u8; 2];
-            if f.read_exact(&mut magic).is_ok() {
-                return magic == [0x4D, 0x5A]; // "MZ"
-            }
-        }
-        false
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let Ok(metadata) = std::fs::metadata(path) else {
-            return false;
-        };
-        // Must have execute permission
-        if metadata.permissions().mode() & 0o111 == 0 {
-            return false;
-        }
-        // Check file header: must be a valid Mach-O, universal binary, or shebang script.
-        // This catches corrupted downloads that still have +x permission.
-        if let Ok(mut f) = std::fs::File::open(path) {
-            use std::io::Read;
-            let mut magic = [0u8; 4];
-            if f.read_exact(&mut magic).is_ok() {
-                return matches!(
-                    magic,
-                    [0xCF, 0xFA, 0xED, 0xFE] // Mach-O 64-bit (little-endian, Apple Silicon / Intel)
-                    | [0xCE, 0xFA, 0xED, 0xFE] // Mach-O 32-bit (little-endian)
-                    | [0xFE, 0xED, 0xFA, 0xCF] // Mach-O 64-bit (big-endian)
-                    | [0xFE, 0xED, 0xFA, 0xCE] // Mach-O 32-bit (big-endian)
-                    | [0xCA, 0xFE, 0xBA, 0xBE] // Universal/fat binary
-                    | [0x23, 0x21, _, _]        // Shebang script (#!/...)
-                    | [0x7F, 0x45, 0x4C, 0x46] // ELF (Linux — valid on Linux hosts)
-                );
-            }
-        }
-        false
-    }
-}
+// is_valid_executable moved to commands/cli_resolver.rs
 
 /// On Windows, find git-bash (bash.exe) to satisfy Claude Code's requirement.
 /// Returns the path to bash.exe if found.
 #[cfg(target_os = "windows")]
-fn find_git_bash() -> Option<String> {
+pub(crate) fn find_git_bash() -> Option<String> {
     // 1. Check app-local PortableGit first (auto-installed by TOKENICODE)
     if let Some(local) = get_local_git_bash() {
         return Some(local);
@@ -211,7 +156,7 @@ fn find_git_bash() -> Option<String> {
             let stdout = String::from_utf8_lossy(&output.stdout);
             if let Some(path) = stdout.lines().next() {
                 let path = path.trim().to_string();
-                if !path.is_empty() && is_valid_executable(std::path::Path::new(&path)) {
+                if !path.is_empty() && commands::cli_resolver::is_valid_executable(std::path::Path::new(&path)) {
                     return Some(path);
                 }
             }
@@ -221,351 +166,15 @@ fn find_git_bash() -> Option<String> {
 }
 
 fn find_claude_binary() -> Option<String> {
-    // 1. Check if `claude` is already on the system PATH (highest priority)
-    #[cfg(target_os = "windows")]
-    {
-        // Windows: use `where` via cmd with CREATE_NO_WINDOW to avoid flashing console.
-        // Prefer claude.cmd first — `where claude` may return the extensionless JS script
-        // which causes error 193 on Windows.
-        for query in ["claude.cmd", "claude"] {
-            if let Ok(output) = std::process::Command::new("cmd")
-                .args(["/C", "where", query])
-                .creation_flags(0x08000000) // CREATE_NO_WINDOW
-                .output()
-            {
-                if output.status.success() {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    // `where` may return multiple lines; find the first valid executable
-                    for line in stdout.lines() {
-                        let path = line.trim().to_string();
-                        if path.is_empty() {
-                            continue;
-                        }
-                        let p = std::path::Path::new(&path);
-                        // Skip extensionless files (JS scripts) — they cause error 193
-                        if p.extension().is_none() {
-                            continue;
-                        }
-                        if is_valid_executable(p) {
-                            return Some(path);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        if let Ok(output) = std::process::Command::new("sh")
-            .args(["-l", "-c", "which claude"])
-            .output()
-        {
-            if output.status.success() {
-                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !path.is_empty() && is_valid_executable(std::path::Path::new(&path)) {
-                    return Some(path);
-                }
-            }
-        }
-    }
-
-    if let Some(home) = dirs::home_dir() {
-        // 2. Platform-specific Claude desktop app bundled CLI
-        #[cfg(target_os = "windows")]
-        {
-            // %LOCALAPPDATA%\Claude\claude-code\*\claude.exe
-            if let Some(local_app) = dirs::data_local_dir() {
-                let claude_code_dir = local_app.join("Claude").join("claude-code");
-                if let Some(bin) = find_newest_version_bin(&claude_code_dir, "claude.exe") {
-                    return Some(bin);
-                }
-            }
-            // %APPDATA%\Claude\claude-code\*\claude.exe
-            if let Some(app_data) = dirs::data_dir() {
-                let claude_code_dir = app_data.join("Claude").join("claude-code");
-                if let Some(bin) = find_newest_version_bin(&claude_code_dir, "claude.exe") {
-                    return Some(bin);
-                }
-            }
-        }
-        #[cfg(target_os = "macos")]
-        {
-            let claude_code_dir = home.join("Library/Application Support/Claude/claude-code");
-            if let Some(bin) = find_newest_version_bin(&claude_code_dir, "claude") {
-                return Some(bin);
-            }
-        }
-        #[cfg(target_os = "linux")]
-        {
-            // ~/.local/share/Claude/claude-code/*/claude
-            if let Some(data_dir) = dirs::data_dir() {
-                let claude_code_dir = data_dir.join("Claude").join("claude-code");
-                if let Some(bin) = find_newest_version_bin(&claude_code_dir, "claude") {
-                    return Some(bin);
-                }
-            }
-        }
-
-        // 2b. Native binary install (~/.claude/local/claude)
-        // This is where `curl -fsSL https://claude.ai/install.sh | bash` puts it.
-        // Prefer native over npm to avoid Node.js version compatibility issues
-        // (e.g. --sdk-url bug on Node 22, see anthropics/claude-code#30774).
-        #[cfg(not(target_os = "windows"))]
-        {
-            let native = home.join(".claude/local/claude");
-            if is_valid_executable(&native) {
-                return Some(native.to_string_lossy().to_string());
-            }
-        }
-        #[cfg(target_os = "windows")]
-        {
-            let native = home.join(".claude\\local\\claude.exe");
-            if is_valid_executable(&native) {
-                return Some(native.to_string_lossy().to_string());
-            }
-        }
-
-        // 3. Common global install paths
-        #[cfg(target_os = "windows")]
-        {
-            // npm global: %APPDATA%\npm\claude.cmd
-            if let Some(app_data) = dirs::data_dir() {
-                for name in ["claude.cmd", "claude.exe", "claude.ps1"] {
-                    let candidate = app_data.join("npm").join(name);
-                    if is_valid_executable(&candidate) {
-                        return Some(candidate.to_string_lossy().to_string());
-                    }
-                }
-            }
-            // Scoop: ~/scoop/shims/claude.cmd
-            let scoop_candidate = home.join("scoop").join("shims").join("claude.cmd");
-            if is_valid_executable(&scoop_candidate) {
-                return Some(scoop_candidate.to_string_lossy().to_string());
-            }
-            // nvm-windows / fnm / volta node paths
-            for sub in [
-                "AppData\\Roaming\\nvm",
-                ".volta\\bin",
-                "AppData\\Local\\fnm_multishells",
-            ] {
-                let candidate = home.join(sub).join("claude.cmd");
-                if is_valid_executable(&candidate) {
-                    return Some(candidate.to_string_lossy().to_string());
-                }
-            }
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            for candidate in [
-                home.join(".npm-global/bin/claude"),
-                home.join(".local/bin/claude"),
-            ] {
-                if is_valid_executable(&candidate) {
-                    return Some(candidate.to_string_lossy().to_string());
-                }
-            }
-        }
-    }
-
-    // 4. System-wide paths (Unix only)
-    #[cfg(not(target_os = "windows"))]
-    {
-        for candidate in ["/usr/local/bin/claude", "/opt/homebrew/bin/claude"] {
-            if is_valid_executable(std::path::Path::new(candidate)) {
-                return Some(candidate.to_string());
-            }
-        }
-    }
-
-    // 5. App-local and npm-global (lowest priority — fallback for self-deployed CLI)
-    #[cfg(target_os = "windows")]
-    if let Some(npm_bin) = get_npm_global_bin() {
-        for name in &["claude.cmd", "claude.exe"] {
-            let path = npm_bin.join(name);
-            if is_valid_executable(&path) {
-                return Some(path.to_string_lossy().to_string());
-            }
-        }
-    }
-
-    if let Some(cli_dir) = cli_download_dir() {
-        #[cfg(target_os = "windows")]
-        let bin_name = "claude.exe";
-        #[cfg(not(target_os = "windows"))]
-        let bin_name = "claude";
-        let path = cli_dir.join(bin_name);
-        if path.exists() && is_valid_executable(&path) {
-            return Some(path.to_string_lossy().to_string());
-        }
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    if let Some(npm_bin) = get_npm_global_bin() {
-        for name in &["claude"] {
-            let path = npm_bin.join(name);
-            if is_valid_executable(&path) {
-                return Some(path.to_string_lossy().to_string());
-            }
-        }
-    }
-
-    None
+    commands::cli_resolver::find_binary()
 }
 
-/// Like find_claude_binary() but skips app-local and npm-global candidates.
-/// Used as a fallback when the primary binary hangs (e.g. broken Bun-compiled binary).
-fn find_claude_binary_skip_app_local() -> Option<String> {
-    // 1. System PATH
-    #[cfg(target_os = "windows")]
-    {
-        for query in ["claude.cmd", "claude"] {
-            if let Ok(output) = std::process::Command::new("cmd")
-                .args(["/C", "where", query])
-                .creation_flags(0x08000000)
-                .output()
-            {
-                if output.status.success() {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    for line in stdout.lines() {
-                        let path = line.trim().to_string();
-                        if path.is_empty() {
-                            continue;
-                        }
-                        let p = std::path::Path::new(&path);
-                        if p.extension().is_none() {
-                            continue;
-                        }
-                        if is_valid_executable(p) {
-                            return Some(path);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        if let Ok(output) = std::process::Command::new("sh")
-            .args(["-l", "-c", "which claude"])
-            .output()
-        {
-            if output.status.success() {
-                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !path.is_empty() && is_valid_executable(std::path::Path::new(&path)) {
-                    return Some(path);
-                }
-            }
-        }
-    }
-
-    if let Some(home) = dirs::home_dir() {
-        // 2. Claude desktop app bundled CLI
-        #[cfg(target_os = "windows")]
-        {
-            if let Some(local_app) = dirs::data_local_dir() {
-                let claude_code_dir = local_app.join("Claude").join("claude-code");
-                if let Some(bin) = find_newest_version_bin(&claude_code_dir, "claude.exe") {
-                    return Some(bin);
-                }
-            }
-            if let Some(app_data) = dirs::data_dir() {
-                let claude_code_dir = app_data.join("Claude").join("claude-code");
-                if let Some(bin) = find_newest_version_bin(&claude_code_dir, "claude.exe") {
-                    return Some(bin);
-                }
-            }
-        }
-        #[cfg(target_os = "macos")]
-        {
-            let claude_code_dir = home.join("Library/Application Support/Claude/claude-code");
-            if let Some(bin) = find_newest_version_bin(&claude_code_dir, "claude") {
-                return Some(bin);
-            }
-        }
-        // 2b. Native binary install (~/.claude/local/claude)
-        #[cfg(not(target_os = "windows"))]
-        {
-            let native = home.join(".claude/local/claude");
-            if is_valid_executable(&native) {
-                return Some(native.to_string_lossy().to_string());
-            }
-        }
-        #[cfg(target_os = "windows")]
-        {
-            let native = home.join(".claude\\local\\claude.exe");
-            if is_valid_executable(&native) {
-                return Some(native.to_string_lossy().to_string());
-            }
-        }
-
-        // 3. Common global install paths
-        #[cfg(target_os = "windows")]
-        {
-            let scoop_candidate = home.join("scoop").join("shims").join("claude.cmd");
-            if is_valid_executable(&scoop_candidate) {
-                return Some(scoop_candidate.to_string_lossy().to_string());
-            }
-            for sub in [
-                "AppData\\Roaming\\nvm",
-                ".volta\\bin",
-                "AppData\\Local\\fnm_multishells",
-            ] {
-                let candidate = home.join(sub).join("claude.cmd");
-                if is_valid_executable(&candidate) {
-                    return Some(candidate.to_string_lossy().to_string());
-                }
-            }
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            for candidate in [
-                home.join(".npm-global/bin/claude"),
-                home.join(".local/bin/claude"),
-            ] {
-                if is_valid_executable(&candidate) {
-                    return Some(candidate.to_string_lossy().to_string());
-                }
-            }
-        }
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        for candidate in ["/usr/local/bin/claude", "/opt/homebrew/bin/claude"] {
-            if is_valid_executable(std::path::Path::new(candidate)) {
-                return Some(candidate.to_string());
-            }
-        }
-    }
-
-    None
-}
-
-/// Search a versioned directory for the newest version containing the given binary name
-fn find_newest_version_bin(base_dir: &std::path::Path, bin_name: &str) -> Option<String> {
-    if !base_dir.exists() {
-        return None;
-    }
-    if let Ok(entries) = std::fs::read_dir(base_dir) {
-        let mut versions: Vec<_> = entries.flatten().filter(|e| e.path().is_dir()).collect();
-        // Sort by semantic version (descending) so newest version comes first
-        versions.sort_by(|a, b| {
-            let parse = |name: &std::ffi::OsStr| -> Vec<u64> {
-                name.to_string_lossy()
-                    .split('.')
-                    .filter_map(|s| s.parse::<u64>().ok())
-                    .collect()
-            };
-            parse(&b.file_name()).cmp(&parse(&a.file_name()))
-        });
-        for entry in &versions {
-            let bin = entry.path().join(bin_name);
-            if is_valid_executable(&bin) {
-                return Some(bin.to_string_lossy().to_string());
-            }
-        }
-    }
-    None
+/// Return all valid CLI binaries in priority order, for fallback iteration.
+fn find_claude_binary_ordered() -> Vec<String> {
+    commands::cli_resolver::resolve_ordered()
+        .into_iter()
+        .map(|(path, _)| path)
+        .collect()
 }
 
 /// On macOS/Linux, GUI apps inherit a minimal launchd PATH and miss version
@@ -573,7 +182,7 @@ fn find_newest_version_bin(base_dir: &std::path::Path, bin_name: &str) -> Option
 /// This function spawns a login shell once, captures its PATH, and caches it
 /// for the lifetime of the process via OnceLock.
 #[cfg(not(target_os = "windows"))]
-fn login_shell_extra_path() -> &'static str {
+pub(crate) fn login_shell_extra_path() -> &'static str {
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     CACHE.get_or_init(|| {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
@@ -853,7 +462,7 @@ fn truncate_large_content(value: &mut Value, max_bytes: usize) {
 }
 
 /// Build an enriched PATH that includes common binary locations
-fn build_enriched_path() -> String {
+pub(crate) fn build_enriched_path() -> String {
     let current = std::env::var("PATH").unwrap_or_default();
     let mut paths = vec![];
 
@@ -1560,6 +1169,23 @@ async fn start_claude_session(
         "CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING".to_string(),
         "1".to_string(),
     );
+
+    // For models with 1M context window (MiMo v2 Pro etc.), override the auto-compact
+    // threshold so Claude Code doesn't compact prematurely. The CLI's internal model map
+    // may only know ~200K for these models; this env var directly sets the compact window.
+    if let Some(model_name) = params.model.as_deref() {
+        let m = model_name.to_lowercase();
+        if m.contains("mimo") || m.contains("[1m]") {
+            resolved_env.insert(
+                "CLAUDE_CODE_AUTO_COMPACT_WINDOW".to_string(),
+                "1000000".to_string(),
+            );
+            eprintln!(
+                "[TOKENICODE] Set CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000 for model {}",
+                model_name
+            );
+        }
+    }
 
     // On Windows, disable MSYS2/Git Bash automatic path conversion.
     // Without this, MSYS2 converts Windows paths (e.g. F:\秀\input\file.xlsx)
@@ -4587,7 +4213,7 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
                             "[check_claude_cli] --version timed out for '{}', trying fallback...",
                             path
                         );
-                        let fallback = find_claude_binary_skip_app_local();
+                        let fallback = find_claude_binary_ordered().into_iter().find(|p| p != &path);
                         let git_bash_missing = find_git_bash().is_none();
                         return match fallback {
                             Some(alt_path) => {
@@ -4626,7 +4252,7 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
                         path
                     );
                     // The app-local binary is hanging; try to find an alternative via system PATH
-                    let fallback = find_claude_binary_skip_app_local();
+                    let fallback = find_claude_binary_ordered().into_iter().find(|p| p != &path);
                     let git_bash_missing = false;
                     return match fallback {
                         Some(alt_path) => {
@@ -4727,6 +4353,83 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
             git_bash_missing: false,
         }),
     }
+}
+
+// ─── CLI Diagnostics ───────────────────────────────────────
+
+/// Scan all CLI installations and return candidates with version info.
+#[tauri::command]
+async fn diagnose_cli() -> Result<Vec<commands::cli_resolver::CliCandidate>, String> {
+    let mut candidates = commands::cli_resolver::scan_all();
+    let enriched_path = build_enriched_path();
+
+    for candidate in &mut candidates {
+        if !candidate.issues.is_empty() && candidate.version.is_none() {
+            continue;
+        }
+        #[cfg(target_os = "windows")]
+        let version_result = {
+            let needs_cmd = candidate.path.ends_with(".cmd") || candidate.path.ends_with(".bat");
+            let fut = if needs_cmd {
+                Command::new("cmd")
+                    .args(["/C", &candidate.path, "--version"])
+                    .env("PATH", &enriched_path)
+                    .stdin(Stdio::null())
+                    .stderr(Stdio::null())
+                    .creation_flags(0x08000000)
+                    .output()
+            } else {
+                Command::new(&candidate.path)
+                    .arg("--version")
+                    .env("PATH", &enriched_path)
+                    .stdin(Stdio::null())
+                    .stderr(Stdio::null())
+                    .creation_flags(0x08000000)
+                    .output()
+            };
+            tokio::time::timeout(std::time::Duration::from_secs(3), fut).await
+        };
+        #[cfg(not(target_os = "windows"))]
+        let version_result = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            Command::new(&candidate.path)
+                .arg("--version")
+                .env("PATH", &enriched_path)
+                .stdin(Stdio::null())
+                .stderr(Stdio::null())
+                .output(),
+        )
+        .await;
+
+        match version_result {
+            Ok(Ok(output)) if output.status.success() => {
+                let raw = strip_ansi(&String::from_utf8_lossy(&output.stdout))
+                    .trim()
+                    .to_string();
+                let ver = raw.split_whitespace().next().unwrap_or(&raw).to_string();
+                if !ver.is_empty() {
+                    candidate.version = Some(ver);
+                }
+            }
+            Ok(Ok(_)) => {
+                candidate.issues.push("--version returned non-zero exit".to_string());
+            }
+            Ok(Err(e)) => {
+                candidate.issues.push(format!("failed to execute: {}", e));
+            }
+            Err(_) => {
+                candidate.issues.push("--version timed out (3s)".to_string());
+            }
+        }
+    }
+
+    Ok(candidates)
+}
+
+/// Clean up selected CLI installations.
+#[tauri::command]
+async fn cleanup_old_cli(targets: Vec<String>) -> Result<commands::cli_resolver::CleanupResult, String> {
+    Ok(commands::cli_resolver::cleanup(&targets))
 }
 
 /// Detect whether the user is behind the GFW (China network).
@@ -5547,7 +5250,7 @@ fn node_download_dir() -> Result<std::path::PathBuf, String> {
 }
 
 /// Directory for npm global installs (--prefix target).
-fn npm_global_dir() -> Result<std::path::PathBuf, String> {
+pub(crate) fn npm_global_dir() -> Result<std::path::PathBuf, String> {
     app_data_dir().map(|d| d.join("npm-global"))
 }
 
@@ -5557,7 +5260,7 @@ fn npm_cache_dir() -> Result<std::path::PathBuf, String> {
 }
 
 /// Get the bin directory of the local Node.js installation, if it exists.
-fn get_local_node_bin() -> Option<std::path::PathBuf> {
+pub(crate) fn get_local_node_bin() -> Option<std::path::PathBuf> {
     let node_dir = node_download_dir().ok()?;
     #[cfg(target_os = "windows")]
     {
@@ -5578,7 +5281,7 @@ fn get_local_node_bin() -> Option<std::path::PathBuf> {
 }
 
 /// Get the bin directory of npm-global, if it exists.
-fn get_npm_global_bin() -> Option<std::path::PathBuf> {
+pub(crate) fn get_npm_global_bin() -> Option<std::path::PathBuf> {
     let dir = npm_global_dir().ok()?;
     #[cfg(target_os = "windows")]
     let bin = dir.clone();
@@ -6760,6 +6463,8 @@ pub fn run() {
             set_dock_icon,
             run_claude_command,
             check_claude_cli,
+            diagnose_cli,
+            cleanup_old_cli,
             install_claude_cli,
             update_claude_cli,
             check_cli_update,

@@ -99,6 +99,19 @@ export interface CliStatus {
   git_bash_missing: boolean;
 }
 
+export interface CliCandidate {
+  path: string;
+  source: 'official' | 'system' | 'appLocal' | 'versionManager' | 'dynamic';
+  isNative: boolean;
+  version: string | null;
+  issues: string[];
+}
+
+export interface CleanupResult {
+  removed: string[];
+  skipped: { path: string; reason: string }[];
+}
+
 export interface AuthStatus {
   authenticated: boolean;
   unknown?: boolean;
@@ -328,6 +341,14 @@ export const bridge = {
   // Setup: CLI detection, installation & login
   checkClaudeCli: () =>
     invoke<CliStatus>('check_claude_cli'),
+
+  /** Scan all CLI installations with version/issues for diagnostic UI */
+  diagnoseCli: () =>
+    invoke<CliCandidate[]>('diagnose_cli'),
+
+  /** Remove selected CLI installations (only auto-deletes app-local tier) */
+  cleanupOldCli: (targets: string[]) =>
+    invoke<CleanupResult>('cleanup_old_cli', { targets }),
 
   installClaudeCli: () =>
     invoke<void>('install_claude_cli'),

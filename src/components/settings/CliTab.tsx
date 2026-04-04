@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { bridge } from '../../lib/tauri-bridge';
+import { bridge, type CliCandidate } from '../../lib/tauri-bridge';
 import { useT } from '../../lib/i18n';
 import { APP_NAME } from '../../lib/edition';
 import { stripAnsi } from '../../lib/strip-ansi';
@@ -8,6 +8,22 @@ import { useSettingsStore } from '../../stores/settingsStore';
 
 type CliCheckStatus = 'idle' | 'checking' | 'found' | 'not_found' | 'installing' | 'installed' | 'install_failed' | 'updating' | 'updated' | 'update_failed';
 
+const SOURCE_I18N_KEYS: Record<string, string> = {
+  official: 'cli.source.official',
+  system: 'cli.source.system',
+  appLocal: 'cli.source.appLocal',
+  versionManager: 'cli.source.versionManager',
+  dynamic: 'cli.source.dynamic',
+};
+
+const SOURCE_COLORS: Record<string, string> = {
+  official: 'text-green-500',
+  system: 'text-blue-400',
+  appLocal: 'text-amber-500',
+  versionManager: 'text-purple-400',
+  dynamic: 'text-text-tertiary',
+};
+
 export function CliTab() {
   const t = useT();
   const [status, setStatus] = useState<CliCheckStatus>('idle');
@@ -15,7 +31,6 @@ export function CliTab() {
   const [cliPath, setCliPath] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [gitBashMissing, setGitBashMissing] = useState(false);
-  const [versionIncompat, setVersionIncompat] = useState(false);
   const [downloadPercent, setDownloadPercent] = useState(0);
   const [phase, setPhase] = useState<'idle' | 'downloading' | 'configuring' | 'npm_fallback' | 'node_downloading' | 'node_extracting' | 'git_downloading' | 'git_extracting' | 'native_version' | 'native_manifest' | 'native_download' | 'native_verify' | 'native_install'>('idle');
 
@@ -26,7 +41,6 @@ export function CliTab() {
         setCliVersion(result.version ?? null);
         setCliPath(result.path ?? null);
         setGitBashMissing(result.git_bash_missing ?? false);
-        setVersionIncompat(result.version_compatible === false && result.version != null);
         setStatus('found');
       } else {
         setStatus('not_found');
@@ -43,7 +57,6 @@ export function CliTab() {
         setCliVersion(result.version ?? null);
         setCliPath(result.path ?? null);
         setGitBashMissing(result.git_bash_missing ?? false);
-        setVersionIncompat(result.version_compatible === false && result.version != null);
         setStatus('found');
       } else {
         setStatus('not_found');
@@ -125,7 +138,6 @@ export function CliTab() {
       unlisten();
       setCliVersion(newVersion);
       setStatus('updated');
-      // Clear the update badge
       useSettingsStore.setState({ cliUpdateAvailable: false, cliLatestVersion: '' });
     } catch (e) {
       unlisten();
@@ -165,15 +177,6 @@ export function CliTab() {
         <div className="py-2 px-3 rounded-lg bg-accent/10">
           <p className="text-[13px] text-accent font-medium">
             {t('cli.update')} — v{useSettingsStore.getState().cliLatestVersion} {t('update.available') || 'available'}
-          </p>
-        </div>
-      )}
-
-      {/* Version incompatible warning */}
-      {versionIncompat && (status === 'found' || status === 'idle') && (
-        <div className="py-2 px-3 rounded-lg bg-amber-500/10">
-          <p className="text-[13px] text-amber-500 font-medium">
-            {t('cli.versionIncompat')}
           </p>
         </div>
       )}
@@ -280,8 +283,8 @@ export function CliTab() {
 
       {status === 'checking' && (
         <div className="flex items-center justify-center gap-2 py-2">
-          <div className="w-4 h-4 border-2 border-accent/30
-            border-t-accent rounded-full animate-spin" />
+          <div className="w-4 h-4 border-2 border-text-tertiary/30
+            border-t-text-tertiary rounded-full animate-spin" />
           <span className="text-[13px] text-text-muted">{t('cli.checking')}</span>
         </div>
       )}
@@ -310,11 +313,11 @@ export function CliTab() {
           <div className="w-full h-2 rounded-full bg-bg-tertiary overflow-hidden">
             {(phase === 'native_download' || phase === 'downloading' || phase === 'node_downloading' || phase === 'git_downloading') && downloadPercent > 0 ? (
               <div
-                className="h-full bg-accent rounded-full transition-all duration-300"
+                className="h-full bg-text-secondary rounded-full transition-all duration-300"
                 style={{ width: `${downloadPercent}%` }}
               />
             ) : (
-              <div className="h-full bg-accent/60 rounded-full animate-pulse w-full" />
+              <div className="h-full bg-text-secondary/60 rounded-full animate-pulse w-full" />
             )}
           </div>
         </div>
@@ -366,6 +369,150 @@ export function CliTab() {
           >
             {t('cli.retry')}
           </button>
+        </div>
+      )}
+
+      {/* CLI Environment Diagnostics */}
+      <CliDiagnostics />
+    </div>
+  );
+}
+
+// ─── CLI Diagnostics Panel ─────────────────────────────────
+
+function CliDiagnostics() {
+  const t = useT();
+  const [expanded, setExpanded] = useState(false);
+  const [candidates, setCandidates] = useState<CliCandidate[]>([]);
+  const [scanning, setScanning] = useState(false);
+  const [cleaning, setCleaning] = useState(false);
+  const [cleanMsg, setCleanMsg] = useState('');
+
+  const handleScan = useCallback(async () => {
+    setScanning(true);
+    setCleanMsg('');
+    try {
+      const result = await bridge.diagnoseCli();
+      setCandidates(result);
+      setExpanded(true);
+    } catch (e) {
+      console.error('diagnose_cli failed:', e);
+    } finally {
+      setScanning(false);
+    }
+  }, []);
+
+  const handleCleanup = useCallback(async (targets: string[]) => {
+    setCleaning(true);
+    setCleanMsg('');
+    try {
+      const result = await bridge.cleanupOldCli(targets);
+      const msgs: string[] = [];
+      if (result.removed.length > 0) {
+        msgs.push(`Removed ${result.removed.length} file(s)`);
+      }
+      for (const s of result.skipped) {
+        msgs.push(`${s.path.split('/').pop()}: ${s.reason}`);
+      }
+      setCleanMsg(msgs.join(' · '));
+      // Re-scan after cleanup
+      const updated = await bridge.diagnoseCli();
+      setCandidates(updated);
+    } catch (e) {
+      setCleanMsg(String(e));
+    } finally {
+      setCleaning(false);
+    }
+  }, []);
+
+  const cleanableTargets = candidates
+    .filter(c => c.source === 'appLocal')
+    .map(c => c.path);
+
+  return (
+    <div className="pt-3 border-t border-border-subtle">
+      <button
+        onClick={() => {
+          if (!expanded && candidates.length === 0) {
+            handleScan();
+          } else {
+            setExpanded(!expanded);
+          }
+        }}
+        className="flex items-center gap-2 text-[13px] text-text-muted hover:text-text-primary transition-smooth"
+      >
+        <span className="text-[10px]">{expanded ? '▼' : '▶'}</span>
+        {t('cli.environment')}
+        {candidates.length > 0 && (
+          <span className="text-xs text-text-tertiary">({candidates.length})</span>
+        )}
+      </button>
+
+      {expanded && (
+        <div className="mt-2 space-y-2">
+          {scanning && (
+            <div className="flex items-center gap-2 py-2">
+              <div className="w-3 h-3 border-2 border-text-tertiary/30 border-t-text-tertiary rounded-full animate-spin" />
+              <span className="text-xs text-text-muted">{t('cli.scanning')}</span>
+            </div>
+          )}
+
+          {!scanning && candidates.length === 0 && (
+            <p className="text-xs text-text-tertiary py-1">{t('cli.noCliFound')}</p>
+          )}
+
+          {candidates.map((c, i) => (
+            <div
+              key={c.path}
+              className={`flex items-start gap-2 py-1.5 px-2 rounded text-xs
+                ${i === 0 ? 'bg-bg-secondary' : ''}`}
+            >
+              <span className="shrink-0 mt-0.5">{i === 0 ? '●' : '○'}</span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className={`font-medium ${SOURCE_COLORS[c.source] || ''}`}>
+                    [{t(SOURCE_I18N_KEYS[c.source] || '') || c.source}]
+                  </span>
+                  {c.version && <span className="text-text-secondary">v{c.version}</span>}
+                  {c.isNative && <span className="text-text-tertiary">(native)</span>}
+                </div>
+                <p className="text-text-tertiary truncate mt-0.5" title={c.path}>{c.path}</p>
+                {c.issues.length > 0 && (
+                  <p className="text-amber-500 mt-0.5">{c.issues.join(' · ')}</p>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {/* Action buttons */}
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={handleScan}
+              disabled={scanning}
+              className="py-1 px-3 text-xs font-medium rounded
+                border border-border-subtle text-text-muted
+                hover:bg-bg-secondary hover:text-text-primary transition-smooth
+                disabled:opacity-50"
+            >
+              {scanning ? t('cli.scanning') : t('cli.rescan')}
+            </button>
+            {cleanableTargets.length > 0 && (
+              <button
+                onClick={() => handleCleanup(cleanableTargets)}
+                disabled={cleaning}
+                className="py-1 px-3 text-xs font-medium rounded
+                  border border-amber-500/30 text-amber-500
+                  hover:bg-amber-500/10 transition-smooth
+                  disabled:opacity-50"
+              >
+                {cleaning ? t('cli.cleaning') : `${t('cli.cleanAppLocal')} (${cleanableTargets.length})`}
+              </button>
+            )}
+          </div>
+
+          {cleanMsg && (
+            <p className="text-xs text-text-tertiary">{cleanMsg}</p>
+          )}
         </div>
       )}
     </div>
