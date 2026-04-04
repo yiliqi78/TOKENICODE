@@ -1262,112 +1262,71 @@ async fn test_provider_connection(
         }
     };
 
-    // Step 2: Auth — minimal request with API key, using the REAL model name.
-    // Previously used a dummy "test-auth-probe" model, but some providers (e.g. MiMo)
-    // tie model access to API key permissions and return 403 for unknown models,
-    // causing a false "auth failed" when the key is actually valid.
-    let auth_body = if api_format == "openai" {
-        serde_json::json!({
-            "model": model,
-            "max_tokens": 1,
-            "messages": [{"role": "user", "content": "hi"}]
-        })
-    } else {
-        serde_json::json!({
-            "model": model,
-            "max_tokens": 1,
-            "messages": [{"role": "user", "content": "hi"}]
-        })
-    };
-    let mut auth_req = client
+    // Steps 2+3: Auth + Model — single request with the REAL model name.
+    // Previously used a dummy "test-auth-probe" model for auth, then the real model
+    // for model validation. But some providers (e.g. MiMo) tie model access to API
+    // key permissions and return 403 for unknown models, causing false auth failures.
+    // Now we send one request and derive both auth and model status from it.
+    let test_body = serde_json::json!({
+        "model": model,
+        "max_tokens": 1,
+        "messages": [{"role": "user", "content": "hi"}]
+    });
+    let mut test_req = client
         .post(&connectivity_url)
         .header("Content-Type", "application/json")
-        .json(&auth_body)
-        .timeout(std::time::Duration::from_secs(10));
-    if api_format == "openai" {
-        auth_req = auth_req.header("Authorization", format!("Bearer {}", api_key));
-    } else {
-        auth_req = auth_req
-            .header("x-api-key", &api_key)
-            .header("anthropic-version", "2023-06-01");
-    }
-    let auth_resp = auth_req.send().await;
-    let auth = match auth_resp {
-        Ok(resp) => {
-            let status = resp.status().as_u16();
-            if status == 401 || status == 403 {
-                let text = resp.text().await.unwrap_or_default();
-                return Ok(ConnectionTestResult {
-                    connectivity,
-                    auth: StepResult {
-                        ok: false,
-                        message: format!(
-                            "HTTP {} — {}",
-                            status,
-                            text.chars().take(200).collect::<String>()
-                        ),
-                    },
-                    model: skipped,
-                });
-            }
-            // Any other status (including 400/404 for bad model name) means auth is OK
-            StepResult {
-                ok: true,
-                message: format!("Authenticated (HTTP {})", status),
-            }
-        }
-        Err(e) => {
-            return Ok(ConnectionTestResult {
-                connectivity,
-                auth: StepResult {
-                    ok: false,
-                    message: format!("Request failed: {}", e),
-                },
-                model: skipped,
-            });
-        }
-    };
-
-    // Step 3: Model — actual request with real model name
-    let model_body = if api_format == "openai" {
-        serde_json::json!({
-            "model": model,
-            "max_tokens": 1,
-            "messages": [{"role": "user", "content": "hi"}]
-        })
-    } else {
-        serde_json::json!({
-            "model": model,
-            "max_tokens": 1,
-            "messages": [{"role": "user", "content": "hi"}]
-        })
-    };
-    let mut model_req = client
-        .post(&connectivity_url)
-        .header("Content-Type", "application/json")
-        .json(&model_body)
+        .json(&test_body)
         .timeout(std::time::Duration::from_secs(15));
     if api_format == "openai" {
-        model_req = model_req.header("Authorization", format!("Bearer {}", api_key));
+        test_req = test_req.header("Authorization", format!("Bearer {}", api_key));
     } else {
-        model_req = model_req
+        test_req = test_req
             .header("x-api-key", &api_key)
             .header("anthropic-version", "2023-06-01");
     }
-    let model_resp = model_req.send().await;
-    let model_step = match model_resp {
+    let test_resp = test_req.send().await;
+    let (auth, model_step) = match test_resp {
         Ok(resp) => {
             let status = resp.status().as_u16();
-            if status >= 200 && status < 300 {
-                StepResult {
-                    ok: true,
-                    message: format!("Model OK (HTTP {})", status),
-                }
-            } else {
+            if status == 401 {
+                // Definitely auth failure
+                let text = resp.text().await.unwrap_or_default();
+                (
+                    StepResult {
+                        ok: false,
+                        message: format!("HTTP {} — {}", status, text.chars().take(200).collect::<String>()),
+                    },
+                    skipped,
+                )
+            } else if status == 403 {
+                // 403 is ambiguous: could be auth failure OR model access restriction.
+                // Read body to disambiguate.
                 let text = resp.text().await.unwrap_or_default();
                 let text_lower = text.to_lowercase();
-                // HTTP 400 from proxies/gateways doesn't necessarily mean model is invalid.
-                // Only flag as model error if the response explicitly says so.
+                let is_auth_error = text_lower.contains("invalid")
+                    && (text_lower.contains("api key") || text_lower.contains("api_key")
+                        || text_lower.contains("token") || text_lower.contains("credentials"));
+                if is_auth_error {
+                    (
+                        StepResult { ok: false, message: format!("HTTP 403 — {}", text.chars().take(200).collect::<String>()) },
+                        skipped,
+                    )
+                } else {
+                    // 403 but not clearly auth — treat as auth OK + model issue
+                    (
+                        StepResult { ok: true, message: "Authenticated (HTTP 403 — access restricted)".to_string() },
+                        StepResult { ok: false, message: format!("HTTP 403 — {}", text.chars().take(200).collect::<String>()) },
+                    )
+                }
+            } else if status >= 200 && status < 300 {
+                (
+                    StepResult { ok: true, message: format!("Authenticated (HTTP {})", status) },
+                    StepResult { ok: true, message: format!("Model OK (HTTP {})", status) },
+                )
+            } else {
+                // 400, 404, 429, 500, etc. — auth is OK (server processed the request)
+                let text = resp.text().await.unwrap_or_default();
+                let text_lower = text.to_lowercase();
                 let is_model_error = (status == 404)
                     || (text_lower.contains("model")
                         && (text_lower.contains("not found")
@@ -1375,29 +1334,21 @@ async fn test_provider_connection(
                             || text_lower.contains("does not exist")
                             || text_lower.contains("invalid model")
                             || text_lower.contains("invalid_model")));
-                if is_model_error {
-                    StepResult {
-                        ok: false,
-                        message: format!(
-                            "HTTP {} — {}",
-                            status,
-                            text.chars().take(200).collect::<String>()
-                        ),
-                    }
+                let model_result = if is_model_error {
+                    StepResult { ok: false, message: format!("HTTP {} — {}", status, text.chars().take(200).collect::<String>()) }
                 } else {
-                    // Request reached the server and was processed (auth passed, model accepted),
-                    // just the minimal test payload was rejected — model is valid.
-                    StepResult {
-                        ok: true,
-                        message: format!("Model accepted (HTTP {})", status),
-                    }
-                }
+                    StepResult { ok: true, message: format!("Model accepted (HTTP {})", status) }
+                };
+                (
+                    StepResult { ok: true, message: format!("Authenticated (HTTP {})", status) },
+                    model_result,
+                )
             }
         }
-        Err(e) => StepResult {
-            ok: false,
-            message: format!("Request failed: {}", e),
-        },
+        Err(e) => (
+            StepResult { ok: false, message: format!("Request failed: {}", e) },
+            skipped,
+        ),
     };
 
     Ok(ConnectionTestResult {
