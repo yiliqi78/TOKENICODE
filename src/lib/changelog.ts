@@ -19,6 +19,31 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.9.8',
+    date: '2026-04-04',
+    highlights: {
+      zh: ['CLI 更新走自有镜像，彻底解决国内更新慢/版本滞后问题'],
+      en: ['CLI updates via self-hosted mirror, fixing slow/stale updates in China'],
+    },
+    categories: [
+      {
+        label: { zh: '修复', en: 'Fixed' },
+        items: {
+          zh: [
+            'CLI 更新优先从 herear.cn 下载原生二进制，跳过 npm 镜像同步延迟',
+            '版本检查改用语义化比较，修复 "2.1.9 vs 2.1.10" 等边界情况',
+            '中国用户版本检查走 herear.cn 镜像，不再依赖被墙的 GCS',
+          ],
+          en: [
+            'CLI updates now download native binaries from herear.cn, bypassing npm mirror sync delays',
+            'Version comparison uses proper semver instead of string comparison',
+            'China users check versions via herear.cn mirror instead of blocked GCS',
+          ],
+        },
+      },
+    ],
+  },
+  {
     version: '0.9.7',
     date: '2026-04-04',
     highlights: {

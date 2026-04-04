@@ -6,6 +6,16 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.9.8] - 2026-04-04
+
+### Fixed
+
+- **CLI 更新走自有镜像** — 更新 CLI 时优先从 herear.cn 下载原生二进制（~230MB），完全跳过 npm 镜像同步延迟；下载失败才回退到 npm 多源重试
+- **版本比较修复** — 版本检查从字符串比较改为语义化数字比较，修复 "2.1.9" > "2.1.10" 等误判
+- **中国用户版本检查加速** — 版本检查优先走 herear.cn 镜像，不再依赖可能被墙的 GCS
+
+---
+
 ## [0.9.7] - 2026-04-04
 
 ### Added

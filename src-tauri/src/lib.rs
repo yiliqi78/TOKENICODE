@@ -84,6 +84,12 @@ struct WatcherManager {
 /// directory so they share a single CLI installation and settings.
 const APP_DATA_DIR_NAME: &str = "com.tinyzhuang.tokenicode";
 
+/// GCS bucket for Claude Code releases.
+const CLI_GCS_BASE: &str = "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases";
+
+/// Self-hosted mirror for China users.
+const CLI_MIRROR_BASE: &str = "https://herear.cn:8443/releases/claude-code";
+
 /// Path to the CLI download directory under the app's local data dir.
 fn cli_download_dir() -> Option<std::path::PathBuf> {
     dirs::data_local_dir().map(|d| d.join(APP_DATA_DIR_NAME).join("cli"))
@@ -4897,12 +4903,196 @@ async fn install_cli_via_npm(app: &AppHandle, china: bool) -> Result<(), String>
     Err(last_err)
 }
 
-/// Update the Claude CLI to the latest version via npm.
-/// Unlike install_claude_cli, this does NOT skip when CLI already exists —
-/// it always runs `npm install -g @anthropic-ai/claude-code@latest`.
+/// Compare two semver-style version strings (e.g. "2.1.92" > "2.1.81").
+/// Handles any "v" prefix and compares numerically per segment.
+fn version_gt(a: &str, b: &str) -> bool {
+    let parse = |s: &str| -> Vec<u64> {
+        s.trim()
+            .trim_start_matches('v')
+            .split('.')
+            .filter_map(|p| p.parse::<u64>().ok())
+            .collect()
+    };
+    parse(a) > parse(b)
+}
+
+/// Return the platform key matching the server manifest (e.g. "win32-x64").
+fn native_platform_key() -> &'static str {
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    { "win32-x64" }
+    #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+    { "win32-arm64" }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    { "darwin-arm64" }
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    { "darwin-x64" }
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    { "linux-x64" }
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    { "linux-arm64" }
+}
+
+/// Try to update the CLI by downloading a native binary from herear.cn / GCS.
+/// On success returns the installed version string.
+async fn try_native_cli_update(china: bool) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("HTTP client: {e}"))?;
+
+    let sources: Vec<&str> = if china {
+        vec![CLI_MIRROR_BASE, CLI_GCS_BASE]
+    } else {
+        vec![CLI_GCS_BASE, CLI_MIRROR_BASE]
+    };
+
+    // 1. Fetch latest version
+    let mut version: Option<String> = None;
+    for base in &sources {
+        let url = format!("{}/latest", base);
+        if let Ok(resp) = client.get(&url).send().await {
+            if resp.status().is_success() {
+                if let Ok(text) = resp.text().await {
+                    let v = text.trim().to_string();
+                    if !v.is_empty() {
+                        eprintln!("[native_update] latest version: {} (from {})", v, base);
+                        version = Some(v);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    let version = version.ok_or("Cannot fetch latest version from any source")?;
+
+    // 2. Fetch manifest for checksum
+    let platform = native_platform_key();
+    let mut expected_checksum = String::new();
+    let mut binary_name = if cfg!(target_os = "windows") { "claude.exe" } else { "claude" }.to_string();
+
+    for base in &sources {
+        let url = format!("{}/{}/manifest.json", base, version);
+        if let Ok(resp) = client.get(&url).send().await {
+            if let Ok(manifest) = resp.json::<serde_json::Value>().await {
+                if let Some(info) = manifest.get("platforms").and_then(|p| p.get(platform)) {
+                    if let Some(cs) = info.get("checksum").and_then(|v| v.as_str()) {
+                        expected_checksum = cs.to_string();
+                    }
+                    if let Some(bn) = info.get("binary").and_then(|v| v.as_str()) {
+                        binary_name = bn.to_string();
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    // 3. Determine install path: ~/.claude/local/ (same as official install.sh)
+    let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
+    let install_dir = home.join(".claude").join("local");
+    std::fs::create_dir_all(&install_dir)
+        .map_err(|e| format!("Cannot create ~/.claude/local/: {e}"))?;
+    let dest_path = install_dir.join(&binary_name);
+    let tmp_path = install_dir.join(format!("{}.tmp", binary_name));
+
+    // 4. Download binary (stream to disk, ~200MB)
+    let dl_client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(600))
+        .build()
+        .map_err(|e| format!("HTTP client: {e}"))?;
+
+    let mut downloaded = false;
+    for base in &sources {
+        let url = format!("{}/{}/{}/{}", base, version, platform, binary_name);
+        eprintln!("[native_update] downloading from {}", url);
+
+        let resp = match dl_client.get(&url).send().await {
+            Ok(r) if r.status().is_success() => r,
+            Ok(r) => {
+                eprintln!("[native_update] HTTP {} from {}", r.status(), base);
+                continue;
+            }
+            Err(e) => {
+                eprintln!("[native_update] request failed: {} ({})", e, base);
+                continue;
+            }
+        };
+
+        let mut stream = resp.bytes_stream();
+        let mut file = std::fs::File::create(&tmp_path)
+            .map_err(|e| format!("Cannot create tmp file: {e}"))?;
+
+        use std::io::Write;
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| format!("Download stream error: {e}"))?;
+            file.write_all(&chunk)
+                .map_err(|e| format!("Write error: {e}"))?;
+        }
+        drop(file);
+
+        // 5. Verify SHA-256 checksum
+        if !expected_checksum.is_empty() {
+            use sha2::{Digest, Sha256};
+            let data = std::fs::read(&tmp_path)
+                .map_err(|e| format!("Cannot read tmp file: {e}"))?;
+            let actual = format!("{:x}", Sha256::digest(&data));
+            if actual != expected_checksum {
+                eprintln!(
+                    "[native_update] checksum mismatch: expected {}… got {}…",
+                    &expected_checksum[..12.min(expected_checksum.len())],
+                    &actual[..12.min(actual.len())]
+                );
+                let _ = std::fs::remove_file(&tmp_path);
+                continue;
+            }
+            eprintln!("[native_update] checksum verified");
+        }
+
+        downloaded = true;
+        break;
+    }
+
+    if !downloaded {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err("All download sources failed".to_string());
+    }
+
+    // 6. Set executable permission and move to final location
+    #[cfg(not(target_os = "windows"))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755));
+    }
+
+    // On Windows the running binary may be locked; try rename, then copy+delete
+    if let Err(_) = std::fs::rename(&tmp_path, &dest_path) {
+        std::fs::copy(&tmp_path, &dest_path)
+            .map_err(|e| format!("Cannot install binary: {e}"))?;
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    eprintln!("[native_update] installed {} -> {}", binary_name, dest_path.display());
+    Ok(version)
+}
+
+/// Update the Claude CLI to the latest version.
+/// Strategy: native binary download (herear.cn / GCS) → npm fallback with multi-registry.
 #[tauri::command]
 async fn update_claude_cli() -> Result<String, String> {
-    // Find npm
+    let china = is_china_network().await;
+
+    // Phase 1: Try native binary download (bypasses npm entirely)
+    match try_native_cli_update(china).await {
+        Ok(version) => {
+            eprintln!("[update_claude_cli] native binary update success: v{}", version);
+            return Ok(version);
+        }
+        Err(e) => {
+            eprintln!("[update_claude_cli] native binary failed: {}, falling back to npm", e);
+        }
+    }
+
+    // Phase 2: Fall back to npm with multi-registry + version verification
     let npm_path = if let Some(local_bin) = get_local_node_bin() {
         #[cfg(target_os = "windows")]
         let npm = local_bin.join("npm.cmd");
@@ -4918,73 +5108,84 @@ async fn update_claude_cli() -> Result<String, String> {
     };
 
     let enriched_path = build_enriched_path();
-    let china = is_china_network().await;
-    let registry = if china {
-        "https://registry.npmmirror.com"
-    } else {
-        "https://registry.npmjs.org"
-    };
-
-    // Use --prefix to install into our controlled directory (same as install_claude_cli)
     let prefix_dir = npm_global_dir()?;
     std::fs::create_dir_all(&prefix_dir)
         .map_err(|e| format!("Failed to create npm prefix dir: {e}"))?;
-    let cache_dir = prefix_dir.join(".cache");
+    let cache_dir = npm_cache_dir()?;
     std::fs::create_dir_all(&cache_dir).ok();
 
-    let args: Vec<String> = vec![
-        "install".to_string(),
-        "-g".to_string(),
-        "@anthropic-ai/claude-code@latest".to_string(),
-        format!("--registry={}", registry),
-        format!("--prefix={}", prefix_dir.display()),
-        format!("--cache={}", cache_dir.display()),
-    ];
-    let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-
-    eprintln!("[update_claude_cli] running: {} {}", npm_path, args_str.join(" "));
-
-    #[cfg(target_os = "windows")]
-    let result = {
-        let mut cmd = Command::new("cmd");
-        cmd.arg("/C").arg(&npm_path);
-        cmd.args(&args_str);
-        cmd.env("PATH", &enriched_path)
-            .stdin(Stdio::null())
-            .creation_flags(0x08000000);
-        tokio::time::timeout(std::time::Duration::from_secs(300), cmd.output()).await
-    };
-    #[cfg(not(target_os = "windows"))]
-    let result = {
-        let mut cmd = Command::new(&npm_path);
-        cmd.args(&args_str);
-        cmd.env("PATH", &enriched_path).stdin(Stdio::null());
-        tokio::time::timeout(std::time::Duration::from_secs(300), cmd.output()).await
+    let registries: Vec<&str> = if china {
+        vec![
+            "https://registry.npmmirror.com",
+            "https://registry.npmjs.org",
+        ]
+    } else {
+        vec!["https://registry.npmjs.org"]
     };
 
-    match result {
-        Ok(Ok(output)) => {
-            if output.status.success() {
-                // Re-check version
+    let mut last_err = String::new();
+    for registry in &registries {
+        eprintln!("[update_claude_cli] trying npm registry: {}", registry);
+
+        let args: Vec<String> = vec![
+            "install".to_string(),
+            "-g".to_string(),
+            "@anthropic-ai/claude-code@latest".to_string(),
+            format!("--registry={}", registry),
+            format!("--prefix={}", prefix_dir.display()),
+            format!("--cache={}", cache_dir.display()),
+        ];
+        let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+
+        #[cfg(target_os = "windows")]
+        let result = {
+            let mut cmd = Command::new("cmd");
+            cmd.arg("/C").arg(&npm_path);
+            cmd.args(&args_str);
+            cmd.env("PATH", &enriched_path)
+                .stdin(Stdio::null())
+                .creation_flags(0x08000000);
+            tokio::time::timeout(std::time::Duration::from_secs(300), cmd.output()).await
+        };
+        #[cfg(not(target_os = "windows"))]
+        let result = {
+            let mut cmd = Command::new(&npm_path);
+            cmd.args(&args_str);
+            cmd.env("PATH", &enriched_path).stdin(Stdio::null());
+            tokio::time::timeout(std::time::Duration::from_secs(300), cmd.output()).await
+        };
+
+        match result {
+            Ok(Ok(output)) if output.status.success() => {
                 let check = check_claude_cli().await.unwrap_or(CliStatus {
                     installed: false, version: None,
                     path: None, git_bash_missing: false,
                 });
                 let version = check.version.unwrap_or_else(|| "unknown".to_string());
-                eprintln!("[update_claude_cli] success: v{}", version);
-                Ok(version)
-            } else {
+                eprintln!("[update_claude_cli] npm success: v{} from {}", version, registry);
+                return Ok(version);
+            }
+            Ok(Ok(output)) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                Err(format!("npm install failed: {}", stderr.chars().take(500).collect::<String>()))
+                last_err = format!("npm install failed ({}): {}", registry, stderr.chars().take(500).collect::<String>());
+                eprintln!("[update_claude_cli] {}", last_err);
+            }
+            Ok(Err(e)) => {
+                last_err = format!("Failed to run npm: {e}");
+                eprintln!("[update_claude_cli] {}", last_err);
+            }
+            Err(_) => {
+                last_err = format!("npm install timed out ({})", registry);
+                eprintln!("[update_claude_cli] {}", last_err);
             }
         }
-        Ok(Err(e)) => Err(format!("Failed to run npm: {e}")),
-        Err(_) => Err("npm install timed out (300s)".to_string()),
     }
+
+    Err(last_err)
 }
 
-/// Check if a newer CLI version is available by querying npm registry.
-/// Returns (current_version, latest_version, update_available).
+/// Check if a newer CLI version is available.
+/// Sources: herear.cn mirror (China-first) → GCS → npm registry.
 #[derive(serde::Serialize)]
 struct CliUpdateCheck {
     current: Option<String>,
@@ -4994,43 +5195,59 @@ struct CliUpdateCheck {
 
 #[tauri::command]
 async fn check_cli_update() -> Result<CliUpdateCheck, String> {
-    // Get current version
     let cli = check_claude_cli().await.ok();
     let current = cli.as_ref().and_then(|c| c.version.clone());
 
-    // Get latest from GCS (fastest, same source as sync.sh)
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .unwrap_or_default();
 
-    let latest = match client
-        .get("https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest")
-        .send()
-        .await
-    {
-        Ok(resp) if resp.status().is_success() => {
-            resp.text().await.ok().map(|s| s.trim().to_string())
-        }
-        _ => {
-            // Fallback: npm registry
-            match client
-                .get("https://registry.npmjs.org/@anthropic-ai/claude-code/latest")
-                .header("Accept", "application/json")
-                .send()
-                .await
-            {
-                Ok(resp) => {
-                    let json: serde_json::Value = resp.json().await.unwrap_or_default();
-                    json.get("version").and_then(|v| v.as_str()).map(String::from)
-                }
-                Err(_) => None,
-            }
-        }
+    let china = is_china_network().await;
+
+    // Version check sources: China users try herear.cn first (GCS may be slow/blocked)
+    let version_urls: Vec<String> = if china {
+        vec![
+            format!("{}/latest", CLI_MIRROR_BASE),
+            format!("{}/latest", CLI_GCS_BASE),
+        ]
+    } else {
+        vec![
+            format!("{}/latest", CLI_GCS_BASE),
+            format!("{}/latest", CLI_MIRROR_BASE),
+        ]
     };
 
+    let mut latest: Option<String> = None;
+    for url in &version_urls {
+        if let Ok(resp) = client.get(url).send().await {
+            if resp.status().is_success() {
+                if let Ok(text) = resp.text().await {
+                    let v = text.trim().to_string();
+                    if !v.is_empty() {
+                        latest = Some(v);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Final fallback: npm registry
+    if latest.is_none() {
+        if let Ok(resp) = client
+            .get("https://registry.npmjs.org/@anthropic-ai/claude-code/latest")
+            .header("Accept", "application/json")
+            .send()
+            .await
+        {
+            let json: serde_json::Value = resp.json().await.unwrap_or_default();
+            latest = json.get("version").and_then(|v| v.as_str()).map(String::from);
+        }
+    }
+
     let update_available = match (&current, &latest) {
-        (Some(cur), Some(lat)) => cur.trim() != lat.trim() && lat.trim() > cur.trim(),
+        (Some(cur), Some(lat)) => version_gt(lat.trim(), cur.trim()),
         _ => false,
     };
 
