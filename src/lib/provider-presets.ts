@@ -125,4 +125,18 @@ export const PROVIDER_PRESETS: PresetProvider[] = [
       haiku: 'mimo-v2-pro',
     },
   },
+  {
+    id: 'mimo-token-plan',
+    name: '小米 MiMo Token Plan',
+    baseUrl: 'https://token-plan-cn.xiaomimimo.com/anthropic',
+    apiFormat: 'anthropic',
+    extra_env: {},
+    keyUrl: 'https://platform.xiaomimimo.com/#/console/plan-manage',
+    thinkingSupport: 'unknown',
+    defaultModels: {
+      opus: 'mimo-v2-pro[1m]',
+      sonnet: 'mimo-v2-omni',
+      haiku: 'mimo-v2-pro',
+    },
+  },
 ];
