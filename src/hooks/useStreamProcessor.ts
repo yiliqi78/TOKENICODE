@@ -33,10 +33,15 @@ export function formatErrorForUser(raw: string): string {
   return `${friendly}\n\n<details>\n<summary>${t('error.showDetails')}</summary>\n\n\`\`\`\n${raw}\n\`\`\`\n\n</details>`;
 }
 
-// --- Streaming text buffer (rAF-throttled, per-stdinId) ---
+// --- Streaming text buffer (rAF-throttled + interval fallback, per-stdinId) ---
 // Coalesces rapid text_delta / thinking_delta events into a single state update
 // per animation frame (~60/s), preventing JS main thread starvation from
 // excessive React re-renders when the message list is large.
+//
+// CRITICAL: rAF alone is unreliable — heavy React re-renders can block the
+// rendering pipeline, preventing rAF callbacks from firing. A 200ms setInterval
+// fallback ensures buffered text is always flushed even when rAF is starved.
+//
 // TK-329 fix: each session gets its own buffer to prevent cross-contamination
 // when multiple sessions stream concurrently.
 interface _StreamBuffer {
@@ -45,6 +50,25 @@ interface _StreamBuffer {
   raf: number;
 }
 const _streamBuffers = new Map<string, _StreamBuffer>();
+
+// Interval fallback: flush any stuck buffers every 200ms
+let _flushIntervalId: ReturnType<typeof setInterval> | null = null;
+
+function _ensureFlushInterval() {
+  if (_flushIntervalId) return;
+  _flushIntervalId = setInterval(() => {
+    for (const [stdinId, buf] of _streamBuffers) {
+      if (buf.text || buf.thinking) {
+        _doFlush(stdinId, buf);
+      }
+    }
+    // Stop interval when no active buffers remain
+    if (_streamBuffers.size === 0 && _flushIntervalId) {
+      clearInterval(_flushIntervalId);
+      _flushIntervalId = null;
+    }
+  }, 200);
+}
 
 function _getBuffer(stdinId: string): _StreamBuffer {
   let buf = _streamBuffers.get(stdinId);
@@ -55,35 +79,41 @@ function _getBuffer(stdinId: string): _StreamBuffer {
   return buf;
 }
 
+/** Core flush logic — shared by rAF callback and interval fallback. */
+function _doFlush(stdinId: string, buf: _StreamBuffer) {
+  if (!buf.text && !buf.thinking) return;
+
+  const mappedId = useSessionStore.getState().getTabForStdin(stdinId);
+  const tabId = mappedId || useSessionStore.getState().selectedSessionId || undefined;
+  if (!mappedId && tabId) {
+    console.warn('[stream-flush] stdinId mapping missing, fallback to selectedSessionId:', stdinId, '→', tabId);
+    useSessionStore.getState().registerStdinTab(stdinId, tabId);
+  }
+  if (!tabId) {
+    buf.text = '';
+    buf.thinking = '';
+    return;
+  }
+
+  const store = useChatStore.getState();
+  if (buf.text) {
+    store.updatePartialMessage(tabId, buf.text);
+    buf.text = '';
+  }
+  if (buf.thinking) {
+    store.updatePartialThinking(tabId, buf.thinking);
+    buf.thinking = '';
+  }
+}
+
 function _scheduleStreamFlush(stdinId: string) {
   const buf = _getBuffer(stdinId);
+  // Start the interval fallback on first buffer activity
+  _ensureFlushInterval();
   if (buf.raf) return;
   buf.raf = requestAnimationFrame(() => {
     buf.raf = 0;
-
-    // Resolve ownerTab from stdinId mapping — all updates go to this tab.
-    // Fallback to selectedSessionId if mapping is missing (prevents silent text loss #57)
-    const mappedId = useSessionStore.getState().getTabForStdin(stdinId);
-    const tabId = mappedId || useSessionStore.getState().selectedSessionId || undefined;
-    if (!mappedId && tabId) {
-      console.warn('[stream-flush] stdinId mapping missing, fallback to selectedSessionId:', stdinId, '→', tabId);
-      useSessionStore.getState().registerStdinTab(stdinId, tabId);
-    }
-    if (!tabId) {
-      buf.text = '';
-      buf.thinking = '';
-      return;
-    }
-
-    const store = useChatStore.getState();
-    if (buf.text) {
-      store.updatePartialMessage(tabId, buf.text);
-      buf.text = '';
-    }
-    if (buf.thinking) {
-      store.updatePartialThinking(tabId, buf.thinking);
-      buf.thinking = '';
-    }
+    _doFlush(stdinId, buf);
   });
 }
 
@@ -101,34 +131,18 @@ export function flushStreamBuffer(stdinId?: string) {
       cancelAnimationFrame(buf.raf);
       buf.raf = 0;
     }
-    if (!buf.text && !buf.thinking) continue;
-
-    const mappedFlush = useSessionStore.getState().getTabForStdin(id);
-    const tabId = mappedFlush || useSessionStore.getState().selectedSessionId || undefined;
-    if (!mappedFlush && tabId) {
-      useSessionStore.getState().registerStdinTab(id, tabId);
-    }
-    if (!tabId) {
-      buf.text = '';
-      buf.thinking = '';
-      continue;
-    }
-    const store = useChatStore.getState();
-    if (buf.text) {
-      store.updatePartialMessage(tabId, buf.text);
-      buf.text = '';
-    }
-    if (buf.thinking) {
-      store.updatePartialThinking(tabId, buf.thinking);
-      buf.thinking = '';
-    }
+    _doFlush(id, buf);
   }
 
-  // Clean up empty buffers
+  // Clean up buffers and stop interval when all cleared
   if (!stdinId) {
     _streamBuffers.clear();
   } else {
     _streamBuffers.delete(stdinId);
+  }
+  if (_streamBuffers.size === 0 && _flushIntervalId) {
+    clearInterval(_flushIntervalId);
+    _flushIntervalId = null;
   }
 }
 
