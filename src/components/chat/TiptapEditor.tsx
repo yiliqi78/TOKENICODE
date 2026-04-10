@@ -152,6 +152,19 @@ export const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
         handlePaste: (_view, event) => {
           return onPasteRef.current?.(event as unknown as ClipboardEvent) === true;
         },
+        // Prevent Finder file drags from inserting raw text paths into the editor.
+        // macOS WKWebView delivers Finder drags both via Tauri's native onDragDropEvent
+        // (correct chip insertion path) AND via the browser-level DOM drop event.
+        // Without this guard, ProseMirror's default drop handler inserts text/plain
+        // content from the DataTransfer, racing with the chip insertion.
+        handleDrop: (_view, event) => {
+          const dt = event.dataTransfer;
+          if (!dt) return false;
+          // Block drops that carry files (Finder drag) — let Tauri handle them.
+          // Non-file drops (URL drags from browser tabs) pass through to ProseMirror.
+          if (dt.types.includes('Files') || dt.files.length > 0) return true;
+          return false;
+        },
       },
       onUpdate: ({ editor: ed }) => {
         // Skip store updates during IME composition to avoid React re-renders

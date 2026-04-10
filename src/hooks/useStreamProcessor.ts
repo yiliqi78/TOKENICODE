@@ -1,7 +1,7 @@
 import { useCallback, type MutableRefObject } from 'react';
 import { useChatStore, generateMessageId, type ChatMessage } from '../stores/chatStore';
 import { useSettingsStore, mapSessionModeToPermissionMode, getEffectiveMode } from '../stores/settingsStore';
-import { useSessionStore } from '../stores/sessionStore';
+import { useSessionStore, setOrphanDrainCallback } from '../stores/sessionStore';
 import { useAgentStore, resolveAgentId, getAgentDepth } from '../stores/agentStore';
 import { useFileStore } from '../stores/fileStore';
 import { bridge, onClaudeStream, onClaudeStderr } from '../lib/tauri-bridge';
@@ -51,6 +51,91 @@ interface _StreamBuffer {
 }
 const _streamBuffers = new Map<string, _StreamBuffer>();
 
+// --- Orphan queue (#57-B) ---
+// When _doFlush fires after the stdinId has been unregistered AND
+// selectedSessionId is null, the previous code silently wiped the buffer.
+// Instead, stash the text in an orphan queue keyed by stdinId. The queue is
+// drained when registerStdinTab(stdinId, tabId) is later called.
+interface _OrphanEntry { text: string; thinking: string; expiresAt: number; }
+const _ORPHAN_TTL_MS = 5_000;
+const _ORPHAN_PER_STDIN_CAP_CHARS = 1 * 1024 * 1024;
+const _ORPHAN_TOTAL_CAP_CHARS = 10 * 1024 * 1024;
+const _orphanQueue = new Map<string, _OrphanEntry>();
+
+function _orphanTotalChars(): number {
+  let total = 0;
+  for (const entry of _orphanQueue.values()) total += entry.text.length + entry.thinking.length;
+  return total;
+}
+
+function _stashOrphan(stdinId: string, text: string, thinking: string) {
+  if (!text && !thinking) return;
+  _expireOrphans();
+  const existing = _orphanQueue.get(stdinId);
+  const merged: _OrphanEntry = existing
+    ? { text: existing.text + text, thinking: existing.thinking + thinking, expiresAt: Date.now() + _ORPHAN_TTL_MS }
+    : { text, thinking, expiresAt: Date.now() + _ORPHAN_TTL_MS };
+  const mergedChars = merged.text.length + merged.thinking.length;
+  if (mergedChars > _ORPHAN_PER_STDIN_CAP_CHARS) {
+    console.error('[stream-flush] orphan entry exceeds per-stdinId cap, dropping:', stdinId);
+    _orphanQueue.delete(stdinId);
+    return;
+  }
+  _orphanQueue.set(stdinId, merged);
+  if (_orphanTotalChars() > _ORPHAN_TOTAL_CAP_CHARS) {
+    while (_orphanTotalChars() > _ORPHAN_TOTAL_CAP_CHARS) {
+      const oldest = _orphanQueue.keys().next().value;
+      if (!oldest) break;
+      _orphanQueue.delete(oldest);
+    }
+  }
+}
+
+function _expireOrphans() {
+  const now = Date.now();
+  for (const [id, entry] of _orphanQueue.entries()) {
+    if (entry.expiresAt <= now) _orphanQueue.delete(id);
+  }
+}
+
+/** Drain any orphan buffer for the given stdinId into its newly known tab. */
+export function drainOrphanBuffer(stdinId: string, tabId: string) {
+  _expireOrphans();
+  const entry = _orphanQueue.get(stdinId);
+  if (!entry) return;
+  const store = useChatStore.getState();
+  if (entry.text) store.updatePartialMessage(tabId, entry.text);
+  if (entry.thinking) store.updatePartialThinking(tabId, entry.thinking);
+  _orphanQueue.delete(stdinId);
+}
+
+// --- Shared pendingCommand completion helper (#27) ---
+// Both foreground and background handlers must clear pendingCommandMsgId when
+// a result or assistant event arrives. Without this, slash commands like /compact
+// that complete on a background tab leave the spinner stuck forever.
+interface CompletePendingCommandOpts {
+  output?: string;
+  costSummary?: { cost: string; duration: string; turns: string | number; input: string; output: string; };
+}
+
+export function completePendingCommand(tabId: string, opts: CompletePendingCommandOpts = {}) {
+  const store = useChatStore.getState();
+  const tab = store.getTab(tabId);
+  const pendingCmdMsgId = tab?.sessionMeta.pendingCommandMsgId;
+  if (!pendingCmdMsgId) return;
+  const cmdMsg = (tab?.messages ?? []).find((m) => m.id === pendingCmdMsgId);
+  store.updateMessage(tabId, pendingCmdMsgId, {
+    commandCompleted: true,
+    commandData: {
+      ...cmdMsg?.commandData,
+      ...(opts.output !== undefined ? { output: opts.output } : {}),
+      ...(opts.costSummary ? { costSummary: opts.costSummary } : {}),
+      completedAt: Date.now(),
+    },
+  });
+  store.setSessionMeta(tabId, { pendingCommandMsgId: undefined });
+}
+
 // Interval fallback: flush any stuck buffers every 200ms
 let _flushIntervalId: ReturnType<typeof setInterval> | null = null;
 
@@ -90,6 +175,9 @@ function _doFlush(stdinId: string, buf: _StreamBuffer) {
     useSessionStore.getState().registerStdinTab(stdinId, tabId);
   }
   if (!tabId) {
+    // Instead of silent wipe, stash text in orphan queue so a late
+    // registerStdinTab() can drain it. Bounded and TTL'd.
+    _stashOrphan(stdinId, buf.text, buf.thinking);
     buf.text = '';
     buf.thinking = '';
     return;
@@ -105,6 +193,10 @@ function _doFlush(stdinId: string, buf: _StreamBuffer) {
     buf.thinking = '';
   }
 }
+
+// Register the drain callback so sessionStore.registerStdinTab can flush
+// orphaned buffers without creating a circular import dependency.
+setOrphanDrainCallback(drainOrphanBuffer);
 
 function _scheduleStreamFlush(stdinId: string) {
   const buf = _getBuffer(stdinId);
@@ -342,6 +434,11 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
           const text = evt.delta.text || '';
           if (text) store.updatePartialMessage(tabId, text);
+        } else if (evt.type === 'content_block_delta' && evt.delta?.type === 'thinking_delta') {
+          // F1 (#57): background tabs must handle thinking_delta too,
+          // otherwise thinking content is silently lost on tab switch.
+          const thinking = evt.delta.thinking || '';
+          if (thinking) store.updatePartialThinking(tabId, thinking);
         }
         // Early detection: create plan_review card for background tab (Plan mode only).
         // Bypass auto-approves via Rust backend — no UI card needed.
@@ -391,6 +488,8 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         break;
       }
       case 'assistant': {
+        // Clear pending command on assistant event (same as foreground)
+        completePendingCommand(tabId);
         const content = msg.message?.content;
         if (!Array.isArray(content)) break;
         // Selectively clear partial in tab — only wipe partialText if a text
@@ -551,6 +650,16 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         break;
       }
       case 'result': {
+        // Clear pending command on result (e.g. /compact completing on background tab)
+        completePendingCommand(tabId, {
+          costSummary: msg.total_cost_usd != null ? {
+            cost: `$${msg.total_cost_usd?.toFixed(4) || '0'}`,
+            duration: msg.duration_ms ? `${(msg.duration_ms / 1000).toFixed(1)}s` : '',
+            turns: msg.num_turns ?? '',
+            input: msg.usage?.input_tokens?.toLocaleString() ?? '',
+            output: msg.usage?.output_tokens?.toLocaleString() ?? '',
+          } : undefined,
+        });
         store.setSessionStatus(tabId, msg.subtype === 'success' ? 'completed' : 'error');
         {
           const bgTab = store.getTab(tabId);

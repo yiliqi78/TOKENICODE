@@ -1,6 +1,16 @@
 import { create } from 'zustand';
 import { bridge, SessionListItem, ContentSearchResult } from '../lib/tauri-bridge';
 
+// --- Orphan drain callback ---
+// useStreamProcessor exports drainOrphanBuffer(), but sessionStore can't import
+// it directly (circular dependency). Instead, useStreamProcessor registers its
+// drain function at module init via setOrphanDrainCallback(). registerStdinTab
+// then calls it so text that arrived before the mapping existed is flushed.
+let _orphanDrainCallback: ((stdinId: string, tabId: string) => void) | null = null;
+export function setOrphanDrainCallback(cb: (stdinId: string, tabId: string) => void) {
+  _orphanDrainCallback = cb;
+}
+
 // Persist custom session names in localStorage as fast cache,
 // and sync to disk via Tauri backend for durability.
 const CUSTOM_PREVIEWS_KEY = 'tokenicode_custom_previews';
@@ -190,6 +200,8 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
     const next = { ...get().stdinToTab, [stdinId]: tabId };
     saveStdinToTab(next);
     set({ stdinToTab: next });
+    // Drain any orphaned stream buffer that arrived before this mapping existed
+    _orphanDrainCallback?.(stdinId, tabId);
   },
 
   unregisterStdinTab: (stdinId) => {

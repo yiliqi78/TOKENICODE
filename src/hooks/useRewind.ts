@@ -61,6 +61,9 @@ export function useRewind() {
     const stdinId = state.sessionMeta.stdinId;
     if (stdinId) {
       await bridge.killSession(stdinId).catch(() => {});
+      // Unlisten BEFORE unregistering: Tauri's unlisten synchronously removes
+      // the listener, so in-flight events are dropped before they reach
+      // handleStreamMessage, eliminating the routing race window.
       if ((window as any).__claudeUnlisteners?.[stdinId]) {
         (window as any).__claudeUnlisteners[stdinId]();
         delete (window as any).__claudeUnlisteners[stdinId];
@@ -68,6 +71,7 @@ export function useRewind() {
       if ((window as any).__claudeUnlisten) {
         (window as any).__claudeUnlisten = null;
       }
+      useSessionStore.getState().unregisterStdinTab(stdinId);
     }
   }, []);
 

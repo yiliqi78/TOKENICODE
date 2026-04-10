@@ -1571,10 +1571,24 @@ async fn start_claude_session(
                                 .or_else(|| request.get("toolUseId"))
                                 .and_then(|v| v.as_str())
                                 .map(String::from);
+                            // P0-1 (#39): forward parent_tool_use_id and agent_id so the
+                            // frontend can compute sub-agent depth. Without these, every
+                            // sub-agent permission freezes the main input because
+                            // resolveAgentId falls back to "main agent" depth 0.
+                            let parent_tool_use_id = request
+                                .get("parent_tool_use_id")
+                                .or_else(|| request.get("parentToolUseId"))
+                                .and_then(|v| v.as_str())
+                                .map(String::from);
+                            let agent_id = request
+                                .get("agent_id")
+                                .or_else(|| request.get("agentId"))
+                                .and_then(|v| v.as_str())
+                                .map(String::from);
 
                             eprintln!(
-                                "[TOKENICODE] permission request: tool={} request_id={}",
-                                tool_name, request_id
+                                "[TOKENICODE] permission request: tool={} request_id={} parent_tool_use_id={:?} agent_id={:?}",
+                                tool_name, request_id, parent_tool_use_id, agent_id
                             );
 
                             // Emit as a special stream message (reuses the working stream channel)
@@ -1585,6 +1599,8 @@ async fn start_claude_session(
                                 "input": input,
                                 "description": description,
                                 "tool_use_id": tool_use_id,
+                                "parent_tool_use_id": parent_tool_use_id,
+                                "agent_id": agent_id,
                             });
                             let _ = emit_to_frontend(&app_clone, &stream_event, perm_payload);
                             continue; // Don't forward to stream as normal msg
