@@ -1429,6 +1429,38 @@ export function InputBar() {
               onClick={async () => {
                 const stopTabId = useSessionStore.getState().selectedSessionId;
                 const sid = getActiveTabState().sessionMeta.stdinId;
+
+                // Preserve any mid-stream content BEFORE setSessionStatus
+                // wipes partialText/partialThinking. Without this, everything
+                // that streamed during the interrupted turn is lost.
+                // flushStreamBuffer is statically imported at the top — DO NOT
+                // use dynamic import() here, the async await lets React
+                // re-render and race with the state update.
+                if (stopTabId) {
+                  if (sid) flushStreamBuffer(sid);
+                  const stopTab = useChatStore.getState().getTab(stopTabId);
+                  const stopPText = stopTab?.partialText ?? '';
+                  const stopPThinking = stopTab?.partialThinking ?? '';
+                  if (stopPThinking.trim().length > 0) {
+                    useChatStore.getState().addMessage(stopTabId, {
+                      id: `interrupted_thinking_${Date.now()}`,
+                      role: 'assistant',
+                      type: 'thinking',
+                      content: stopPThinking,
+                      timestamp: Date.now(),
+                    });
+                  }
+                  if (stopPText.trim().length > 0) {
+                    useChatStore.getState().addMessage(stopTabId, {
+                      id: `interrupted_text_${Date.now()}`,
+                      role: 'assistant',
+                      type: 'text',
+                      content: stopPText,
+                      timestamp: Date.now(),
+                    });
+                  }
+                }
+
                 // Immediately clear stdinId so no further messages are sent to the dead process
                 if (stopTabId) {
                   useChatStore.getState().setSessionMeta(stopTabId, { stdinId: undefined });
