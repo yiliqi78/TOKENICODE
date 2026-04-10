@@ -354,7 +354,10 @@ export function InputBar() {
     useCommandStore.getState().fetchCommands(workingDirectory || undefined);
   }, [workingDirectory]);
 
-  const isRunning = sessionStatus === 'running';
+  // 'reconnecting' counts as running — keep input disabled while the
+  // watchdog is auto-recovering, so the user can't interleave a new
+  // message while we're mid-resume.
+  const isRunning = sessionStatus === 'running' || sessionStatus === 'reconnecting';
   const isAwaiting = isRunning && activityPhase === 'awaiting';
 
   // Whether this is a follow-up (session already has a CLI session ID)

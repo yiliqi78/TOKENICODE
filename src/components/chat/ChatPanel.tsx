@@ -238,6 +238,7 @@ function ActivityIndicator({ activityStatus, sessionMeta }: {
     : activityStatus.phase === 'writing' ? t('chat.writing')
     : activityStatus.phase === 'tool' ? `${t('chat.runningTool')}: ${activityStatus.toolName || ''}`
     : activityStatus.phase === 'awaiting' ? t('chat.awaiting')
+    : activityStatus.phase === 'reconnecting' ? t('chat.reconnecting')
     : t('chat.running');
 
   const elapsed = sessionMeta.turnStartTime ? formatElapsed(now - sessionMeta.turnStartTime) : null;
@@ -654,7 +655,7 @@ export function ChatPanel() {
               );
             })()}
             {/* Inline activity status indicator — like Claude Desktop App */}
-            {(sessionStatus === 'running' || activityStatus.phase === 'awaiting') && (
+            {(sessionStatus === 'running' || sessionStatus === 'reconnecting' || activityStatus.phase === 'awaiting') && (
               <ActivityIndicator activityStatus={activityStatus} sessionMeta={sessionMeta} />
             )}
           </div>

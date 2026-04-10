@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
-use tokio::process::{Child, ChildStdin};
-use tokio::sync::Mutex;
+use tokio::process::ChildStdin;
+use tokio::sync::{oneshot, Mutex};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SessionInfo {
@@ -13,11 +13,16 @@ pub struct SessionInfo {
     pub cli_path: String,
 }
 
+/// A managed CLI session whose child process is owned by an independent
+/// waiter task. `kill_tx` sends a request to that waiter task to kill
+/// the child; the waiter task then emits `process_exit` authoritatively.
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct ManagedProcess {
-    pub child: Child,
     pub session_id: String,
+    pub pid: u32,
+    /// Kill signal channel to the waiter task. Option so we can take() on remove.
+    pub kill_tx: Option<oneshot::Sender<()>>,
 }
 
 #[derive(Debug, Default)]
@@ -83,13 +88,14 @@ impl ProcessManager {
     pub async fn remove(&self, id: &str) {
         let mut map = self.processes.lock().await;
         if let Some(proc) = map.remove(id) {
-            // Actually kill the child process to prevent zombie leaks (P0-2 fix)
+            // Signal the waiter task to kill the child. The waiter task owns
+            // the child and will emit process_exit authoritatively after kill.
             let mut managed = proc.lock().await;
-            if let Err(e) = managed.child.kill().await {
-                eprintln!(
-                    "[TOKENICODE] Failed to kill process for session {}: {}",
-                    id, e
-                );
+            if let Some(tx) = managed.kill_tx.take() {
+                if tx.send(()).is_err() {
+                    // Receiver dropped — waiter task already exited because
+                    // the child died naturally. No-op is correct.
+                }
             }
         }
     }

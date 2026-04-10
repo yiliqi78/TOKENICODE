@@ -1432,12 +1432,68 @@ async fn start_claude_session(
 
     let sid = session_id.clone();
 
+    // ── Spawn child waiter task — owns the child, single source of process_exit ──
+    //
+    // The waiter task is the ONLY place that emits process_exit and cleans
+    // up per-session state. It monitors two paths via tokio::select!:
+    //   1. child.wait() — fires when CLI exits for any reason
+    //   2. kill_rx      — fires when kill_session / state.remove is called
+    //
+    // This removes the dependency on stdout EOF for session lifecycle, which
+    // is the root cause of the "streaming stuck" class of bugs — the child
+    // can be alive but stdout blocked upstream, meaning the old EOF-based
+    // detection would never fire.
+    let (kill_tx, kill_rx) = tokio::sync::oneshot::channel::<()>();
+    {
+        let app_waiter = app.clone();
+        let waiter_sid = sid.clone();
+        let waiter_stdin_mgr = stdin_mgr.inner().clone();
+        tokio::spawn(async move {
+            let mut child = child;
+            tokio::select! {
+                status = child.wait() => {
+                    eprintln!(
+                        "[TOKENICODE] child naturally exited for {}: code={:?}",
+                        waiter_sid,
+                        status.as_ref().ok().and_then(|s| s.code())
+                    );
+                }
+                _ = kill_rx => {
+                    eprintln!("[TOKENICODE] kill signal received for {}", waiter_sid);
+                    if let Err(e) = child.start_kill() {
+                        eprintln!("[TOKENICODE] start_kill failed for {}: {}", waiter_sid, e);
+                    }
+                    // Wait for child to actually die to avoid zombies
+                    let _ = child.wait().await;
+                }
+            }
+
+            // ── Authoritative process_exit emission (fires exactly once) ────
+            let stream_event = format!("claude:stream:{}", waiter_sid);
+            if let Err(e) = app_waiter.emit_to("main", &stream_event, serde_json::json!({"type": "process_exit"})) {
+                let _ = app_waiter.emit(&stream_event, serde_json::json!({"type": "process_exit"}));
+                let _ = e;
+            }
+            let exit_event = format!("claude:exit:{}", waiter_sid);
+            let _ = app_waiter.emit_to("main", &exit_event, serde_json::json!(null));
+            let _ = app_waiter.emit_to("main", "sessions:changed", serde_json::json!(null));
+
+            // ── Centralized cleanup ────────────────────────────────────────
+            // stdin_mgr.remove is idempotent. If kill_session triggered us
+            // via kill_rx, state.remove already happened. Otherwise (natural
+            // exit) the frontend's onExit handler will call kill_session to
+            // clean up state — so no state.remove call here to avoid a race.
+            waiter_stdin_mgr.remove(&waiter_sid).await;
+        });
+    }
+
     state
         .insert(
             sid.clone(),
             ManagedProcess {
-                child,
                 session_id: sid.clone(),
+                pid,
+                kill_tx: Some(kill_tx),
             },
         )
         .await;
@@ -1662,32 +1718,37 @@ async fn start_claude_session(
             };
             if let Err(e) = emit_to_frontend(&app_clone, &stream_event, json_to_emit) {
                 emit_fail_count += 1;
-                eprintln!("[TOKENICODE] emit_to_frontend failed (#{emit_fail_count}): {e}");
-                // If emit fails repeatedly, the frontend is likely unreachable.
-                // Break the loop to trigger process_exit cleanup (#64).
-                if emit_fail_count >= 10 {
-                    eprintln!("[TOKENICODE:CRITICAL] {} consecutive emit failures — frontend unreachable, stopping stream", emit_fail_count);
-                    break;
+                // Log every 10 failures to avoid flooding stderr when the
+                // WebView is unresponsive for a sustained period.
+                if emit_fail_count == 1 || emit_fail_count % 10 == 0 {
+                    eprintln!(
+                        "[TOKENICODE] emit_to_frontend failed (#{emit_fail_count}): {e} — continuing (watchdog will recover user session if needed)"
+                    );
                 }
+                // DO NOT break. Previously we broke after 10 failures, but
+                // that caused permanent silent disconnection: subsequent
+                // events would never reach the WebView, and the frontend
+                // session would stay stuck in 'running' forever. Keep
+                // trying — WebView usually recovers quickly, and the
+                // frontend watchdog (App.tsx) handles user-facing recovery
+                // if the stall persists.
             } else {
-                emit_fail_count = 0;  // reset on success
+                if emit_fail_count > 0 {
+                    eprintln!(
+                        "[TOKENICODE] emit_to_frontend recovered after {} failures",
+                        emit_fail_count
+                    );
+                }
+                emit_fail_count = 0;
             }
         }
-        // Emit process_exit on the stream channel (primary detection)
-        let _ = emit_to_frontend(
-            &app_clone,
-            &stream_event,
-            serde_json::json!({"type": "process_exit"}),
+        // stdout EOF — the waiter task detects child exit via child.wait()
+        // and is the authoritative source of process_exit + cleanup.
+        // We just log and exit silently.
+        eprintln!(
+            "[TOKENICODE] stdout reader exited for {} after {} lines (waiter task handles cleanup)",
+            sid_clone, line_count
         );
-        // Also emit on the dedicated exit channel (backup detection via onSessionExit)
-        let _ = emit_to_frontend(
-            &app_clone,
-            &format!("claude:exit:{}", sid_clone),
-            serde_json::json!(null),
-        );
-
-        // Notify frontend that session list may have changed
-        let _ = emit_to_frontend(&app_clone, "sessions:changed", serde_json::json!(null));
     });
 
     // Spawn stderr reader

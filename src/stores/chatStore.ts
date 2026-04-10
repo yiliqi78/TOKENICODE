@@ -134,9 +134,18 @@ export interface SessionMeta {
   }>;
 }
 
-export type SessionStatus = 'idle' | 'running' | 'completed' | 'error';
+/**
+ * Session lifecycle state.
+ *
+ * 'reconnecting' is an intermediate state that the global watchdog
+ * (App.tsx) enters when it detects a stalled stream. During reconnecting
+ * we keep the UI's partialText visible (unlike terminal states) and
+ * attempt an automatic --resume to recover without user intervention.
+ * On success we transition back to 'running'; on failure we go to 'error'.
+ */
+export type SessionStatus = 'idle' | 'running' | 'reconnecting' | 'completed' | 'error';
 
-export type ActivityPhase = 'idle' | 'thinking' | 'writing' | 'tool' | 'awaiting' | 'completed' | 'error';
+export type ActivityPhase = 'idle' | 'thinking' | 'writing' | 'tool' | 'awaiting' | 'completed' | 'error' | 'reconnecting';
 
 export interface ActivityStatus {
   phase: ActivityPhase;
@@ -366,13 +375,20 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     }),
 
   setSessionStatus: (tabId, status) => {
-    // Sync running state to sessionStore for tab indicators
-    useSessionStore.getState().setSessionRunning(tabId, status === 'running');
+    // Sync running state to sessionStore for tab indicators.
+    // 'reconnecting' counts as running for sidebar indicator purposes
+    // (the tab is still actively doing something — recovering).
+    useSessionStore.getState().setSessionRunning(
+      tabId,
+      status === 'running' || status === 'reconnecting',
+    );
     set((state) => {
       const result = updateTab(state.tabs, tabId, (tab) => ({
         ...tab,
         sessionStatus: status,
-        // Reset streaming state when session ends
+        // Reset streaming state when session reaches a terminal state.
+        // IMPORTANT: do NOT reset on 'reconnecting' — we keep partialText
+        // visible so the user sees prior content while we re-establish.
         ...(status === 'completed' || status === 'error' || status === 'idle'
           ? { isStreaming: false, partialText: '', partialThinking: '' }
           : {}),
@@ -380,6 +396,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         ...(status === 'completed' ? { activityStatus: { phase: 'completed' as ActivityPhase } }
           : status === 'error' ? { activityStatus: { phase: 'error' as ActivityPhase } }
           : status === 'idle' ? { activityStatus: { phase: 'idle' as ActivityPhase } }
+          : status === 'reconnecting' ? { activityStatus: { phase: 'reconnecting' as ActivityPhase } }
           : {}),
       }));
       return result ?? {};
