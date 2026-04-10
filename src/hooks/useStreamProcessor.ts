@@ -663,6 +663,33 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         // Flush any remaining stream buffer before cleanup (#64)
         flushStreamBuffer(msg.__stdinId);
 
+        // Flush mid-stream content to final messages BEFORE setSessionStatus('idle')
+        // wipes partialText/partialThinking. Same rationale as the foreground
+        // handler: preserve interrupted content so the user doesn't lose it.
+        {
+          const bgTab = store.getTab(tabId);
+          const bgThinking = bgTab?.partialThinking ?? '';
+          const bgText = bgTab?.partialText ?? '';
+          if (bgThinking.trim().length > 0) {
+            store.addMessage(tabId, {
+              id: `interrupted_thinking_${Date.now()}`,
+              role: 'assistant',
+              type: 'thinking',
+              content: bgThinking,
+              timestamp: Date.now(),
+            });
+          }
+          if (bgText.trim().length > 0) {
+            store.addMessage(tabId, {
+              id: `interrupted_text_${Date.now()}`,
+              role: 'assistant',
+              type: 'text',
+              content: bgText,
+              timestamp: Date.now(),
+            });
+          }
+        }
+
         // P0-5: Clean up Tauri event listeners for background tab.
         // __claudeUnlisteners is keyed by stdinId (desk_xxx), NOT tabId (session uuid).
         // Use msg.__stdinId (tagged by the listener closure) to find the correct entry.
@@ -1849,6 +1876,40 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
       }
 
       case 'process_exit': {
+        // Before clearing partial state, flush any mid-stream content to
+        // final messages so it survives the Stop button / kill_session path.
+        // Without this, partialText/partialThinking accumulated during the
+        // interrupted turn would be wiped by clearPartial() and the user
+        // would lose everything that had streamed so far.
+        //
+        // Only runs when the CLI exited while partial state was non-empty
+        // (i.e. the CLI never got to emit its final `assistant` message
+        // before being killed). Normal completions go through case 'assistant'
+        // which de-duplicates against the final message.
+        {
+          const exitTabData = useChatStore.getState().getTab(tabId);
+          const pThinking = exitTabData?.partialThinking ?? '';
+          const pText = exitTabData?.partialText ?? '';
+          if (pThinking.trim().length > 0) {
+            addMessage({
+              id: `interrupted_thinking_${Date.now()}`,
+              role: 'assistant',
+              type: 'thinking',
+              content: pThinking,
+              timestamp: Date.now(),
+            });
+          }
+          if (pText.trim().length > 0) {
+            addMessage({
+              id: `interrupted_text_${Date.now()}`,
+              role: 'assistant',
+              type: 'text',
+              content: pText,
+              timestamp: Date.now(),
+            });
+          }
+        }
+
         // The CLI process has exited — clear the stdin handle but keep sessionId for resume
         clearPartial();
         console.log('[TOKENICODE:session] process_exit received', { stdinId: msg.__stdinId });

@@ -1432,58 +1432,43 @@ async fn start_claude_session(
 
     let sid = session_id.clone();
 
-    // ── Spawn child waiter task — owns the child, single source of process_exit ──
+    // ── Spawn child waiter task — owns the child process ──
     //
-    // The waiter task is the ONLY place that emits process_exit and cleans
-    // up per-session state. It monitors two paths via tokio::select!:
-    //   1. child.wait() — fires when CLI exits for any reason
-    //   2. kill_rx      — fires when kill_session / state.remove is called
+    // The waiter task's sole purpose is to **own the child process** and
+    // provide a kill channel for kill_session. It does NOT emit process_exit
+    // or do any cleanup — those responsibilities belong to the stdout reader,
+    // because stdout EOF is naturally time-ordered after all stream messages
+    // have been drained, whereas child.wait() can return BEFORE the stdout
+    // reader has finished processing the last buffered lines (race!).
     //
-    // This removes the dependency on stdout EOF for session lifecycle, which
-    // is the root cause of the "streaming stuck" class of bugs — the child
-    // can be alive but stdout blocked upstream, meaning the old EOF-based
-    // detection would never fire.
+    //   1. child.wait() returns naturally → child exited on its own.
+    //      stdout will close, stdout_reader will hit EOF, THAT emits
+    //      process_exit. The waiter simply ends, silent.
+    //   2. kill_rx fires → kill_session was called. We start_kill the child,
+    //      wait for reap, then end silently. stdout reader will see EOF.
     let (kill_tx, kill_rx) = tokio::sync::oneshot::channel::<()>();
     {
-        let app_waiter = app.clone();
         let waiter_sid = sid.clone();
-        let waiter_stdin_mgr = stdin_mgr.inner().clone();
         tokio::spawn(async move {
             let mut child = child;
             tokio::select! {
                 status = child.wait() => {
                     eprintln!(
-                        "[TOKENICODE] child naturally exited for {}: code={:?}",
+                        "[TOKENICODE] child naturally exited for {}: code={:?} (stdout reader will emit process_exit)",
                         waiter_sid,
                         status.as_ref().ok().and_then(|s| s.code())
                     );
                 }
                 _ = kill_rx => {
-                    eprintln!("[TOKENICODE] kill signal received for {}", waiter_sid);
+                    eprintln!("[TOKENICODE] kill signal received for {} — killing child", waiter_sid);
                     if let Err(e) = child.start_kill() {
                         eprintln!("[TOKENICODE] start_kill failed for {}: {}", waiter_sid, e);
                     }
-                    // Wait for child to actually die to avoid zombies
+                    // Wait for child to actually die, then stdout reader will
+                    // see EOF and do the ProcessExit + cleanup.
                     let _ = child.wait().await;
                 }
             }
-
-            // ── Authoritative process_exit emission (fires exactly once) ────
-            let stream_event = format!("claude:stream:{}", waiter_sid);
-            if let Err(e) = app_waiter.emit_to("main", &stream_event, serde_json::json!({"type": "process_exit"})) {
-                let _ = app_waiter.emit(&stream_event, serde_json::json!({"type": "process_exit"}));
-                let _ = e;
-            }
-            let exit_event = format!("claude:exit:{}", waiter_sid);
-            let _ = app_waiter.emit_to("main", &exit_event, serde_json::json!(null));
-            let _ = app_waiter.emit_to("main", "sessions:changed", serde_json::json!(null));
-
-            // ── Centralized cleanup ────────────────────────────────────────
-            // stdin_mgr.remove is idempotent. If kill_session triggered us
-            // via kill_rx, state.remove already happened. Otherwise (natural
-            // exit) the frontend's onExit handler will call kill_session to
-            // clean up state — so no state.remove call here to avoid a race.
-            waiter_stdin_mgr.remove(&waiter_sid).await;
         });
     }
 
@@ -1742,13 +1727,30 @@ async fn start_claude_session(
                 emit_fail_count = 0;
             }
         }
-        // stdout EOF — the waiter task detects child exit via child.wait()
-        // and is the authoritative source of process_exit + cleanup.
-        // We just log and exit silently.
+        // stdout EOF means the child's write end is closed (child exited,
+        // naturally or via kill). This is ALWAYS the authoritative signal
+        // for process_exit because it guarantees all buffered stream
+        // messages have been drained and emitted before the exit event.
+        // The child waiter task only provides a kill proxy; it does NOT
+        // emit process_exit, to avoid racing with stdout drain.
         eprintln!(
-            "[TOKENICODE] stdout reader exited for {} after {} lines (waiter task handles cleanup)",
+            "[TOKENICODE] stdout reader reached EOF for {} after {} lines",
             sid_clone, line_count
         );
+        // Emit process_exit on the stream channel (primary detection)
+        let _ = emit_to_frontend(
+            &app_clone,
+            &stream_event,
+            serde_json::json!({"type": "process_exit"}),
+        );
+        // Also emit on the dedicated exit channel (backup detection via onSessionExit)
+        let _ = emit_to_frontend(
+            &app_clone,
+            &format!("claude:exit:{}", sid_clone),
+            serde_json::json!(null),
+        );
+        // Notify frontend that session list may have changed
+        let _ = emit_to_frontend(&app_clone, "sessions:changed", serde_json::json!(null));
     });
 
     // Spawn stderr reader
