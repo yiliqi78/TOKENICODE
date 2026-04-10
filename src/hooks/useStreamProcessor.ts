@@ -1876,20 +1876,26 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
       }
 
       case 'process_exit': {
-        // Before clearing partial state, flush any mid-stream content to
-        // final messages so it survives the Stop button / kill_session path.
-        // Without this, partialText/partialThinking accumulated during the
-        // interrupted turn would be wiped by clearPartial() and the user
-        // would lose everything that had streamed so far.
-        //
-        // Only runs when the CLI exited while partial state was non-empty
-        // (i.e. the CLI never got to emit its final `assistant` message
-        // before being killed). Normal completions go through case 'assistant'
-        // which de-duplicates against the final message.
+        // STEP 1: Force-flush the per-stdinId rAF stream buffer into
+        // chatStore.partialText / partialThinking BEFORE reading them.
+        // Otherwise the last few text_delta tokens that arrived just
+        // before Stop was pressed will still be sitting in the in-memory
+        // buffer (rAF scheduled, not yet committed to store) and we'd
+        // miss them.
+        flushStreamBuffer(msg.__stdinId);
+
+        // STEP 2: Flush any mid-stream content to final messages so it
+        // survives the Stop button / kill_session path.
         {
           const exitTabData = useChatStore.getState().getTab(tabId);
           const pThinking = exitTabData?.partialThinking ?? '';
           const pText = exitTabData?.partialText ?? '';
+          console.log('[TOKENICODE:session] process_exit flush check', {
+            stdinId: msg.__stdinId,
+            hasText: pText.length > 0,
+            hasThinking: pThinking.length > 0,
+            textPreview: pText.slice(0, 40),
+          });
           if (pThinking.trim().length > 0) {
             addMessage({
               id: `interrupted_thinking_${Date.now()}`,
