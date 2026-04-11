@@ -956,10 +956,69 @@ pub fn unpin_cli() -> Result<(), String> {
 
 // ─── PATH Injection ────────────────────────────────────────
 
+/// Marker used to identify TOKENICODE-injected blocks in shell profile files.
+#[cfg(not(target_os = "windows"))]
+const APP_PATH_MARKER: &str = "# Added by TOKENICODE";
+
+/// Strip all `# Added by TOKENICODE\nexport PATH=...` blocks from a shell profile.
+///
+/// Only removes two-line sequences where the marker is immediately followed
+/// by an `export PATH=` line. A marker line followed by something else is
+/// preserved unchanged — defensive against user hand-edits.
+#[cfg(not(target_os = "windows"))]
+fn strip_app_blocks(content: &str, marker: &str) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut out: Vec<&str> = Vec::with_capacity(lines.len());
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        if line.trim() == marker {
+            if let Some(next) = lines.get(i + 1) {
+                if next.trim_start().starts_with("export PATH=") {
+                    i += 2;
+                    continue;
+                }
+            }
+        }
+        out.push(line);
+        i += 1;
+    }
+    // Preserve a trailing newline if the input had one
+    let mut result = out.join("\n");
+    if content.ends_with('\n') && !result.is_empty() {
+        result.push('\n');
+    }
+    result
+}
+
 /// Inject a CLI's directory into the user's shell PATH profile.
-/// Returns the shell profile file that was modified.
+///
+/// Behavior:
+/// 1. Reject invalid `cli_path` upfront (broken symlinks, empty directories,
+///    non-executable files) — writing PATH entries that don't contain a
+///    working `claude` binary is worse than failing visibly.
+/// 2. Find the first existing profile from a prioritized list (.zshrc first).
+/// 3. Strip all previous TOKENICODE blocks from that profile to prevent
+///    accumulation when users click through different candidates.
+/// 4. Append a fresh block with the new export.
+/// 5. Write back atomically.
+///
+/// Returns a human-readable status string on success.
 #[cfg(not(target_os = "windows"))]
 pub fn inject_path(cli_path: &str) -> Result<String, String> {
+    // Gate: reject non-executable CLI targets before touching any files.
+    // Without this, users can inject a PATH entry pointing at a broken
+    // symlink or a cleanup-emptied dir and the shell still says
+    // `command not found`, with no signal that the injection was useless.
+    if !is_valid_executable(Path::new(cli_path)) {
+        return Err(format!(
+            "CLI at '{}' is not a valid executable (broken symlink, \
+             empty directory, or stale install). Refusing to inject \
+             a PATH entry that won't resolve `claude`.",
+            cli_path
+        ));
+    }
+
     let dir = Path::new(cli_path)
         .parent()
         .ok_or("Cannot determine CLI directory")?
@@ -968,8 +1027,7 @@ pub fn inject_path(cli_path: &str) -> Result<String, String> {
 
     let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
     let export_line = format!("export PATH=\"{}:$PATH\"", dir);
-    let marker = "# Added by Her";
-    let block = format!("\n{}\n{}\n", marker, export_line);
+    let new_block = format!("\n{}\n{}\n", APP_PATH_MARKER, export_line);
 
     let profiles = [
         home.join(".zshrc"),
@@ -978,35 +1036,56 @@ pub fn inject_path(cli_path: &str) -> Result<String, String> {
         home.join(".profile"),
     ];
 
-    // Check if already injected
-    for p in &profiles {
-        if let Ok(c) = std::fs::read_to_string(p) {
-            if c.contains(&export_line) {
-                return Ok(format!("Already in {}", p.display()));
-            }
-        }
+    // Target: first existing profile, or ~/.zshrc as the fallback for
+    // first-time users with no shell config at all.
+    let target = profiles
+        .iter()
+        .find(|p| p.exists())
+        .cloned()
+        .unwrap_or_else(|| home.join(".zshrc"));
+
+    // Read (may not exist yet — empty string is the correct default)
+    let existing = std::fs::read_to_string(&target).unwrap_or_default();
+
+    // Strip all historical TOKENICODE blocks. This fixes two bugs at once:
+    // 1. The old literal-contains idempotency check let different `dir`
+    //    values stack up across clicks, polluting the profile.
+    // 2. Users who clicked through several stale candidates accumulated
+    //    dead PATH entries pointing at directories without claude.
+    let cleaned = strip_app_blocks(&existing, APP_PATH_MARKER);
+
+    // Defensive idempotency: if the identical export line somehow
+    // survived the strip (e.g. user-edited without our marker),
+    // don't duplicate it.
+    if cleaned.contains(&export_line) {
+        return Ok(format!("Already in {}", target.display()));
     }
 
-    // Append to the first existing profile
-    for p in &profiles {
-        if p.exists() {
-            if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(p) {
-                use std::io::Write;
-                f.write_all(block.as_bytes())
-                    .map_err(|e| format!("Write failed: {}", e))?;
-                return Ok(format!("Injected into {}", p.display()));
-            }
-        }
-    }
+    // Compose final content: cleaned old content + fresh block.
+    let final_content = if cleaned.trim().is_empty() {
+        new_block.trim_start().to_string()
+    } else {
+        format!("{}{}", cleaned.trim_end(), new_block)
+    };
 
-    // None exist — create ~/.zshrc
-    std::fs::write(home.join(".zshrc"), block)
-        .map_err(|e| format!("Failed to create .zshrc: {}", e))?;
-    Ok("Created ~/.zshrc with PATH".to_string())
+    std::fs::write(&target, final_content)
+        .map_err(|e| format!("Failed to write {}: {}", target.display(), e))?;
+
+    Ok(format!("Injected into {}", target.display()))
 }
 
 #[cfg(target_os = "windows")]
 pub fn inject_path(cli_path: &str) -> Result<String, String> {
+    // Gate: same rationale as the Unix branch — don't inject a PATH entry
+    // that points at a directory without a working `claude.exe`.
+    if !is_valid_executable(Path::new(cli_path)) {
+        return Err(format!(
+            "CLI at '{}' is not a valid executable. Refusing to inject \
+             a PATH entry that won't resolve `claude`.",
+            cli_path
+        ));
+    }
+
     let dir = Path::new(cli_path)
         .parent()
         .ok_or("Cannot determine CLI directory")?
