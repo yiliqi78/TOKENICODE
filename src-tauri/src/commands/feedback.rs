@@ -1,14 +1,25 @@
 // Feedback submission via Feishu self-built app.
 //
 // Flow: get tenant_access_token → (optional) upload image → send card message
-// to a fixed chat. Secrets are compile-time env vars so they never ship in
-// distributed source code and never go through user-accessible config files.
+// to a fixed recipient. Secrets are compile-time env vars so they never ship
+// in distributed source code and never go through user-accessible config files.
 //
 // Configure at build time:
-//   FEISHU_APP_ID=cli_xxx FEISHU_APP_SECRET=xxx FEISHU_CHAT_ID=oc_xxx pnpm tauri build
+//   FEISHU_APP_ID=cli_xxx \
+//   FEISHU_APP_SECRET=xxx \
+//   FEISHU_RECEIVE_ID=<id> \
+//   FEISHU_RECEIVE_ID_TYPE=<type>   # optional, defaults to "chat_id"
+//   pnpm tauri build
 //
-// If any of the three env vars is missing at build time, `is_configured()`
-// returns false and the frontend disables the submit button.
+// Supported FEISHU_RECEIVE_ID_TYPE values (Feishu API):
+//   - "chat_id"  : group chat id (oc_xxx) — most common for a dedicated feedback group
+//   - "open_id"  : user open id (ou_xxx) — sends to the bot's DM with that user
+//   - "user_id"  : tenant user id
+//   - "email"    : user's Feishu registration email
+//
+// If FEISHU_APP_ID / FEISHU_APP_SECRET / FEISHU_RECEIVE_ID is missing at build
+// time, is_configured() returns false and the frontend disables the submit
+// button.
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -19,9 +30,18 @@ use std::time::{Duration, Instant};
 // so un-configured builds compile cleanly and fail gracefully at runtime.
 const FEISHU_APP_ID: Option<&str> = option_env!("FEISHU_APP_ID");
 const FEISHU_APP_SECRET: Option<&str> = option_env!("FEISHU_APP_SECRET");
-const FEISHU_CHAT_ID: Option<&str> = option_env!("FEISHU_CHAT_ID");
+const FEISHU_RECEIVE_ID: Option<&str> = option_env!("FEISHU_RECEIVE_ID");
+const FEISHU_RECEIVE_ID_TYPE: Option<&str> = option_env!("FEISHU_RECEIVE_ID_TYPE");
 
 const FEISHU_API_BASE: &str = "https://open.feishu.cn/open-apis";
+
+/// Default receive_id_type when FEISHU_RECEIVE_ID_TYPE isn't set.
+/// "chat_id" is the historical default and works for group chats.
+const DEFAULT_RECEIVE_ID_TYPE: &str = "chat_id";
+
+fn receive_id_type() -> &'static str {
+    FEISHU_RECEIVE_ID_TYPE.unwrap_or(DEFAULT_RECEIVE_ID_TYPE)
+}
 
 /// tenant_access_token cache. Feishu tokens are valid for 7200s; we refresh
 /// at the 6000s mark to leave a safety margin.
@@ -33,7 +53,7 @@ struct CachedToken {
 static TOKEN_CACHE: Mutex<Option<CachedToken>> = Mutex::new(None);
 
 fn is_configured() -> bool {
-    FEISHU_APP_ID.is_some() && FEISHU_APP_SECRET.is_some() && FEISHU_CHAT_ID.is_some()
+    FEISHU_APP_ID.is_some() && FEISHU_APP_SECRET.is_some() && FEISHU_RECEIVE_ID.is_some()
 }
 
 #[derive(Deserialize)]
@@ -243,14 +263,15 @@ async fn send_card(
     token: &str,
     card: serde_json::Value,
 ) -> Result<(), String> {
-    let chat_id = FEISHU_CHAT_ID.ok_or("FEISHU_CHAT_ID not configured at build time")?;
+    let receive_id = FEISHU_RECEIVE_ID.ok_or("FEISHU_RECEIVE_ID not configured at build time")?;
+    let id_type = receive_id_type();
     let url = format!(
-        "{}/im/v1/messages?receive_id_type=chat_id",
-        FEISHU_API_BASE
+        "{}/im/v1/messages?receive_id_type={}",
+        FEISHU_API_BASE, id_type
     );
 
     let req = SendMessageRequest {
-        receive_id: chat_id.to_string(),
+        receive_id: receive_id.to_string(),
         msg_type: "interactive".to_string(),
         content: serde_json::to_string(&card)
             .map_err(|e| format!("Serialize card failed: {}", e))?,
