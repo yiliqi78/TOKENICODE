@@ -586,23 +586,29 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             });
           }
         }
-        // FIFO drain for background tabs (#142/#70): same logic as foreground.
+        // BATCH drain for background tabs: same as foreground — combine
+        // ALL pending messages into a single user turn.
         {
           const bgDrainTab = store.getTab(tabId);
-          const bgNextMsg = store.shiftPendingMessage(tabId);
+          const bgAllPending = bgDrainTab?.pendingUserMessages ?? [];
           const bgFlushStdinId = bgDrainTab?.sessionMeta.stdinId;
-          if (bgNextMsg && bgFlushStdinId) {
+          if (bgAllPending.length > 0 && bgFlushStdinId) {
+            const bgCombined = bgAllPending.join('\n\n');
+            store.clearPendingMessages(tabId);
+            store.addMessage(tabId, {
+              id: generateMessageId(),
+              role: 'user',
+              type: 'text',
+              content: bgCombined,
+              timestamp: Date.now(),
+            });
             store.setSessionStatus(tabId, 'running');
             store.setSessionMeta(tabId, { turnStartTime: Date.now(), lastProgressAt: Date.now(), inputTokens: 0, outputTokens: 0 });
             store.setActivityStatus(tabId, { phase: 'thinking' });
-            bridge.sendStdin(bgFlushStdinId, bgNextMsg).catch((err) => {
-              console.error('[TC:bg] Failed to send pending message:', err);
-              const bgRemaining = store.getTab(tabId)?.pendingUserMessages ?? [];
-              const bgAllFailed = [bgNextMsg, ...bgRemaining];
+            bridge.sendStdin(bgFlushStdinId, bgCombined).catch((err) => {
+              console.error('[TC:bg] Failed to send pending messages:', err);
               const bgDraft = store.getTab(tabId)?.inputDraft ?? '';
-              const bgFailedText = bgAllFailed.join('\n\n');
-              store.setInputDraft(tabId, bgDraft ? `${bgDraft}\n\n${bgFailedText}` : bgFailedText);
-              store.clearPendingMessages(tabId);
+              store.setInputDraft(tabId, bgDraft ? `${bgDraft}\n\n${bgCombined}` : bgCombined);
               store.setSessionStatus(tabId, 'error');
             });
           }
@@ -1811,20 +1817,22 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           break; // Skip pending message flush — compact takes priority
         }
 
-        // FIFO drain: dequeue ONE pending message and send it (#142/#70).
-        // When this turn completes, the next result event will dequeue the next one.
-        // Previously all pending messages were joined and sent at once, which could
-        // overwhelm the CLI. Sequential turn-by-turn processing is safer.
+        // BATCH drain: combine ALL pending messages into a single user turn
+        // and send at once. The user's mental model is "I'm adding more
+        // context to the current task" — sending them one-by-one would
+        // make the AI handle each separately, which is rarely what the
+        // user wants. Combine them so the AI processes everything in one go.
         {
           const drainTab = useChatStore.getState().getTab(tabId);
-          const nextMsg = useChatStore.getState().shiftPendingMessage(tabId);
+          const allPending = drainTab?.pendingUserMessages ?? [];
           const flushStdinId = drainTab?.sessionMeta.stdinId;
-          if (nextMsg && flushStdinId) {
-            // Add user message to UI now — InputBar deliberately did NOT
+          if (allPending.length > 0 && flushStdinId) {
+            const nextMsg = allPending.join('\n\n');
+            useChatStore.getState().clearPendingMessages(tabId);
+
+            // Add as a single user message — InputBar deliberately did NOT
             // addMessage when enqueueing, because ChatPanel renders pending
-            // messages after the streaming bubble. When we drain a pending
-            // message and actually send it, it becomes a "real" turn and
-            // belongs in messages[] just like any other user input.
+            // messages after the streaming bubble. Now they merge into one turn.
             addMessage({
               id: generateMessageId(),
               role: 'user',
@@ -1851,14 +1859,9 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               isMain: true,
             });
             bridge.sendStdin(flushStdinId, nextMsg).catch((err) => {
-              console.error('[TC] Failed to send pending message:', err);
-              // Restore failed message + remaining queue to input draft
-              const remaining = useChatStore.getState().getTab(tabId)?.pendingUserMessages ?? [];
-              const allFailed = [nextMsg, ...remaining];
+              console.error('[TC] Failed to send pending messages:', err);
               const draft = useChatStore.getState().getTab(tabId)?.inputDraft ?? '';
-              const failedText = allFailed.join('\n\n');
-              useChatStore.getState().setInputDraft(tabId, draft ? `${draft}\n\n${failedText}` : failedText);
-              useChatStore.getState().clearPendingMessages(tabId);
+              useChatStore.getState().setInputDraft(tabId, draft ? `${draft}\n\n${nextMsg}` : nextMsg);
               setSessionStatus('error');
             });
           }
