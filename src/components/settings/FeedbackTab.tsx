@@ -1,12 +1,11 @@
 /**
- * FeedbackSection — "提交反馈" UI in Settings > General.
+ * FeedbackTab — dedicated "反馈" tab in the settings panel.
  *
  * Collects free-text feedback + optional contact + optional screenshot,
  * bundles diagnostic metadata (app version, provider, model, session id,
  * locale) and ships to Feishu via the self-built app webhook in Rust.
  *
- * The submit button is disabled when FEISHU_* env vars weren't baked in at
- * build time. Frontend polls `feedbackIsConfigured()` on mount.
+ * Disabled when FEISHU_* env vars weren't baked in at build time.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { bridge, type FeedbackMetadata } from '../../lib/tauri-bridge';
@@ -19,19 +18,18 @@ import { APP_NAME } from '../../lib/edition';
 
 type SubmitState = 'idle' | 'sending' | 'success' | 'error';
 
-export function FeedbackSection() {
+export function FeedbackTab() {
   const t = useT();
   const locale = useSettingsStore((s) => s.locale);
   const [description, setDescription] = useState('');
   const [contact, setContact] = useState('');
-  const [screenshot, setScreenshot] = useState<{ dataUrl: string; base64: string; bytes: number } | null>(null);
+  const [screenshot, setScreenshot] = useState<{ dataUrl: string; base64: string } | null>(null);
   const [state, setState] = useState<SubmitState>('idle');
   const [errorMsg, setErrorMsg] = useState('');
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [appVersion, setAppVersion] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Probe config + read app version once on mount
   useEffect(() => {
     bridge.feedbackIsConfigured().then(setConfigured).catch(() => setConfigured(false));
     import('@tauri-apps/api/app')
@@ -51,12 +49,11 @@ export function FeedbackSection() {
     setErrorMsg('');
     const buffer = await file.arrayBuffer();
     const bytes = new Uint8Array(buffer);
-    // Convert to base64 without using Buffer (browser-safe)
     let binary = '';
     for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
     const base64 = btoa(binary);
     const dataUrl = `data:${file.type};base64,${base64}`;
-    setScreenshot({ dataUrl, base64, bytes: file.size });
+    setScreenshot({ dataUrl, base64 });
   }, [t]);
 
   const handleFileSelect = useCallback(() => {
@@ -67,7 +64,6 @@ export function FeedbackSection() {
     const file = e.target.files?.[0];
     if (!file) return;
     await readImageFile(file);
-    // Allow re-selecting the same file
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, [readImageFile]);
 
@@ -94,7 +90,6 @@ export function FeedbackSection() {
     setState('sending');
     setErrorMsg('');
 
-    // Assemble metadata from stores at submit time
     const activeProviderId = useProviderStore.getState().activeProviderId;
     const providers = useProviderStore.getState().providers;
     const providerName = activeProviderId
@@ -125,8 +120,7 @@ export function FeedbackSection() {
       setDescription('');
       setContact('');
       setScreenshot(null);
-      // Reset to idle after a brief confirmation window
-      setTimeout(() => setState('idle'), 3000);
+      setTimeout(() => setState('idle'), 4000);
     } catch (err) {
       setErrorMsg(String(err));
       setState('error');
@@ -136,60 +130,72 @@ export function FeedbackSection() {
   const isDisabled = state === 'sending' || configured === false;
 
   return (
-    <div className="mt-6 pt-6 border-t border-border-subtle">
-      <h3 className="text-[13px] font-medium text-text-primary mb-1">
-        {t('feedback.title')}
-      </h3>
-      <p className="text-[11px] text-text-tertiary mb-3">
-        {t('feedback.subtitle')}
-      </p>
+    <div className="space-y-4">
+      {/* Header */}
+      <div>
+        <h3 className="text-[13px] font-medium text-text-primary mb-2">
+          {t('feedback.title')}
+        </h3>
+        <p className="text-xs text-text-tertiary leading-relaxed">
+          {t('feedback.subtitle')}
+        </p>
+      </div>
 
+      {/* Not-configured warning */}
       {configured === false && (
-        <div className="mb-3 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
-          <p className="text-[11px] text-amber-600 dark:text-amber-400">
+        <div className="py-2 px-3 rounded-lg bg-amber-500/10">
+          <p className="text-[13px] text-amber-500 font-medium">
             {t('feedback.notConfigured')}
           </p>
         </div>
       )}
 
       {/* Description */}
-      <textarea
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-        onPaste={handlePaste}
-        placeholder={t('feedback.descriptionPlaceholder')}
-        rows={4}
-        maxLength={5000}
-        disabled={isDisabled}
-        className="w-full px-3 py-2 rounded-lg border border-border-subtle
-          bg-bg-secondary text-[13px] text-text-primary placeholder:text-text-tertiary
-          focus:outline-none focus:border-accent/60 transition-smooth resize-none
-          disabled:opacity-50 disabled:cursor-not-allowed"
-      />
-      <div className="flex items-center justify-between mt-1.5 text-[10px] text-text-tertiary">
-        <span>{t('feedback.pasteHint')}</span>
-        <span>{description.length}/5000</span>
+      <div className="space-y-2">
+        <label className="text-[13px] font-medium text-text-primary block">
+          {t('feedback.descriptionLabel')}
+        </label>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          onPaste={handlePaste}
+          placeholder={t('feedback.descriptionPlaceholder')}
+          rows={5}
+          maxLength={5000}
+          disabled={isDisabled}
+          className="w-full px-3 py-2 rounded-lg border border-border-subtle
+            bg-bg-secondary text-[13px] text-text-primary placeholder:text-text-tertiary
+            focus:outline-none focus:border-accent/60 transition-smooth resize-none
+            disabled:opacity-50 disabled:cursor-not-allowed"
+        />
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-text-tertiary">{t('feedback.pasteHint')}</span>
+          <span className="text-xs text-text-tertiary">{description.length} / 5000</span>
+        </div>
       </div>
 
-      {/* Screenshot preview / add button */}
-      <div className="mt-3">
+      {/* Screenshot */}
+      <div className="space-y-2">
+        <label className="text-[13px] font-medium text-text-primary block">
+          {t('feedback.screenshotLabel')}
+        </label>
         {screenshot ? (
           <div className="relative inline-block">
             <img
               src={screenshot.dataUrl}
               alt="screenshot"
-              className="max-h-32 rounded-lg border border-border-subtle"
+              className="max-h-40 rounded-lg border border-border-subtle"
             />
             <button
               onClick={() => setScreenshot(null)}
               disabled={isDisabled}
-              className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-bg-card
+              className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-bg-card
                 border border-border-subtle text-text-muted hover:text-text-primary
                 flex items-center justify-center shadow-sm transition-smooth
                 disabled:opacity-50 disabled:cursor-not-allowed"
               title={t('feedback.removeScreenshot')}
             >
-              <svg width="10" height="10" viewBox="0 0 16 16" fill="none"
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
                 stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <path d="M4 4l8 8M12 4l-8 8" />
               </svg>
@@ -199,13 +205,13 @@ export function FeedbackSection() {
           <button
             onClick={handleFileSelect}
             disabled={isDisabled}
-            className="px-2.5 py-1.5 text-[11px] rounded-md border border-dashed
-              border-border-subtle text-text-muted hover:text-text-primary
-              hover:bg-bg-secondary transition-smooth
+            className="w-full py-2 text-[13px] font-medium rounded-lg
+              border border-dashed border-border-subtle text-text-muted
+              hover:bg-bg-secondary hover:text-text-primary transition-smooth
               disabled:opacity-50 disabled:cursor-not-allowed
-              inline-flex items-center gap-1.5"
+              inline-flex items-center justify-center gap-1.5"
           >
-            <svg width="11" height="11" viewBox="0 0 16 16" fill="none"
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none"
               stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
               <path d="M8 3v10M3 8h10" />
             </svg>
@@ -221,8 +227,11 @@ export function FeedbackSection() {
         />
       </div>
 
-      {/* Optional contact */}
-      <div className="mt-3">
+      {/* Contact */}
+      <div className="space-y-2">
+        <label className="text-[13px] font-medium text-text-primary block">
+          {t('feedback.contactLabel')}
+        </label>
         <input
           type="text"
           value={contact}
@@ -230,44 +239,44 @@ export function FeedbackSection() {
           disabled={isDisabled}
           placeholder={t('feedback.contactPlaceholder')}
           maxLength={100}
-          className="w-full px-3 py-1.5 rounded-lg border border-border-subtle
-            bg-bg-secondary text-[12px] text-text-primary placeholder:text-text-tertiary
+          className="w-full px-3 py-2 rounded-lg border border-border-subtle
+            bg-bg-secondary text-[13px] text-text-primary placeholder:text-text-tertiary
             focus:outline-none focus:border-accent/60 transition-smooth
             disabled:opacity-50 disabled:cursor-not-allowed"
         />
       </div>
 
-      {/* Error / success state */}
+      {/* Error / success */}
       {errorMsg && state === 'error' && (
-        <div className="mt-3 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30">
-          <p className="text-[11px] text-red-500 break-words">{errorMsg}</p>
+        <div className="py-2 px-3 rounded-lg bg-red-500/10">
+          <p className="text-[13px] text-red-500 break-words">{errorMsg}</p>
         </div>
       )}
       {state === 'success' && (
-        <div className="mt-3 px-3 py-2 rounded-lg bg-green-500/10 border border-green-500/30">
-          <p className="text-[11px] text-green-600 dark:text-green-400">
-            {t('feedback.successMessage')}
+        <div className="py-2 px-3 rounded-lg bg-green-500/10">
+          <p className="text-[13px] text-green-500 font-medium">
+            ✓ {t('feedback.successMessage')}
           </p>
         </div>
       )}
 
-      {/* Submit */}
-      <div className="mt-3 flex justify-end">
-        <button
-          onClick={handleSubmit}
-          disabled={isDisabled || !description.trim()}
-          className="px-4 py-1.5 rounded-lg bg-accent text-text-inverse
-            text-[12px] font-medium hover:bg-accent-hover transition-smooth
-            disabled:opacity-40 disabled:cursor-not-allowed
-            inline-flex items-center gap-1.5"
-        >
-          {state === 'sending' && (
-            <span className="w-3 h-3 border-[1.5px] border-text-inverse/30
-              border-t-text-inverse rounded-full animate-spin" />
-          )}
-          {state === 'sending' ? t('feedback.sending') : t('feedback.submit')}
-        </button>
-      </div>
+      {/* Submit button (primary, full-width to match CliTab install button) */}
+      <button
+        onClick={handleSubmit}
+        disabled={isDisabled || !description.trim()}
+        className={`w-full py-2 text-[13px] font-medium rounded-lg transition-smooth
+          inline-flex items-center justify-center gap-2
+          ${isDisabled || !description.trim()
+            ? 'border border-border-subtle text-text-tertiary cursor-not-allowed'
+            : 'bg-accent text-text-inverse hover:bg-accent-hover'
+          }`}
+      >
+        {state === 'sending' && (
+          <span className="w-3 h-3 border-[1.5px] border-text-inverse/30
+            border-t-text-inverse rounded-full animate-spin" />
+        )}
+        {state === 'sending' ? t('feedback.sending') : t('feedback.submit')}
+      </button>
     </div>
   );
 }
