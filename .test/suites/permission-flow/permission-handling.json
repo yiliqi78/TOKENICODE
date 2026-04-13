@@ -1,0 +1,222 @@
+{
+  "tests": [
+    {
+      "name": "T01-触发权限请求并允许(#73)",
+      "timeout": 120000,
+      "retry": 1,
+      "setup": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        },
+        {
+          "cmd": "switch-model",
+          "args": [
+            "claude-sonnet-4-6"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "cmd": "type",
+          "args": [
+            "请在 /tmp/tokenicode-test/ 目录下创建一个名为 perm-test.txt 的文件，内容写 hello permission test"
+          ]
+        },
+        {
+          "cmd": "send"
+        },
+        {
+          "cmd": "wait-until-done",
+          "flags": {
+            "timeout": "30000"
+          },
+          "timeout": 35000
+        },
+        {
+          "cmd": "status"
+        },
+        {
+          "cmd": "allow-permission",
+          "continueOnError": true
+        },
+        {
+          "cmd": "wait-until-done",
+          "flags": {
+            "timeout": "60000"
+          },
+          "timeout": 65000
+        },
+        {
+          "cmd": "allow-permission",
+          "continueOnError": true
+        },
+        {
+          "cmd": "wait-until-done",
+          "flags": {
+            "timeout": "60000"
+          },
+          "continueOnError": true,
+          "timeout": 65000
+        },
+        {
+          "cmd": "status"
+        },
+        {
+          "cmd": "get-messages",
+          "assert": {
+            "total_gte": 2
+          }
+        }
+      ],
+      "teardown": [
+        {
+          "cmd": "stop",
+          "continueOnError": true
+        },
+        {
+          "cmd": "delete-session",
+          "continueOnError": true
+        }
+      ]
+    },
+    {
+      "name": "T02-权限请求拒绝后继续(#73)",
+      "timeout": 120000,
+      "retry": 1,
+      "setup": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        },
+        {
+          "cmd": "switch-model",
+          "args": [
+            "claude-sonnet-4-6"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "cmd": "type",
+          "args": [
+            "请在 /tmp/tokenicode-test/ 创建文件 deny-test.txt"
+          ]
+        },
+        {
+          "cmd": "send"
+        },
+        {
+          "cmd": "wait-until-done",
+          "flags": {
+            "timeout": "30000"
+          },
+          "timeout": 35000
+        },
+        {
+          "cmd": "deny-permission",
+          "continueOnError": true
+        },
+        {
+          "cmd": "wait-until-done",
+          "flags": {
+            "timeout": "60000"
+          },
+          "continueOnError": true,
+          "timeout": 65000
+        },
+        {
+          "cmd": "status"
+        },
+        {
+          "cmd": "get-messages",
+          "assert": {
+            "total_gte": 2
+          }
+        }
+      ],
+      "teardown": [
+        {
+          "cmd": "stop",
+          "continueOnError": true
+        },
+        {
+          "cmd": "delete-session",
+          "continueOnError": true
+        }
+      ]
+    },
+    {
+      "name": "T03-无权限待处理时allow不报错",
+      "timeout": 10000,
+      "setup": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        }
+      ],
+      "steps": [
+        {
+          "cmd": "status",
+          "assert": {
+            "pendingPermission": false
+          }
+        },
+        {
+          "cmd": "allow-permission",
+          "continueOnError": true
+        },
+        {
+          "cmd": "status"
+        }
+      ],
+      "teardown": [
+        {
+          "cmd": "stop",
+          "continueOnError": true
+        },
+        {
+          "cmd": "delete-session",
+          "continueOnError": true
+        }
+      ]
+    },
+    {
+      "name": "T04-权限UI元素检查",
+      "timeout": 10000,
+      "steps": [
+        {
+          "cmd": "query-page",
+          "flags": {
+            "mode": "map",
+            "interactive-only": true
+          }
+        }
+      ]
+    }
+  ]
+}

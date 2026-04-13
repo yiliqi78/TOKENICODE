@@ -1,0 +1,47 @@
+{
+  "tests": [
+    {
+      "name": "T01-restart后应用恢复(#66#67)",
+      "timeout": 60000,
+      "steps": [
+        {"cmd": "status"},
+        {"cmd": "restart", "flags": {"timeout": "45000"}},
+        {"cmd": "ping", "assert": {"ok": true}},
+        {"cmd": "status"},
+        {"cmd": "get-all-sessions"}
+      ]
+    },
+    {
+      "name": "T02-restart后session列表保持(#67)",
+      "timeout": 60000,
+      "steps": [
+        {"cmd": "get-all-sessions"},
+        {"cmd": "restart", "flags": {"timeout": "45000"}},
+        {"cmd": "ping", "assert": {"ok": true}},
+        {"cmd": "get-all-sessions"}
+      ]
+    },
+    {
+      "name": "T03-restart后可创建新session",
+      "timeout": 60000,
+      "steps": [
+        {"cmd": "restart", "flags": {"timeout": "45000"}},
+        {"cmd": "ping", "assert": {"ok": true}},
+        {"cmd": "new-session", "flags": {"cwd": "/tmp/tokenicode-test"}},
+        {"cmd": "check-editor", "assert": {"hasEditor": true}},
+        {"cmd": "status"}
+      ]
+    },
+    {
+      "name": "T04-restart后模型设置保持",
+      "timeout": 60000,
+      "steps": [
+        {"cmd": "switch-model", "args": ["claude-opus-4-6"]},
+        {"cmd": "get-current-model"},
+        {"cmd": "restart", "flags": {"timeout": "45000"}},
+        {"cmd": "ping", "assert": {"ok": true}},
+        {"cmd": "get-current-model"}
+      ]
+    }
+  ]
+}

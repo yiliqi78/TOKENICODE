@@ -1,0 +1,201 @@
+{
+  "tests": [
+    {
+      "name": "T01-切换到sonnet模型",
+      "timeout": 15000,
+      "steps": [
+        {
+          "cmd": "switch-model",
+          "args": [
+            "claude-sonnet-4-6"
+          ]
+        },
+        {
+          "cmd": "get-current-model"
+        },
+        {
+          "cmd": "status"
+        }
+      ]
+    },
+    {
+      "name": "T02-切换到opus模型",
+      "timeout": 15000,
+      "steps": [
+        {
+          "cmd": "switch-model",
+          "args": [
+            "claude-opus-4-6"
+          ]
+        },
+        {
+          "cmd": "get-current-model"
+        },
+        {
+          "cmd": "status"
+        }
+      ]
+    },
+    {
+      "name": "T03-快速连续切换模型(#45#74压测)",
+      "timeout": 30000,
+      "steps": [
+        {
+          "cmd": "switch-model",
+          "args": [
+            "claude-sonnet-4-6"
+          ]
+        },
+        {
+          "cmd": "switch-model",
+          "args": [
+            "claude-opus-4-6"
+          ]
+        },
+        {
+          "cmd": "switch-model",
+          "args": [
+            "claude-sonnet-4-6"
+          ]
+        },
+        {
+          "cmd": "switch-model",
+          "args": [
+            "claude-opus-4-6"
+          ]
+        },
+        {
+          "cmd": "switch-model",
+          "args": [
+            "claude-sonnet-4-6"
+          ]
+        },
+        {
+          "cmd": "get-current-model"
+        },
+        {
+          "cmd": "status"
+        }
+      ]
+    },
+    {
+      "name": "T04-切换模型后发消息验证(#74#45)",
+      "timeout": 90000,
+      "retry": 1,
+      "setup": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        }
+      ],
+      "steps": [
+        {
+          "cmd": "switch-model",
+          "args": [
+            "claude-sonnet-4-6"
+          ]
+        },
+        {
+          "cmd": "get-current-model"
+        },
+        {
+          "cmd": "type",
+          "args": [
+            "请只回复你的模型名称"
+          ]
+        },
+        {
+          "cmd": "send"
+        },
+        {
+          "cmd": "wait-until-done",
+          "flags": {
+            "timeout": "60000"
+          },
+          "assert": {
+            "status": "completed"
+          },
+          "timeout": 65000
+        },
+        {
+          "cmd": "get-messages",
+          "flags": {
+            "last": "1",
+            "full": true
+          }
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "active": false
+          }
+        }
+      ],
+      "teardown": [
+        {
+          "cmd": "stop",
+          "continueOnError": true
+        },
+        {
+          "cmd": "delete-session",
+          "continueOnError": true
+        }
+      ]
+    },
+    {
+      "name": "T05-获取当前provider",
+      "timeout": 10000,
+      "steps": [
+        {
+          "cmd": "get-current-provider"
+        }
+      ]
+    },
+    {
+      "name": "T06-provider设为null(系统默认)",
+      "timeout": 10000,
+      "steps": [
+        {
+          "cmd": "switch-provider",
+          "args": [
+            "null"
+          ]
+        },
+        {
+          "cmd": "get-current-provider"
+        },
+        {
+          "cmd": "status"
+        }
+      ]
+    },
+    {
+      "name": "T07-模型选择器UI元素存在(#74)",
+      "timeout": 10000,
+      "steps": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "wait-for",
+          "flags": {
+            "selector": "[data-testid=model-selector]",
+            "timeout": "5000"
+          },
+          "timeout": 10000
+        }
+      ]
+    }
+  ]
+}

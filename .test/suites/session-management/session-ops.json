@@ -1,0 +1,66 @@
+{
+  "tests": [
+    {
+      "name": "T01-获取所有session列表(#67#24)",
+      "timeout": 15000,
+      "steps": [
+        {"cmd": "get-all-sessions"}
+      ]
+    },
+    {
+      "name": "T02-获取活跃session",
+      "timeout": 10000,
+      "steps": [
+        {"cmd": "get-active-session"}
+      ]
+    },
+    {
+      "name": "T03-新建session无cwd到欢迎页",
+      "timeout": 15000,
+      "steps": [
+        {"cmd": "new-session"},
+        {"cmd": "delay", "args": ["2000"]},
+        {"cmd": "check-editor"},
+        {"cmd": "status"}
+      ]
+    },
+    {
+      "name": "T04-新建session有cwd到编辑器",
+      "timeout": 15000,
+      "steps": [
+        {"cmd": "new-session", "flags": {"cwd": "/tmp/tokenicode-test"}},
+        {"cmd": "check-editor", "assert": {"hasEditor": true}},
+        {"cmd": "status"}
+      ]
+    },
+    {
+      "name": "T05-切换到已有session(#38#63)",
+      "timeout": 60000,
+      "steps": [
+        {"cmd": "get-all-sessions"},
+        {"cmd": "new-session", "flags": {"cwd": "/tmp/tokenicode-test"}},
+        {"cmd": "get-active-session"},
+        {"cmd": "new-session", "flags": {"cwd": "/tmp/tokenicode-test"}},
+        {"cmd": "delay", "args": ["2000"]},
+        {"cmd": "get-active-session"}
+      ]
+    },
+    {
+      "name": "T06-session计数一致性(#32)",
+      "timeout": 15000,
+      "steps": [
+        {"cmd": "status"},
+        {"cmd": "get-all-sessions"}
+      ]
+    },
+    {
+      "name": "T07-新session后消息为空",
+      "timeout": 15000,
+      "steps": [
+        {"cmd": "new-session", "flags": {"cwd": "/tmp/tokenicode-test"}},
+        {"cmd": "check-editor", "assert": {"hasEditor": true}},
+        {"cmd": "get-messages", "assert": {"total_lte": 0}}
+      ]
+    }
+  ]
+}

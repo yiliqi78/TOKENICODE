@@ -44,5 +44,5 @@ package-lock.json
 # Obsidian
 .obsidian/
 
-# Local test data (suites and runs are local-only)
-.test/
+# Test run data (local-only, not shared)
+.test/runs/
