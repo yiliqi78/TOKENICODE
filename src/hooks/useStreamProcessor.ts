@@ -9,6 +9,14 @@ import { envFingerprint, resolveModelForProvider } from '../lib/api-provider';
 import { useProviderStore } from '../stores/providerStore';
 import { t } from '../lib/i18n';
 
+// --- CLI internal result strings that should not be rendered to users ---
+// These are protocol-level responses from the Claude CLI SDK control protocol.
+// They appear as msg.result or block.text in stream events but are not user content.
+const CLI_INTERNAL_RESULTS = new Set([
+  'No response requested.',
+  '[Tool result missing due to internal error]',
+]);
+
 // --- Error classification for user-facing messages ---
 // Each pattern maps to a friendly i18n key. Matched errors show the friendly
 // message as primary text with raw error in a collapsible details block.
@@ -515,6 +523,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           const block = content[blockIdx];
           if (block.type === 'text') {
             if (bgHasAskUserQuestion) continue;
+            if (CLI_INTERNAL_RESULTS.has(block.text)) continue;
             const textId = msg.uuid ? `${msg.uuid}_text_${blockIdx}` : generateMessageId();
             store.addMessage(tabId, {
               id: textId,
@@ -680,7 +689,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             lastProgressAt: undefined,
           });
         }
-        if (typeof msg.result === 'string' && msg.result) {
+        if (typeof msg.result === 'string' && msg.result && !CLI_INTERNAL_RESULTS.has(msg.result)) {
           // Only add if not already delivered via 'assistant' event
           const bgTab = store.getTab(tabId);
           const bgIsDuplicate = bgTab?.messages.some(
@@ -1293,6 +1302,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           const block = content[blockIdx];
           if (block.type === 'text') {
             if (hasAskUserQuestion) continue;
+            if (CLI_INTERNAL_RESULTS.has(block.text)) continue;
             setActivityStatus({ phase: 'writing' });
             agentActions.updatePhase(agentId, 'writing');
             // Use msg.uuid + block index as stable ID so re-delivered
@@ -1778,7 +1788,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         // Mark pending processing card (CLI slash command) as completed
         const pendingCmdMsgId = useChatStore.getState().getTab(tabId)?.sessionMeta.pendingCommandMsgId;
         if (pendingCmdMsgId) {
-          const resultOutput = typeof msg.result === 'string' ? msg.result : '';
+          const resultOutput = typeof msg.result === 'string' && !CLI_INTERNAL_RESULTS.has(msg.result) ? msg.result : '';
           useChatStore.getState().updateMessage(tabId, pendingCmdMsgId, {
             commandCompleted: true,
             commandData: {
@@ -1792,7 +1802,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
 
         // Extract result text for display (e.g., slash command output)
         let resultDisplayText = '';
-        if (typeof msg.result === 'string' && msg.result) {
+        if (typeof msg.result === 'string' && msg.result && !CLI_INTERNAL_RESULTS.has(msg.result)) {
           resultDisplayText = msg.result;
         } else if (typeof msg.content === 'string' && msg.content) {
           resultDisplayText = msg.content;
