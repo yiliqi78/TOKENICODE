@@ -43,3 +43,6 @@ package-lock.json
 
 # Obsidian
 .obsidian/
+
+# Test run data (local-only, not shared)
+.test/runs/

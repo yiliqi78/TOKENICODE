@@ -81,7 +81,8 @@ export function SettingsPanel() {
       {/* Panel */}
       <div className="relative w-[min(90vw,960px)] max-h-[85vh] min-h-[500px]
         rounded-2xl bg-bg-card border border-border-subtle shadow-2xl
-        overflow-hidden animate-fade-in flex flex-col">
+        overflow-hidden animate-fade-in flex flex-col"
+        {...(import.meta.env.DEV && { 'data-testid': 'settings-panel' })}>
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4
@@ -90,6 +91,7 @@ export function SettingsPanel() {
             {t('settings.title')}
           </h2>
           <button onClick={toggleSettings}
+            {...(import.meta.env.DEV && { 'data-testid': 'settings-close-button' })}
             className="p-1.5 rounded-lg hover:bg-bg-tertiary
               text-text-tertiary transition-smooth">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
@@ -107,6 +109,7 @@ export function SettingsPanel() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
+                {...(import.meta.env.DEV && { 'data-testid': `settings-tab-${tab.id}` })}
                 className={`w-full flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-[13px]
                   font-medium transition-smooth text-left whitespace-nowrap
                   ${activeTab === tab.id

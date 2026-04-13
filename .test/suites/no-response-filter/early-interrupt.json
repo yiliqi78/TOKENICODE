@@ -1,0 +1,76 @@
+{
+  "tests": [
+    {
+      "name": "T01-极早打断不应显示No response requested",
+      "timeout": 90000,
+      "retry": 1,
+      "setup": [
+        {"cmd": "new-session", "flags": {"cwd": "/tmp/tokenicode-test"}},
+        {"cmd": "check-editor", "assert": {"hasEditor": true}},
+        {"cmd": "switch-model", "args": ["claude-sonnet-4-6"]}
+      ],
+      "steps": [
+        {"cmd": "type", "args": ["请用5000字详细分析量子力学的哲学意义"]},
+        {"cmd": "send"},
+        {"cmd": "wait-for-phase", "args": ["thinking"], "flags": {"timeout": "60000"}, "timeout": 65000},
+        {"cmd": "delay", "args": ["500"]},
+        {"cmd": "stop"},
+        {"cmd": "delay", "args": ["3000"]},
+        {"cmd": "status", "assert": {"active": false}},
+        {"cmd": "exec", "args": ["(() => { const msgs = window.__tokenicode_test.getMessages({summary: false}).messages; const bad = msgs.filter(m => m.role === 'assistant' && m.type === 'text' && m.content && m.content.includes('No response requested')); return bad.length === 0 ? 'clean' : 'FOUND:' + bad.map(m => m.content.slice(0,80)).join('|'); })()"], "assert": {"result": "clean"}}
+      ],
+      "teardown": [
+        {"cmd": "stop", "continueOnError": true},
+        {"cmd": "delete-session", "continueOnError": true}
+      ]
+    },
+    {
+      "name": "T02-thinking阶段立即打断不应显示No response requested",
+      "timeout": 90000,
+      "retry": 1,
+      "setup": [
+        {"cmd": "new-session", "flags": {"cwd": "/tmp/tokenicode-test"}},
+        {"cmd": "check-editor", "assert": {"hasEditor": true}},
+        {"cmd": "switch-model", "args": ["claude-sonnet-4-6"]}
+      ],
+      "steps": [
+        {"cmd": "type", "args": ["写一篇3000字的科普文章关于黑洞"]},
+        {"cmd": "send"},
+        {"cmd": "wait-for-phase", "args": ["thinking"], "flags": {"timeout": "60000"}, "timeout": 65000},
+        {"cmd": "stop"},
+        {"cmd": "delay", "args": ["3000"]},
+        {"cmd": "status", "assert": {"active": false}},
+        {"cmd": "exec", "args": ["(() => { const msgs = window.__tokenicode_test.getMessages({summary: false}).messages; const bad = msgs.filter(m => m.role === 'assistant' && m.type === 'text' && m.content && m.content.includes('No response requested')); return bad.length === 0 ? 'clean' : 'FOUND:' + bad.map(m => m.content.slice(0,80)).join('|'); })()"], "assert": {"result": "clean"}}
+      ],
+      "teardown": [
+        {"cmd": "stop", "continueOnError": true},
+        {"cmd": "delete-session", "continueOnError": true}
+      ]
+    },
+    {
+      "name": "T03-打断后再发消息-回复不含No response requested",
+      "timeout": 120000,
+      "retry": 1,
+      "setup": [
+        {"cmd": "new-session", "flags": {"cwd": "/tmp/tokenicode-test"}},
+        {"cmd": "check-editor", "assert": {"hasEditor": true}},
+        {"cmd": "switch-model", "args": ["claude-sonnet-4-6"]}
+      ],
+      "steps": [
+        {"cmd": "type", "args": ["写一篇5000字关于宇宙大爆炸的文章"]},
+        {"cmd": "send"},
+        {"cmd": "wait-for-phase", "args": ["thinking"], "flags": {"timeout": "60000"}, "timeout": 65000},
+        {"cmd": "stop"},
+        {"cmd": "delay", "args": ["2000"]},
+        {"cmd": "type", "args": ["回复OK"]},
+        {"cmd": "send"},
+        {"cmd": "wait-until-done", "flags": {"timeout": "60000"}, "assert": {"status": "completed"}, "timeout": 65000},
+        {"cmd": "exec", "args": ["(() => { const msgs = window.__tokenicode_test.getMessages({summary: false}).messages; const bad = msgs.filter(m => m.role === 'assistant' && m.type === 'text' && m.content && m.content.includes('No response requested')); return bad.length === 0 ? 'clean' : 'FOUND:' + bad.map(m => m.content.slice(0,80)).join('|'); })()"], "assert": {"result": "clean"}}
+      ],
+      "teardown": [
+        {"cmd": "stop", "continueOnError": true},
+        {"cmd": "delete-session", "continueOnError": true}
+      ]
+    }
+  ]
+}
