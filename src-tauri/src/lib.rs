@@ -6724,6 +6724,20 @@ pub fn run() {
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
 
+            // Register test harness socket server (debug builds only).
+            // Provides a Unix socket that tokenicode-cli.mjs connects to for
+            // automated GUI testing. Release builds never include this.
+            #[cfg(debug_assertions)]
+            {
+                let mcp_config = tauri_plugin_mcp::PluginConfig::new("TOKENICODE".to_string())
+                    .start_socket_server(true)
+                    .socket_path(std::path::PathBuf::from("/tmp/tokenicode-test.sock"));
+                app.handle().plugin(
+                    tauri_plugin_mcp::init_with_config(mcp_config)
+                )?;
+                eprintln!("[TOKENICODE] Test harness registered on /tmp/tokenicode-test.sock");
+            }
+
             #[cfg(not(desktop))]
             let _ = app;
 

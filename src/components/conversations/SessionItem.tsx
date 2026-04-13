@@ -138,6 +138,7 @@ export function SessionItem({
 
   return (
     <button
+      {...(import.meta.env.DEV && { 'data-testid': `session-item-${session.id}` })}
       onClick={(e) => {
         if (multiSelect && onToggleCheck) {
           onToggleCheck(session.id, e.shiftKey);

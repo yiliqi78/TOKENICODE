@@ -207,6 +207,18 @@ export const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
       });
     }, [editor, placeholder]);
 
+    // Expose editor for test harness (dev only)
+    useEffect(() => {
+      if (import.meta.env.DEV && editor) {
+        (window as any).__tokenicode_editor = editor;
+      }
+      return () => {
+        if (import.meta.env.DEV) {
+          delete (window as any).__tokenicode_editor;
+        }
+      };
+    }, [editor]);
+
     useImperativeHandle(ref, () => ({
       getText() {
         return editorToPlainText(editor);
@@ -256,6 +268,7 @@ export const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
         ref={wrapperRef}
         className={className}
         data-chat-input={props['data-chat-input'] ? '' : undefined}
+        {...(import.meta.env.DEV && { 'data-testid': 'chat-input-editor' })}
       >
         <EditorContent editor={editor} />
       </div>

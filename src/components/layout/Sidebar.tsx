@@ -90,6 +90,7 @@ export function Sidebar() {
         // Clear working directory so ChatPanel shows WelcomeScreen
         useSettingsStore.getState().setWorkingDirectory('');
       }}
+        {...(import.meta.env.DEV && { 'data-testid': 'new-session-button' })}
         className="w-full py-2.5 px-4 rounded-[20px] text-sm font-medium
           bg-accent hover:bg-accent-hover text-text-inverse
           hover:shadow-glow transition-smooth mb-4
@@ -104,7 +105,8 @@ export function Sidebar() {
       {/* Current Session — compressed single-line card */}
       {sessionMeta.sessionId && (
         <div className="px-3 py-2 rounded-xl bg-bg-secondary border border-border-subtle mb-3
-          flex items-center gap-2">
+          flex items-center gap-2"
+          {...(import.meta.env.DEV && { 'data-testid': 'current-session-card' })}>
           <span className={`w-2 h-2 rounded-full flex-shrink-0 transition-smooth
             ${sessionStatus === 'running'
               ? 'bg-success shadow-[0_0_8px_var(--color-accent-glow)] animate-pulse-soft'
@@ -135,6 +137,7 @@ export function Sidebar() {
       {/* Footer */}
       <div className="pt-3 mt-3 border-t border-border-subtle px-3">
         <button onClick={toggleSettings}
+          {...(import.meta.env.DEV && { 'data-testid': 'settings-button' })}
           className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl
             text-sm text-text-muted hover:bg-bg-secondary hover:text-text-primary
             transition-smooth">

@@ -44,6 +44,7 @@ export function ProviderCard({
   return (
     <div
       onClick={onActivate}
+      {...(import.meta.env.DEV && { 'data-testid': `provider-card-${provider.id}` })}
       className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-smooth cursor-pointer
         ${isEditing
           ? 'bg-bg-secondary border border-accent/30'

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { type ChatMessage, useChatStore, getActiveTabState } from '../../stores/chatStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { bridge } from '../../lib/tauri-bridge';
@@ -89,8 +89,21 @@ export function PermissionCard({ message }: Props) {
   const isFailed = interactionState === 'failed';
   const isPending = interactionState === 'pending';
 
+  // Expose permission respond handler for test harness (dev only)
+  useEffect(() => {
+    if (import.meta.env.DEV && isPending) {
+      (window as any).__tokenicode_respond_permission = handleRespond;
+    }
+    return () => {
+      if (import.meta.env.DEV) {
+        delete (window as any).__tokenicode_respond_permission;
+      }
+    };
+  }, [handleRespond, isPending]);
+
   return (
-    <div className={`ml-11 animate-scale-in ${isResolved ? 'opacity-60' : ''}`}>
+    <div className={`ml-11 animate-scale-in ${isResolved ? 'opacity-60' : ''}`}
+      {...(import.meta.env.DEV && { 'data-testid': 'permission-card' })}>
       <div className={`rounded-xl border overflow-hidden transition-all duration-200
         ${isResolved
           ? 'border-border-subtle bg-bg-secondary/30'
@@ -178,6 +191,7 @@ export function PermissionCard({ message }: Props) {
               <>
                 <button
                   onClick={() => handleRespond(true)}
+                  {...(import.meta.env.DEV && { 'data-testid': 'permission-allow-button' })}
                   className="px-4 py-2 rounded-lg text-xs font-semibold
                     border-2 border-success/40 text-success bg-success/5
                     hover:bg-success/15 transition-smooth cursor-pointer
@@ -191,6 +205,7 @@ export function PermissionCard({ message }: Props) {
                 </button>
                 <button
                   onClick={() => handleRespond(false)}
+                  {...(import.meta.env.DEV && { 'data-testid': 'permission-deny-button' })}
                   className="px-3 py-2 rounded-lg text-xs font-medium
                     text-text-muted border border-border-subtle
                     hover:bg-bg-secondary hover:text-text-primary
