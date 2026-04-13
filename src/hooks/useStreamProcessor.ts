@@ -209,6 +209,15 @@ function _scheduleStreamFlush(stdinId: string) {
   });
 }
 
+/** Discard a stale session's stream buffer without flushing to UI.
+ *  Use in stale stdinId guards to prevent cross-session partial text pollution. */
+function discardStreamBuffer(stdinId: string) {
+  const buf = _streamBuffers.get(stdinId);
+  if (!buf) return;
+  if (buf.raf) cancelAnimationFrame(buf.raf);
+  _streamBuffers.delete(stdinId);
+}
+
 /** Flush any buffered streaming text immediately (call before clearPartial).
  *  If stdinId is provided, flush only that session's buffer.
  *  If omitted, flush ALL buffers (backward compat). */
@@ -2029,6 +2038,14 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
       }
 
       case 'process_exit': {
+        // --- Stale stdinId guard: don't clobber state if a newer session is already active ---
+        const currentStdinId_exit = useChatStore.getState().getTab(tabId)?.sessionMeta?.stdinId;
+        if (currentStdinId_exit && msg.__stdinId && currentStdinId_exit !== msg.__stdinId) {
+          console.warn('[TOKENICODE:session] Stale process_exit ignored:', msg.__stdinId, '!= current', currentStdinId_exit);
+          discardStreamBuffer(msg.__stdinId);
+          break;
+        }
+
         // STEP 1: Force-flush the per-stdinId rAF stream buffer into
         // chatStore.partialText / partialThinking BEFORE reading them.
         // Otherwise the last few text_delta tokens that arrived just
