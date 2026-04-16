@@ -19,6 +19,35 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.10.3',
+    date: '2026-04-16',
+    highlights: {
+      zh: [
+        'CCswitch + Claude Desktop 共存 — 第三方 Provider 不再 401',
+        'hook 生命周期事件不再刷屏警告',
+      ],
+      en: [
+        'CCswitch + Claude Desktop coexistence — third-party providers no longer 401',
+        'Hook lifecycle events no longer flood console warnings',
+      ],
+    },
+    categories: [
+      {
+        label: { zh: '修复', en: 'Fixed' },
+        items: {
+          zh: [
+            'Claude Desktop 启动时继承的 CLAUDE_CODE_OAUTH_TOKEN 覆盖第三方 Provider API Key 导致 401 — env 清除 + 空字符串覆盖 + gateway 拦截 oauth_token_refresh',
+            'hook_started/progress/response/status/api_retry 事件导致控制台大量警告 — 静默处理',
+          ],
+          en: [
+            'CLAUDE_CODE_OAUTH_TOKEN inherited from Claude Desktop overrides third-party API Key causing 401 — env cleanup + empty string override + gateway blocks oauth_token_refresh',
+            'hook_started/progress/response/status/api_retry events flooding console — silently handled',
+          ],
+        },
+      },
+    ],
+  },
+  {
     version: '0.10.2',
     date: '2026-04-11',
     highlights: {

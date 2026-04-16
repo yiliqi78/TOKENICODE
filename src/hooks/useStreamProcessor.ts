@@ -1043,6 +1043,8 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
       const currentId = useChatStore.getState().getTab(tabId)?.sessionMeta.sessionId;
       if (currentId !== cliSessionId) {
         setSessionMeta({ sessionId: cliSessionId });
+        // Also store in sessionStore for hadRealExchange-guarded resume
+        useSessionStore.getState().setCliResumeId(tabId, cliSessionId);
         bridge.trackSession(cliSessionId).catch(() => {});
 
         // Promote draft tab to real session ID so it merges with disk session
@@ -1237,6 +1239,14 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             content: formatErrorForUser(rawError),
             timestamp: Date.now(),
           });
+        } else if (
+          msg.subtype === 'hook_started' ||
+          msg.subtype === 'hook_progress' ||
+          msg.subtype === 'hook_response' ||
+          msg.subtype === 'status' ||
+          msg.subtype === 'api_retry'
+        ) {
+          // Hook lifecycle + status events — silently ignore (no UI for these in TC)
         } else {
           // FI-3: Log unknown subtypes so we know what we're missing
           console.warn('[TOKENICODE] Unhandled system subtype:', msg.subtype, msg);
@@ -1666,6 +1676,9 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               modelSwitched: false,
               modelSwitchPendingText: undefined,
             });
+            // Also clear cliResumeId in sessionStore
+            const retryTabId = useSessionStore.getState().selectedSessionId;
+            if (retryTabId) useSessionStore.getState().setCliResumeId(retryTabId, null);
 
             // Show system notice
             addMessage({
@@ -1725,10 +1738,15 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
                   permission_mode: mapSessionModeToPermissionMode(sessionMode),
                 });
 
-                setSessionMeta({ sessionId: session.session_id, stdinId: retryId, envFingerprint: envFingerprint(), spawnedModel: resolveModelForProvider(selectedModel) });
+                setSessionMeta({ sessionId: session.stdin_id, stdinId: retryId, envFingerprint: envFingerprint(), spawnedModel: resolveModelForProvider(selectedModel) });
                 const tabId = useSessionStore.getState().selectedSessionId;
-                if (tabId) useSessionStore.getState().registerStdinTab(retryId, tabId);
-                bridge.trackSession(session.session_id).catch(() => {});
+                if (tabId) {
+                  useSessionStore.getState().registerStdinTab(retryId, tabId);
+                  if (session.cli_session_id) {
+                    useSessionStore.getState().setCliResumeId(tabId, session.cli_session_id);
+                  }
+                }
+                if (session.cli_session_id) bridge.trackSession(session.cli_session_id).catch(() => {});
               } catch (retryErr) {
                 console.error('[TOKENICODE] Provider-switch auto-retry failed:', retryErr);
                 // P0-5: Clean up the retry listeners on failure

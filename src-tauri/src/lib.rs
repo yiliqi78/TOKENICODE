@@ -1046,11 +1046,50 @@ fn resolve_provider_env(
             .or_insert_with(|| "1".to_string());
     }
 
-    // No extra CLI args needed — env vars set on the process take precedence.
-    // Previously we used --setting-sources project,local to skip user settings,
-    // but that broke directories without .claude/ (e.g. empty/new folders) because
-    // the CLI lost workspace trust and other user-level config.
-    let extra_args: Vec<String> = vec![];
+    // When a non-Anthropic provider is active, neutralize CCswitch / user env vars
+    // that clash with provider injection.
+    //
+    // CCswitch writes ANTHROPIC_AUTH_TOKEN (and friends) to TWO places:
+    //   1. ~/.claude/settings.json → env    (CLI reads internally, overrides process env)
+    //   2. Shell environment                (inherited by child processes)
+    //
+    // ANTHROPIC_AUTH_TOKEN triggers Bearer auth in the CLI, overriding ANTHROPIC_API_KEY
+    // (x-api-key). Third-party providers only support x-api-key, so both must be blocked:
+    //
+    //   Layer 1 — keys_to_remove → env_remove() on Command: strips inherited shell env
+    //   Layer 2 — --setting-sources project,local: skips user settings.json entirely,
+    //             preventing the CLI from re-injecting AUTH_TOKEN from file
+    //
+    // Only applied when is_native_anthropic == false, so native Anthropic usage is
+    // unaffected (previous unconditional version broke dirs without .claude/).
+    let extra_args: Vec<String> = if !is_native_anthropic {
+        // Also neutralize Claude Desktop host env vars — when launched from
+        // Claude Desktop, it inherits CLAUDE_CODE_OAUTH_TOKEN and
+        // CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST which override everything.
+        keys_to_remove.extend([
+            "ANTHROPIC_AUTH_TOKEN".to_string(),
+            "ANTHROPIC_MODEL".to_string(),
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL".to_string(),
+            "ANTHROPIC_DEFAULT_SONNET_MODEL".to_string(),
+            "ANTHROPIC_DEFAULT_OPUS_MODEL".to_string(),
+            "CLAUDE_CODE_OAUTH_TOKEN".to_string(),
+            "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST".to_string(),
+            "CLAUDE_CODE_ENTRYPOINT".to_string(),
+        ]);
+        for k in &keys_to_remove {
+            env.remove(k);
+        }
+        // Set to empty (not just remove) — CLI may have internal storage
+        // that survives env_remove.
+        env.insert("ANTHROPIC_AUTH_TOKEN".to_string(), String::new());
+        env.insert("CLAUDE_CODE_OAUTH_TOKEN".to_string(), String::new());
+        vec![
+            "--setting-sources".to_string(),
+            "project,local".to_string(),
+        ]
+    } else {
+        vec![]
+    };
 
     Ok((env, keys_to_remove, extra_args))
 }
@@ -1669,6 +1708,8 @@ async fn start_claude_session(
         });
     }
 
+    let exit_notify = Arc::new(tokio::sync::Notify::new());
+
     state
         .insert(
             sid.clone(),
@@ -1676,6 +1717,7 @@ async fn start_claude_session(
                 session_id: sid.clone(),
                 pid,
                 kill_tx: Some(kill_tx),
+                exit_notify: exit_notify.clone(),
             },
         )
         .await;
@@ -1695,6 +1737,7 @@ async fn start_claude_session(
     let app_clone = app.clone();
     let sid_clone = sid.clone();
     let stdin_clone = stdin_mgr.inner().clone();
+    let exit_notify_clone = exit_notify.clone();
     let is_bypass = permission_mode == "bypassPermissions";
     tokio::spawn(async move {
         let stream_event = format!("claude:stream:{}", sid_clone);
@@ -1865,6 +1908,21 @@ async fn start_claude_session(
                             let _ = stdin_clone.send(&sid_clone, &auto_resp.to_string()).await;
                             continue;
                         }
+                        "oauth_token_refresh" => {
+                            // Deny oauth_token_refresh — allowing it makes CLI refresh to
+                            // an Anthropic OAuth token that overrides the provider's API key.
+                            eprintln!("[TOKENICODE] oauth_token_refresh: denying to prevent OAuth override (request_id={})", request_id);
+                            let deny_resp = serde_json::json!({
+                                "type": "control_response",
+                                "response": {
+                                    "subtype": "success",
+                                    "request_id": request_id,
+                                    "response": { "behavior": "deny" }
+                                }
+                            });
+                            let _ = stdin_clone.send(&sid_clone, &deny_resp.to_string()).await;
+                            continue;
+                        }
                         other => {
                             // Unknown control request subtype — deny by default (P0-4 fix)
                             eprintln!("[TOKENICODE] control_request/{}: denying unknown subtype (request_id={})", other, request_id);
@@ -1973,6 +2031,8 @@ async fn start_claude_session(
         );
         // Notify frontend that session list may have changed
         let _ = emit_to_frontend(&app_clone, "sessions:changed", serde_json::json!(null));
+        // Signal kill_session that the process has fully exited
+        exit_notify_clone.notify_one();
     });
 
     // Spawn stderr reader
@@ -2003,7 +2063,8 @@ async fn start_claude_session(
     }
 
     Ok(SessionInfo {
-        session_id: sid,
+        stdin_id: sid,
+        cli_session_id: params.resume_session_id.clone(),
         pid,
         cli_path: claude_bin.clone(),
     })
@@ -2130,7 +2191,16 @@ async fn kill_session(
     session_id: String,
 ) -> Result<(), String> {
     stdin_mgr.remove(&session_id).await;
-    state.remove(&session_id).await;
+    if let Some(notify) = state.remove(&session_id).await {
+        // Wait for the stdout reader to confirm process exit before returning.
+        // Without this, the frontend can send a new message before the old process
+        // has fully cleaned up, causing SESSION_ALREADY_ACTIVE errors.
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            notify.notified(),
+        )
+        .await;
+    }
     Ok(())
 }
 
