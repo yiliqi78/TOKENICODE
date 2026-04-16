@@ -105,6 +105,8 @@ interface SessionState {
   loadCustomPreviewsFromDisk: () => Promise<void>;
   /** Get the last active session ID from localStorage (for app restart recovery) */
   getLastSessionId: () => string | null;
+  /** Set the CLI's session UUID for --resume on a given session */
+  setCliResumeId: (sessionId: string, cliResumeId: string | null) => void;
   /** Search session content via backend */
   searchSessionContent: (query: string) => Promise<void>;
   /** Clear content search results */
@@ -129,11 +131,17 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
     if (isFirstLoad) set({ isLoading: true });
     try {
       const diskSessions = await bridge.listSessions();
+      const existing = get().sessions;
       // Preserve draft sessions (path === '') that haven't been written to disk yet
-      const drafts = get().sessions.filter(
+      const drafts = existing.filter(
         (s) => s.path === '' && !diskSessions.some((d) => d.id === s.id),
       );
-      set({ sessions: [...drafts, ...diskSessions], isLoading: false });
+      // Merge: preserve in-memory cliResumeId on disk sessions
+      const merged = diskSessions.map((d) => {
+        const mem = existing.find((s) => s.id === d.id);
+        return mem?.cliResumeId ? { ...d, cliResumeId: mem.cliResumeId } : d;
+      });
+      set({ sessions: [...drafts, ...merged], isLoading: false });
     } catch {
       set({ isLoading: false });
     }
@@ -158,6 +166,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       projectDir,
       modifiedAt: Date.now(),
       preview: '',
+      cliResumeId: null,
     };
     return {
       sessions: [draft, ...state.sessions],
@@ -211,6 +220,12 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   },
 
   getTabForStdin: (stdinId) => get().stdinToTab[stdinId],
+
+  setCliResumeId: (sessionId, cliResumeId) => set((state) => ({
+    sessions: state.sessions.map((s) =>
+      s.id === sessionId ? { ...s, cliResumeId } : s,
+    ),
+  })),
 
   removeDraft: (draftId) => set((state) => ({
     sessions: state.sessions.filter((s) => s.id !== draftId),

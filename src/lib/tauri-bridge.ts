@@ -8,7 +8,7 @@ export interface StartSessionParams {
   cwd: string;
   model?: string;
   /** Desk-generated process key (stdinId) — used as key in Rust StdinManager/ProcessManager.
-   *  NOT the Claude CLI session UUID (that comes back as SessionInfo.session_id). */
+   *  NOT the Claude CLI session UUID (that comes back as SessionInfo.cli_session_id). */
   session_id?: string;
   allowed_tools?: string[];
   /** Resume an existing Claude CLI conversation by its UUID (for session continuity) */
@@ -30,9 +30,13 @@ export interface StartSessionParams {
 }
 
 export interface SessionInfo {
-  /** The Claude CLI's own conversation UUID (used for --resume).
-   *  This is different from the stdinId (desk-generated process key). */
-  session_id: string;
+  /** Desk-generated process key used as routing/stdin identifier.
+   *  Maps to Rust StdinManager keys. NOT the Claude CLI session UUID. */
+  stdin_id: string;
+  /** Claude CLI's session UUID for --resume. Non-null only when resuming;
+   *  null for new sessions — the real UUID arrives via the first system:init
+   *  stream event and is stored in sessionStore.cliResumeId. */
+  cli_session_id: string | null;
   pid: number;
   cli_path: string;
 }
@@ -44,6 +48,8 @@ export interface SessionListItem {
   projectDir: string;
   modifiedAt: number;
   preview: string;
+  /** CLI's own session UUID, used for --resume. Null for new sessions before CLI responds. */
+  cliResumeId: string | null;
 }
 
 export interface ContentSearchResult {

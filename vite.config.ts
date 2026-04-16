@@ -2,6 +2,8 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
+/// <reference types="vitest/config" />
+
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 // @ts-expect-error process is a nodejs global
@@ -14,6 +16,11 @@ export default defineConfig(async () => ({
   define: {
     __APP_EDITION__: JSON.stringify(edition),
     __APP_NAME__: JSON.stringify(edition === 'alpha' ? 'TCAlpha' : 'TOKENICODE'),
+  },
+
+  test: {
+    environment: 'node',
+    globals: true,
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

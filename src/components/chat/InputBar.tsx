@@ -936,12 +936,15 @@ export function InputBar() {
         // Mode is now passed via --mode CLI arg in startSession, not text prefix.
         // Text prefix (/ask, /plan) caused "Unknown skill" errors in stream-json mode.
 
-        // If we have an existing sessionId (loaded historical session), resume it.
-        // Only use it as resume_session_id if it looks like a real CLI session ID (UUID),
-        // not a desk-generated ID like "desk_xxx".
-        const rawSessionId = getActiveTabState().sessionMeta.sessionId;
-        const existingSessionId = rawSessionId && !rawSessionId.startsWith('desk_')
-          ? rawSessionId
+        // Resume guard: only resume if the session had a real assistant exchange.
+        // A pre-warm that only emitted system:init (no real reply) leaves cliResumeId set
+        // but hadRealExchange = false, so we skip --resume and start fresh.
+        const tabMessages = useChatStore.getState().getTab(tabId)?.messages ?? [];
+        const hadRealExchange = tabMessages.some(
+          m => m.role === 'assistant' && (m.type === 'text' || m.type === 'tool_use'),
+        );
+        const existingSessionId = hadRealExchange
+          ? (useSessionStore.getState().sessions.find((s) => s.id === tabId)?.cliResumeId ?? undefined)
           : undefined;
 
         // TK-329 fix: only clean up THIS tab's old stdinId listener, not the global singleton.
@@ -1090,12 +1093,12 @@ export function InputBar() {
           permission_mode: mapSessionModeToPermissionMode(liveSessionMode),
           model_switch: didSwitchModel ? true : undefined,
         });
-        console.log('[TOKENICODE:session] started successfully', { sessionId: session.session_id, pid: session.pid, cli: session.cli_path });
+        console.log('[TOKENICODE:session] started successfully', { stdinId: session.stdin_id, cliSessionId: session.cli_session_id, pid: session.pid, cli: session.cli_path });
 
-        // Store both: session_id for tracking, stdinId (preGeneratedId) for stdin communication
+        // Store stdinId for stdin communication + cli_session_id for resume
         // Also clear model/provider switch flags — the switch has been handled by this spawn.
         setSessionMeta(tabId, {
-          sessionId: session.session_id,
+          sessionId: session.cli_session_id || session.stdin_id,
           stdinId: preGeneratedId,
           envFingerprint: envFingerprint(),
           spawnedModel: resolveModelForProvider(selectedModel),
@@ -1104,12 +1107,17 @@ export function InputBar() {
           modelSwitchPendingText: undefined,
           providerSwitchPendingText: undefined,
         });
+        // Store cliResumeId in sessionStore (the primary source for resume logic)
+        if (session.cli_session_id) {
+          useSessionStore.getState().setCliResumeId(tabId, session.cli_session_id);
+        }
         // Note: stdinId → tabId mapping already registered before listener setup (TK-329)
 
         // Track the session and refresh conversation list
         // Skip desk_* IDs — they pollute tracked_sessions.txt (multi-session isolation fix)
-        if (!session.session_id.startsWith('desk_')) {
-          bridge.trackSession(session.session_id).catch(() => {});
+        const trackId = session.cli_session_id || session.stdin_id;
+        if (!trackId.startsWith('desk_')) {
+          bridge.trackSession(trackId).catch(() => {});
         }
         useSessionStore.getState().fetchSessions();
         // Delayed retry in case JSONL file isn't written yet

@@ -4,18 +4,25 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::process::ChildStdin;
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{oneshot, Mutex, Notify};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SessionInfo {
-    pub session_id: String,
+    /// Desk-generated process key used as routing key and stdin identifier.
+    /// Maps to StdinManager / ProcessManager keys. NOT the Claude CLI session UUID.
+    pub stdin_id: String,
+    /// Claude CLI's session UUID for --resume. `Some` when resuming an existing
+    /// session (from `resume_session_id`), `None` for new sessions — the real
+    /// UUID arrives later via the first system:init stream event and is stored
+    /// on the frontend in `sessionStore.cliResumeId`.
+    pub cli_session_id: Option<String>,
     pub pid: u32,
     pub cli_path: String,
 }
 
 /// A managed CLI session whose child process is owned by an independent
-/// waiter task. `kill_tx` sends a request to that waiter task to kill
-/// the child; the waiter task then emits `process_exit` authoritatively.
+/// waiter task. `kill_tx` sends a request to that waiter task to kill the
+/// child; the waiter task then emits `process_exit` authoritatively.
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct ManagedProcess {
@@ -23,9 +30,12 @@ pub struct ManagedProcess {
     pub pid: u32,
     /// Kill signal channel to the waiter task. Option so we can take() on remove.
     pub kill_tx: Option<oneshot::Sender<()>>,
+    /// Signalled by the stdout reader after emitting process_exit.
+    /// kill_session waits on this to avoid SESSION_ALREADY_ACTIVE races.
+    pub exit_notify: Arc<Notify>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ProcessManager {
     processes: Arc<Mutex<HashMap<String, Arc<Mutex<ManagedProcess>>>>>,
 }
@@ -85,11 +95,11 @@ impl ProcessManager {
         map.insert(id, Arc::new(Mutex::new(process)));
     }
 
-    pub async fn remove(&self, id: &str) {
+    /// Remove a process and send the kill signal. Returns the exit_notify
+    /// so the caller can wait for the stdout reader to confirm process exit.
+    pub async fn remove(&self, id: &str) -> Option<Arc<Notify>> {
         let mut map = self.processes.lock().await;
         if let Some(proc) = map.remove(id) {
-            // Signal the waiter task to kill the child. The waiter task owns
-            // the child and will emit process_exit authoritatively after kill.
             let mut managed = proc.lock().await;
             if let Some(tx) = managed.kill_tx.take() {
                 if tx.send(()).is_err() {
@@ -97,6 +107,9 @@ impl ProcessManager {
                     // the child died naturally. No-op is correct.
                 }
             }
+            Some(managed.exit_notify.clone())
+        } else {
+            None
         }
     }
 
