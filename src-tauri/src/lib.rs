@@ -6566,6 +6566,9 @@ async fn generate_session_title(
         "1".to_string(),
         "--dangerously-skip-permissions".to_string(),
     ];
+    if provider_id.is_some() {
+        args.extend(["--setting-sources".to_string(), "project,local".to_string()]);
+    }
 
     let mut cmd = tokio::process::Command::new(&claude_bin);
     cmd.args(&args)
