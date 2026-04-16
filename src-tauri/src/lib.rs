@@ -1046,26 +1046,29 @@ fn resolve_provider_env(
             .or_insert_with(|| "1".to_string());
     }
 
-    // When a non-Anthropic provider is active, neutralize CCswitch / user env vars
-    // that clash with provider injection.
+    // HOT-FIX (v0.10.5): strip inherited OAuth / host-managed env vars when
+    // using a third-party provider, WITHOUT the v0.10.3 side effects.
     //
-    // CCswitch writes ANTHROPIC_AUTH_TOKEN (and friends) to TWO places:
-    //   1. ~/.claude/settings.json → env    (CLI reads internally, overrides process env)
-    //   2. Shell environment                (inherited by child processes)
+    // Background: the parent process (Her/TOKENICODE) inherits CCswitch's
+    // ANTHROPIC_AUTH_TOKEN and Claude Desktop's CLAUDE_CODE_OAUTH_TOKEN /
+    // CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST from its own environment.
+    // tokio::process::Command inherits parent env by default, so the CLI
+    // child sees those too. With an OAuth token present the CLI goes into
+    // Bearer-auth mode and sends `Authorization: Bearer <token>` to the
+    // third-party provider, which rejects with 401/429. Need to wipe them.
     //
-    // ANTHROPIC_AUTH_TOKEN triggers Bearer auth in the CLI, overriding ANTHROPIC_API_KEY
-    // (x-api-key). Third-party providers only support x-api-key, so both must be blocked:
+    // What v0.10.3 got wrong (and we do NOT repeat):
+    //   • `env.insert(<name>, "")` — a defined-but-empty AUTH_TOKEN is read
+    //     by the CLI as "OAuth path with stale token" and triggers an
+    //     oauth_token_refresh control_request which we can only deny →
+    //     deadlock, CLI waits forever, user sees "send → spinner forever".
+    //   • `--setting-sources project,local` — skips user settings.json and
+    //     thus loses workspace trust / agents / MCP, which somehow causes
+    //     the CLI to produce 429-triggering requests to third-party
+    //     endpoints (same key works fine via curl).
     //
-    //   Layer 1 — keys_to_remove → env_remove() on Command: strips inherited shell env
-    //   Layer 2 — --setting-sources project,local: skips user settings.json entirely,
-    //             preventing the CLI from re-injecting AUTH_TOKEN from file
-    //
-    // Only applied when is_native_anthropic == false, so native Anthropic usage is
-    // unaffected (previous unconditional version broke dirs without .claude/).
+    // So: only env_remove, no empty insert, no setting-sources arg.
     let extra_args: Vec<String> = if !is_native_anthropic {
-        // Also neutralize Claude Desktop host env vars — when launched from
-        // Claude Desktop, it inherits CLAUDE_CODE_OAUTH_TOKEN and
-        // CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST which override everything.
         keys_to_remove.extend([
             "ANTHROPIC_AUTH_TOKEN".to_string(),
             "ANTHROPIC_MODEL".to_string(),
@@ -1079,14 +1082,7 @@ fn resolve_provider_env(
         for k in &keys_to_remove {
             env.remove(k);
         }
-        // Set to empty (not just remove) — CLI may have internal storage
-        // that survives env_remove.
-        env.insert("ANTHROPIC_AUTH_TOKEN".to_string(), String::new());
-        env.insert("CLAUDE_CODE_OAUTH_TOKEN".to_string(), String::new());
-        vec![
-            "--setting-sources".to_string(),
-            "project,local".to_string(),
-        ]
+        vec![]
     } else {
         vec![]
     };
@@ -3203,19 +3199,27 @@ fn read_dir_recursive(dir: &std::path::Path, current_depth: u32, max_depth: u32)
         Err(_) => return nodes,
     };
 
-    let mut entries: Vec<_> = entries.flatten().collect();
-    entries.sort_by(|a, b| {
-        let a_dir = a.path().is_dir();
-        let b_dir = b.path().is_dir();
-        b_dir.cmp(&a_dir).then_with(|| {
-            a.file_name()
-                .to_string_lossy()
-                .to_lowercase()
-                .cmp(&b.file_name().to_string_lossy().to_lowercase())
+    // PATCH C (v0.10.5): snapshot is_dir() + lowercase name BEFORE sort_by.
+    //
+    // The previous closure called `a.path().is_dir()` inline — a filesystem
+    // syscall on every comparison. While the sort runs, the Claude CLI
+    // concurrently writes SDK checkpoint / temp files into the workspace,
+    // so the same entry can return `true` on one call and `false` on the next.
+    // Rust 1.81+'s strict total-order check detects this violation and panics
+    // the tokio worker thread, tearing down all async tauri commands (CLI
+    // detection, file scan, chat) → "CLI env / file manager disappears after
+    // first response" + flood of "Couldn't find callback id" warnings.
+    let mut entries_meta: Vec<(std::fs::DirEntry, bool, String)> = entries
+        .flatten()
+        .map(|e| {
+            let is_dir = e.path().is_dir();
+            let lower = e.file_name().to_string_lossy().to_lowercase();
+            (e, is_dir, lower)
         })
-    });
+        .collect();
+    entries_meta.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.2.cmp(&b.2)));
 
-    for entry in entries {
+    for (entry, _, _) in entries_meta {
         let name = entry.file_name().to_string_lossy().to_string();
         // Skip specific ignored dirs (but show dotfiles like .claude, .github, .vscode)
         if name == "node_modules"

@@ -6,6 +6,21 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [0.10.5] - 2026-04-17
+
+### Fixed
+
+- **第三方 Provider 不响应（hot-fix v0.10.3 regression）** —— 发送消息后转圈不返回。根因两处：
+  - `env.insert("ANTHROPIC_AUTH_TOKEN", "")` / `CLAUDE_CODE_OAUTH_TOKEN` 写入空字符串让 CLI 进入 OAuth 路径，触发 `oauth_token_refresh` control_request，被前端 deny 后死锁。**改为只 `env_remove`**
+  - `--setting-sources project,local` 让 CLI 跳过 user settings 丢失 workspace trust / agents / MCP，对第三方 endpoint 构造错误请求 → 429。**去掉该参数**
+- **频繁切换工作区后界面冻结** —— CLI 管理"扫描中..."、文件树转圈、chat 不响应同时发生。根因：`read_dir_recursive` 的 `sort_by` closure 调用 `a.path().is_dir()`，CLI 并发写 SDK checkpoint 让同一 entry 两次返回不同值 → Rust 1.81+ total-order 违反 → `tokio worker panic`。**改为预先缓存 `is_dir()` 后排序**
+
+### Notes
+
+- 父进程继承的 `ANTHROPIC_AUTH_TOKEN` / `CLAUDE_CODE_OAUTH_TOKEN` 等 env 仍然清除（CCswitch 协同依赖），**没有** 完全回到 v0.10.2 baseline
+
+---
+
 ## [0.10.4] - 2026-04-17
 
 ### Added

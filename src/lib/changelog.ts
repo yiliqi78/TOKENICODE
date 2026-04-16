@@ -19,6 +19,35 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.10.5',
+    date: '2026-04-17',
+    highlights: {
+      zh: [
+        '紧急修复：第三方 Provider 在 v0.10.3+ 下不响应',
+        '紧急修复：频繁切换工作区后界面整体冻结',
+      ],
+      en: [
+        'Hot-fix: third-party providers unresponsive since v0.10.3',
+        'Hot-fix: UI freeze after frequent workspace switches',
+      ],
+    },
+    categories: [
+      {
+        label: { zh: '修复', en: 'Fixed' },
+        items: {
+          zh: [
+            '第三方 Provider 发消息不响应 — v0.10.3 对 ANTHROPIC_AUTH_TOKEN / CLAUDE_CODE_OAUTH_TOKEN 写入空字符串让 CLI 进入 OAuth 路径触发 oauth_token_refresh 死锁；--setting-sources project,local 又让 CLI 对第三方 endpoint 构造错误请求 → 429。去掉两处后，env_remove 路径仍保留防 CCswitch 继承',
+            '频繁切换工作区后 CLI 管理 / 文件树 / chat 整体冻结 — read_dir_recursive 的 sort_by closure 在比较时调 is_dir() 文件系统 syscall，CLI 同时写 SDK checkpoint 文件导致同一 entry 两次返回不同值，Rust 1.81+ 严格 total-order 检查 panic tokio worker，所有 async command 挂起。改为预先缓存 is_dir() 再排序',
+          ],
+          en: [
+            'Third-party providers unresponsive — v0.10.3 wrote empty strings to ANTHROPIC_AUTH_TOKEN / CLAUDE_CODE_OAUTH_TOKEN pushing the CLI onto the OAuth path which deadlocked via oauth_token_refresh; --setting-sources project,local also caused the CLI to build bad requests against third-party endpoints → 429. Both removed; env_remove path retained to still block CCswitch inheritance',
+            'UI freeze after workspace switches — read_dir_recursive\'s sort_by closure called is_dir() per comparison; concurrent SDK checkpoint writes made the same entry return inconsistent values, violating Rust 1.81+\'s strict total-order check, panicking tokio worker and hanging all async tauri commands. Now caches is_dir() before sorting',
+          ],
+        },
+      },
+    ],
+  },
+  {
     version: '0.10.4',
     date: '2026-04-17',
     highlights: {
