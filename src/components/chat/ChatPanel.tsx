@@ -19,6 +19,8 @@ import { useProviderStore } from '../../stores/providerStore';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
 import { SetupWizard } from '../setup/SetupWizard';
 import { AiAvatar } from '../shared/AiAvatar';
+import { useFindInPage } from '../../hooks/useFindInPage';
+import { FindBar } from './FindBar';
 
 /** Shared plan panel toggle — used by ChatPanel (panel) and InputBar (button) */
 export const usePlanPanelStore = create<{
@@ -387,6 +389,7 @@ export function ChatPanel() {
   )?.path;
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const find = useFindInPage(scrollRef);
   const thinkingPreRef = useRef<HTMLPreElement>(null);
   const isNearBottomRef = useRef(true);
   // When user scrolls up via wheel, suppress auto-scroll until they return to bottom
@@ -542,6 +545,7 @@ export function ChatPanel() {
       <div className="flex flex-1 min-h-0 relative">
       {/* Main chat area */}
       <div className="flex flex-col flex-1 min-w-0">
+      {find.isOpen && <FindBar {...find} />}
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-5 py-6 selectable">
         {!workingDirectory && messages.length === 0 && !isStreaming ? (
           <WelcomeScreen />
@@ -830,7 +834,7 @@ async function startDraftSession(folderPath: string) {
     // Store stdinId so InputBar can send the first message via stdin
     useChatStore.getState().ensureTab(draftId);
     useChatStore.getState().setSessionMeta(draftId, {
-      sessionId: session.session_id,
+      sessionId: session.cli_session_id || session.stdin_id,
       stdinId: preWarmId,
       envFingerprint: envFingerprint(),
       spawnedModel: resolveModelForProvider(useSettingsStore.getState().selectedModel),
@@ -838,10 +842,15 @@ async function startDraftSession(folderPath: string) {
 
     // Register stdinId → tabId mapping for background stream routing
     useSessionStore.getState().registerStdinTab(preWarmId, draftId);
+    // Store cliResumeId for resume logic
+    if (session.cli_session_id) {
+      useSessionStore.getState().setCliResumeId(draftId, session.cli_session_id);
+    }
 
     // Skip desk_* IDs — they pollute tracked_sessions.txt (multi-session isolation fix)
-    if (!session.session_id.startsWith('desk_')) {
-      bridge.trackSession(session.session_id).catch(() => {});
+    const trackId = session.cli_session_id || session.stdin_id;
+    if (!trackId.startsWith('desk_')) {
+      bridge.trackSession(trackId).catch(() => {});
     }
   } catch {
     // Pre-warm failed — InputBar will spawn on first message instead
