@@ -100,10 +100,14 @@ cp "$AARCH64_BUNDLE/dmg/"*.dmg "$STAGING/" 2>/dev/null && echo "  aarch64 DMG co
 cp "$X86_64_BUNDLE/dmg/"*.dmg "$STAGING/" 2>/dev/null && echo "  x86_64 DMG copied" || echo "  WARN: no x86_64 DMG found"
 
 # Updater artifacts (.app.tar.gz and .sig)
-cp "$AARCH64_BUNDLE/macos/"*.tar.gz "$STAGING/" 2>/dev/null && echo "  aarch64 updater tar.gz copied" || echo "  WARN: no aarch64 tar.gz"
-cp "$AARCH64_BUNDLE/macos/"*.sig "$STAGING/" 2>/dev/null && echo "  aarch64 signature copied" || echo "  WARN: no aarch64 sig"
-cp "$X86_64_BUNDLE/macos/"*.tar.gz "$STAGING/" 2>/dev/null && echo "  x86_64 updater tar.gz copied" || echo "  WARN: no x86_64 tar.gz"
-cp "$X86_64_BUNDLE/macos/"*.sig "$STAGING/" 2>/dev/null && echo "  x86_64 signature copied" || echo "  WARN: no x86_64 sig"
+# Rename with arch suffix — both arches produce "${PRODUCT_NAME}.app.tar.gz",
+# same-name cp would silently overwrite and we'd lose one arch's updater.
+AARCH64_TARBALL="$AARCH64_BUNDLE/macos/${PRODUCT_NAME}.app.tar.gz"
+X86_64_TARBALL="$X86_64_BUNDLE/macos/${PRODUCT_NAME}.app.tar.gz"
+cp "$AARCH64_TARBALL"     "$STAGING/${PRODUCT_NAME}_aarch64.app.tar.gz"     2>/dev/null && echo "  aarch64 updater tar.gz copied" || echo "  WARN: no aarch64 tar.gz"
+cp "$AARCH64_TARBALL.sig" "$STAGING/${PRODUCT_NAME}_aarch64.app.tar.gz.sig" 2>/dev/null && echo "  aarch64 signature copied" || echo "  WARN: no aarch64 sig"
+cp "$X86_64_TARBALL"      "$STAGING/${PRODUCT_NAME}_x64.app.tar.gz"         2>/dev/null && echo "  x86_64 updater tar.gz copied" || echo "  WARN: no x86_64 tar.gz"
+cp "$X86_64_TARBALL.sig"  "$STAGING/${PRODUCT_NAME}_x64.app.tar.gz.sig"     2>/dev/null && echo "  x86_64 signature copied" || echo "  WARN: no x86_64 sig"
 
 echo ""
 echo "  Artifacts in $STAGING:"
