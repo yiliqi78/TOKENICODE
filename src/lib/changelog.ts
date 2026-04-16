@@ -23,15 +23,22 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: '2026-04-16',
     highlights: {
       zh: [
+        'Cmd+F 页内文本查找',
         'CCswitch + Claude Desktop 共存 — 第三方 Provider 不再 401',
-        'hook 生命周期事件不再刷屏警告',
       ],
       en: [
+        'Cmd+F find in page',
         'CCswitch + Claude Desktop coexistence — third-party providers no longer 401',
-        'Hook lifecycle events no longer flood console warnings',
       ],
     },
     categories: [
+      {
+        label: { zh: '新功能', en: 'New' },
+        items: {
+          zh: ['Cmd+F / Ctrl+F 页内文本查找 — 实时高亮 + 上下跳转'],
+          en: ['Cmd+F / Ctrl+F find in page — live highlighting + navigation'],
+        },
+      },
       {
         label: { zh: '修复', en: 'Fixed' },
         items: {
