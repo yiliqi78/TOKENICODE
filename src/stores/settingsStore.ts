@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { settingsEvents } from '../lib/settingsEvents';
 
 // --- Types ---
 
@@ -119,7 +120,7 @@ function nextTheme(current: Theme): Theme {
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       theme: 'system',
       colorTheme: 'black',
       sidebarOpen: true,
@@ -184,11 +185,17 @@ export const useSettingsStore = create<SettingsState>()(
       setWorkingDirectory: (dir) =>
         set(() => ({ workingDirectory: dir })),
 
-      setSelectedModel: (model) =>
-        set(() => ({ selectedModel: model })),
+      setSelectedModel: (model) => {
+        const old = get().selectedModel;
+        set(() => ({ selectedModel: model }));
+        if (old !== model) settingsEvents.emit('model-changed', { old, next: model });
+      },
 
-      setSessionMode: (mode) =>
-        set(() => ({ sessionMode: mode })),
+      setSessionMode: (mode) => {
+        const old = get().sessionMode;
+        set(() => ({ sessionMode: mode }));
+        if (old !== mode) settingsEvents.emit('session-mode-changed', { old, next: mode });
+      },
 
       setLocale: (locale) =>
         set(() => ({ locale })),
@@ -211,8 +218,11 @@ export const useSettingsStore = create<SettingsState>()(
       setSetupCompleted: (completed) =>
         set(() => ({ setupCompleted: completed })),
 
-      setThinkingLevel: (level) =>
-        set(() => ({ thinkingLevel: level })),
+      setThinkingLevel: (level) => {
+        const old = get().thinkingLevel;
+        set(() => ({ thinkingLevel: level }));
+        if (old !== level) settingsEvents.emit('thinking-changed', { old, next: level });
+      },
 
       setUpdateAvailable: (available, version) =>
         set(() => ({
