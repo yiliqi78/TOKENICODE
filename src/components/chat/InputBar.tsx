@@ -870,9 +870,12 @@ export function InputBar() {
             const tab = state.tabs.get(tabId);
             if (!tab) return {};
             const cleanedMessages = tab.messages.filter(m => m.type !== 'thinking');
-            if (cleanedMessages.length === tab.messages.length) return {};
+            const hadPartialThinking = !!tab.partialThinking;
+            if (cleanedMessages.length === tab.messages.length && !hadPartialThinking) return {};
             const newTabs = new Map(state.tabs);
-            newTabs.set(tabId, { ...tab, messages: cleanedMessages });
+            // B4: also pre-strip in-flight partialThinking — leaving it would resurface
+            // an old-model thinking fragment after resume kicks off, surprising the user.
+            newTabs.set(tabId, { ...tab, messages: cleanedMessages, partialThinking: '' });
             return { tabs: newTabs, sessionCache: newTabs };
           });
           stdinId = undefined;
@@ -900,9 +903,11 @@ export function InputBar() {
               const tab = state.tabs.get(tabId);
               if (!tab) return {};
               const cleanedMessages = tab.messages.filter(m => m.type !== 'thinking');
-              if (cleanedMessages.length === tab.messages.length) return {}; // nothing to clean
+              const hadPartialThinking = !!tab.partialThinking;
+              if (cleanedMessages.length === tab.messages.length && !hadPartialThinking) return {};
               const newTabs = new Map(state.tabs);
-              newTabs.set(tabId, { ...tab, messages: cleanedMessages });
+              // B4: also pre-strip in-flight partialThinking — see same rationale above.
+              newTabs.set(tabId, { ...tab, messages: cleanedMessages, partialThinking: '' });
               return { tabs: newTabs, sessionCache: newTabs };
             });
             stdinId = undefined;
