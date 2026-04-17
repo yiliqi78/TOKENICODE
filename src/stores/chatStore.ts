@@ -252,6 +252,15 @@ export function generateMessageId(): string {
   return `msg_${Date.now()}_${messageCounter}`;
 }
 
+let interruptedCounter = 0;
+
+/** Unique ID for interrupted-content messages (thinking/text preserved on stop/exit).
+ *  Date.now() alone collides under high-concurrency interrupts (#B5). */
+export function generateInterruptedId(kind: 'thinking' | 'text'): string {
+  interruptedCounter += 1;
+  return `interrupted_${kind}_${Date.now()}_${interruptedCounter}`;
+}
+
 /** Default empty tab for when no tab is selected */
 const EMPTY_TAB: TabSession = {
   tabId: '',

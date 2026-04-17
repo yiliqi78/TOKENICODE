@@ -1,5 +1,5 @@
 import { useCallback, type MutableRefObject } from 'react';
-import { useChatStore, generateMessageId, type ChatMessage } from '../stores/chatStore';
+import { useChatStore, generateMessageId, generateInterruptedId, type ChatMessage } from '../stores/chatStore';
 import { useSettingsStore, mapSessionModeToPermissionMode, getEffectiveMode } from '../stores/settingsStore';
 import { useSessionStore, setOrphanDrainCallback } from '../stores/sessionStore';
 import { useAgentStore, resolveAgentId, getAgentDepth } from '../stores/agentStore';
@@ -787,7 +787,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           const bgText = bgTab?.partialText ?? '';
           if (bgThinking.trim().length > 0) {
             store.addMessage(tabId, {
-              id: `interrupted_thinking_${Date.now()}`,
+              id: generateInterruptedId('thinking'),
               role: 'assistant',
               type: 'thinking',
               content: bgThinking,
@@ -796,7 +796,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           }
           if (bgText.trim().length > 0) {
             store.addMessage(tabId, {
-              id: `interrupted_text_${Date.now()}`,
+              id: generateInterruptedId('text'),
               role: 'assistant',
               type: 'text',
               content: bgText,
@@ -2069,7 +2069,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           });
           if (pThinking.trim().length > 0) {
             addMessage({
-              id: `interrupted_thinking_${Date.now()}`,
+              id: generateInterruptedId('thinking'),
               role: 'assistant',
               type: 'thinking',
               content: pThinking,
@@ -2078,7 +2078,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           }
           if (pText.trim().length > 0) {
             addMessage({
-              id: `interrupted_text_${Date.now()}`,
+              id: generateInterruptedId('text'),
               role: 'assistant',
               type: 'text',
               content: pText,

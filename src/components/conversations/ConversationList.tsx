@@ -400,6 +400,9 @@ export function ConversationList() {
         useSettingsStore.getState().setWorkingDirectory('');
       }
       useChatStore.getState().removeFromCache(sessionId);
+      // Drop the per-tab agent cache — otherwise creating a new session
+      // that reuses this ID shows the ghost agents of the old one (#B9).
+      useAgentStore.getState().clearCacheForTab(sessionId);
       fetchSessions();
     } catch (err) {
       console.error('Failed to delete session:', err);
