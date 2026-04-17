@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { useChatStore, useActiveTab, getActiveTabState, generateMessageId } from '../../stores/chatStore';
+import { useChatStore, useActiveTab, getActiveTabState, generateMessageId, generateInterruptedId } from '../../stores/chatStore';
 import { useSettingsStore, MODEL_OPTIONS, mapSessionModeToPermissionMode, setSessionModeLocal, type ThinkingLevel } from '../../stores/settingsStore';
 import { bridge, onClaudeStream, onClaudeStderr, onSessionExit, onPermissionRequest, type UnifiedCommand, type PermissionRequest } from '../../lib/tauri-bridge';
 import { ModelSelector } from './ModelSelector';
@@ -1477,7 +1477,7 @@ export function InputBar() {
                   const stopPThinking = stopTab?.partialThinking ?? '';
                   if (stopPThinking.trim().length > 0) {
                     useChatStore.getState().addMessage(stopTabId, {
-                      id: `interrupted_thinking_${Date.now()}`,
+                      id: generateInterruptedId('thinking'),
                       role: 'assistant',
                       type: 'thinking',
                       content: stopPThinking,
@@ -1486,7 +1486,7 @@ export function InputBar() {
                   }
                   if (stopPText.trim().length > 0) {
                     useChatStore.getState().addMessage(stopTabId, {
-                      id: `interrupted_text_${Date.now()}`,
+                      id: generateInterruptedId('text'),
                       role: 'assistant',
                       type: 'text',
                       content: stopPText,
