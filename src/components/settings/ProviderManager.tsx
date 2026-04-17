@@ -204,6 +204,11 @@ export function ProviderManager({ alwaysExpanded = false }: { alwaysExpanded?: b
 
       {isExpanded && (
         <div className="space-y-3 ml-0">
+          {/* CC Switch coexistence notice */}
+          <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12px] text-warning">
+            {t('provider.ccswitchNotice')}
+          </div>
+
           {/* Inherit system config option */}
           <div className={`rounded-lg text-[13px] transition-smooth border
             ${!activeProviderId

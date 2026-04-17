@@ -363,6 +363,7 @@ const messages: Record<Locale, Record<string, string>> = {
 
     // Provider
     'provider.title': 'API 提供商',
+    'provider.ccswitchNotice': '如果打开 CC Switch，请使用「继承系统配置」。',
     'provider.inherit': '继承系统配置',
     'provider.inheritDesc': '使用外部工具（如 CC-Switch）或系统环境变量的配置',
     'provider.addNew': '新增提供商',
@@ -1071,6 +1072,7 @@ const messages: Record<Locale, Record<string, string>> = {
 
     // Provider
     'provider.title': 'API Provider',
+    'provider.ccswitchNotice': 'If CC Switch is enabled, please use "System Config".',
     'provider.inherit': 'System Config',
     'provider.inheritDesc': 'Use external tools (e.g. CC-Switch) or system environment variables',
     'provider.addNew': 'Add Provider',
