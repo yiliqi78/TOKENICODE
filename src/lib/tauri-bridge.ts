@@ -415,7 +415,7 @@ export const bridge = {
 
   // AI title generation (spawns separate CLI process, no channel interference)
   generateSessionTitle: (userMessage: string, assistantMessage: string, providerId?: string) =>
-    invoke<string>('generate_session_title', { userMessage, assistantMessage, providerId: providerId || null }),
+    invoke<string | null>('generate_session_title', { userMessage, assistantMessage, providerId: providerId || null }),
 
   // --- Provider Management ---
 

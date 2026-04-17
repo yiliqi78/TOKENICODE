@@ -1,5 +1,10 @@
 mod commands;
+pub mod env_manager;
 mod protocol;
+// windows_ps compiles on all platforms so its pure-logic tests run on
+// non-Windows CI; it is only *invoked* from `#[cfg(target_os = "windows")]`
+// code paths.
+mod windows_ps;
 
 use commands::{ManagedProcess, ProcessManager, SessionInfo, StartSessionParams, StdinManager};
 // protocol module kept for ControlRequest (send_control_request) and tests
@@ -6500,15 +6505,30 @@ async fn save_archived_sessions(data: Value) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| format!("Failed to write archived sessions: {}", e))
 }
 
+/// Max wall-clock time the title-gen spawn may run. Beyond this we return
+/// `Ok(None)` — the frontend shows a default title and the user can rename
+/// later. Chosen for two reasons:
+///   1. Title gen is best-effort cosmetic metadata; hanging the main stream on
+///      it (v0.5.2-era regression) is never acceptable.
+///   2. Haiku round-trips complete in ~2–4s typical. 10s covers cold TLS +
+///      provider warmup without tolerating outright hangs.
+const TITLE_GEN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// Generate a short AI title for a session by spawning a separate Claude CLI process.
 /// Uses Haiku model for fast, cheap title generation. Completely isolated from the
 /// main conversation channel — spawns a new process that exits after one response.
+///
+/// Returns:
+///   - `Ok(Some(title))` — successful, usable title
+///   - `Ok(None)` — timeout, empty/unparseable output, or provider missing haiku
+///     mapping. Caller should fall back to default title. Never blocks the UI.
+///   - `Err(msg)` — hard failure worth surfacing (binary missing, bad input).
 #[tauri::command]
 async fn generate_session_title(
     user_message: String,
     assistant_message: String,
     provider_id: Option<String>,
-) -> Result<String, String> {
+) -> Result<Option<String>, String> {
     // Safe UTF-8 truncation (don't slice mid-character)
     fn safe_truncate(s: &str, max_bytes: usize) -> &str {
         if s.len() <= max_bytes {
@@ -6543,7 +6563,11 @@ async fn generate_session_title(
         });
         match haiku_model {
             Some(m) => (env, keys, m),
-            None => return Err("SKIP: no haiku mapping for provider".to_string()),
+            None => {
+                // Provider has no haiku mapping — degrade silently, don't error.
+                eprintln!("[title-gen] provider {} has no haiku mapping, skipping", pid);
+                return Ok(None);
+            }
         }
     } else {
         (
@@ -6574,62 +6598,74 @@ async fn generate_session_title(
         args.extend(["--setting-sources".to_string(), "project,local".to_string()]);
     }
 
-    let mut cmd = tokio::process::Command::new(&claude_bin);
-    cmd.args(&args)
-        .env("PATH", &enriched_path)
-        .env_remove("CLAUDECODE") // Allow nested CLI launch
-        .env_remove("CLAUDE_CODE_ENTRY") // Remove any other nesting guards
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
+    // Build the unified env config. Replaces ~20 lines of scattered .env /
+    // .env_remove calls with a single grep-able "ClaudeEnvConfig" site.
+    let auth_mode = if provider_id.is_some() {
+        env_manager::AuthMode::ThirdParty
+    } else {
+        env_manager::AuthMode::Native
+    };
+    let mut extra = provider_env.clone();
 
-    // Disable MSYS2 auto path conversion on Windows (Chinese path fix)
-    #[cfg(target_os = "windows")]
-    cmd.env("MSYS_NO_PATHCONV", "1").env("MSYS2_ARG_CONV_EXCL", "*");
-
-    // Inject provider env vars
-    for (k, v) in &provider_env {
-        cmd.env(k, v);
-    }
-    for k in &provider_keys_to_remove {
-        cmd.env_remove(k);
-    }
-    // Neutralize Claude Desktop host env vars (same fix as main session)
-    if provider_id.is_some() {
-        cmd.env_remove("CLAUDE_CODE_OAUTH_TOKEN");
-        cmd.env_remove("CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST");
-        cmd.env_remove("CLAUDE_CODE_ENTRYPOINT");
-        cmd.env("ANTHROPIC_AUTH_TOKEN", "");
-        cmd.env("CLAUDE_CODE_OAUTH_TOKEN", "");
-    }
-
-    // Inject proxy env vars from login shell for GUI apps
+    // Inject proxy env vars from login shell for GUI apps (macOS/Linux only)
     #[cfg(not(target_os = "windows"))]
     {
         let proxy_env = login_shell_proxy_env();
         for (k, v) in proxy_env {
-            if std::env::var(k).is_err() && !provider_env.contains_key(k) {
-                cmd.env(k, v);
+            if std::env::var(k).is_err() && !extra.contains_key(k) {
+                extra.insert(k.clone(), v.clone());
             }
         }
     }
+
+    let cfg = env_manager::ClaudeEnvConfig {
+        auth_mode,
+        enriched_path: Some(enriched_path),
+        extra,
+        extra_remove: provider_keys_to_remove,
+    };
+
+    let mut cmd = tokio::process::Command::new(&claude_bin);
+    cmd.args(&args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    env_manager::apply_to_command(&mut cmd, &cfg);
 
     // Suppress console window on Windows
     #[cfg(target_os = "windows")]
     cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
 
-    let output = cmd
+    // Spawn + wait under a timeout. If the child hangs (e.g. 401-retry loop
+    // inside the Haiku CLI when ANTHROPIC_AUTH_TOKEN was set to ""),
+    // `tokio::time::timeout` fires and we degrade instead of blocking the
+    // main streaming loop forever.
+    let child = cmd
         .spawn()
-        .map_err(|e| format!("Failed to spawn claude for title gen: {}", e))?
-        .wait_with_output()
-        .await
-        .map_err(|e| format!("Failed to wait for title gen process: {}", e))?;
+        .map_err(|e| format!("Failed to spawn claude for title gen: {}", e))?;
+
+    let output = match tokio::time::timeout(TITLE_GEN_TIMEOUT, child.wait_with_output()).await {
+        Ok(Ok(out)) => out,
+        Ok(Err(e)) => {
+            return Err(format!("Failed to wait for title gen process: {}", e));
+        }
+        Err(_) => {
+            eprintln!(
+                "[title-gen] timed out after {}s, returning default title",
+                TITLE_GEN_TIMEOUT.as_secs()
+            );
+            return Ok(None);
+        }
+    };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "Title gen process failed: {}",
+        eprintln!(
+            "[title-gen] process failed (status={:?}): {}",
+            output.status.code(),
             stderr.chars().take(200).collect::<String>()
-        ));
+        );
+        return Ok(None);
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -6645,17 +6681,17 @@ async fn generate_session_title(
             .trim_matches('"')
             .to_string();
         if title.is_empty() {
-            return Err("Empty title generated".to_string());
+            return Ok(None);
         }
-        return Ok(title);
+        return Ok(Some(title));
     }
 
     // Fallback: if not valid JSON, try to use raw stdout as title
     let raw = stdout.trim().trim_matches('"').to_string();
     if raw.is_empty() || raw.len() > 200 {
-        return Err("Could not parse title from CLI output".to_string());
+        return Ok(None);
     }
-    Ok(raw)
+    Ok(Some(raw))
 }
 
 /// Open a native terminal window to run `claude login`.
