@@ -1065,10 +1065,15 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
       }
     }
 
-    // Helper: clear accumulated partial text (it will be replaced by the full message)
+    // Helper: clear accumulated partial text for THIS tab only.
+    // B1: flush must be scoped to msgStdinId — calling flushStreamBuffer() with
+    //     no args previously wiped every active session's rAF buffer, causing
+    //     cross-tab data loss when one tab's turn completed while another was
+    //     streaming. B2: buffer drop happens inside flushStreamBuffer (delete
+    //     from _streamBuffers) so no late rAF can repopulate this tab's partial
+    //     after we clear it below — flush → clear is atomic w.r.t. this tab.
     const clearPartial = () => {
-      // Flush any buffered text so the final tokens aren't lost
-      flushStreamBuffer();
+      if (msgStdinId) flushStreamBuffer(msgStdinId);
       const tabData = useChatStore.getState().getTab(tabId);
       if (tabData && (tabData.isStreaming || tabData.partialText || tabData.partialThinking)) {
         const newTabs = new Map(useChatStore.getState().tabs);

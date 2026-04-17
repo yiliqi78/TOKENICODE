@@ -306,6 +306,38 @@ function App() {
             cancelLabel: tRef.current('common.cancel'),
           });
           if (confirmed) {
+            // B8: flush in-flight streams and materialize any partial
+            // text/thinking as interrupted messages before we exit. Without
+            // this, users lose the last rAF-buffered delta (up to ~16ms of
+            // tokens) and any text/thinking already in partial state.
+            try {
+              const { flushStreamBuffer } = await import('./hooks/useStreamProcessor');
+              const { useChatStore: csMod, generateInterruptedId } = await import('./stores/chatStore');
+              flushStreamBuffer();
+              const cs = csMod.getState();
+              for (const [tabId, tab] of cs.tabs) {
+                if (tab.partialThinking && tab.partialThinking.trim().length > 0) {
+                  cs.addMessage(tabId, {
+                    id: generateInterruptedId('thinking'),
+                    role: 'assistant',
+                    type: 'thinking',
+                    content: tab.partialThinking,
+                    timestamp: Date.now(),
+                  });
+                }
+                if (tab.partialText && tab.partialText.trim().length > 0) {
+                  cs.addMessage(tabId, {
+                    id: generateInterruptedId('text'),
+                    role: 'assistant',
+                    type: 'text',
+                    content: tab.partialText,
+                    timestamp: Date.now(),
+                  });
+                }
+              }
+            } catch (err) {
+              console.warn('[TOKENICODE:close] stream flush failed', err);
+            }
             const { exit } = await import('@tauri-apps/plugin-process');
             await exit(0);
           }
