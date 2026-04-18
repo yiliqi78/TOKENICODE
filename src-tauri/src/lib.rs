@@ -1,5 +1,6 @@
 mod commands;
 pub mod env_manager;
+mod events;
 mod protocol;
 // windows_ps compiles on all platforms so its pure-logic tests run on
 // non-Windows CI; it is only *invoked* from `#[cfg(target_os = "windows")]`
@@ -7,6 +8,7 @@ mod protocol;
 mod windows_ps;
 
 use commands::{ManagedProcess, ProcessManager, SessionInfo, StartSessionParams, StdinManager};
+use crate::events::emit_to_frontend;
 // protocol module kept for ControlRequest (send_control_request) and tests
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -1722,17 +1724,6 @@ async fn start_claude_session(
             },
         )
         .await;
-
-    // Helper: emit to the main webview using emit_to for reliable delivery
-    fn emit_to_frontend(app: &AppHandle, event: &str, payload: Value) -> Result<(), String> {
-        if let Err(e1) = app.emit_to("main", event, payload.clone()) {
-            // Fallback: use global emit
-            if let Err(e2) = app.emit(event, payload) {
-                return Err(format!("emit_to failed: {}, emit failed: {}", e1, e2));
-            }
-        }
-        Ok(())
-    }
 
     // Spawn stdout reader — streams NDJSON to frontend, intercepts control_request
     let app_clone = app.clone();
@@ -3593,7 +3584,8 @@ async fn watch_directory(
             if paths.is_empty() {
                 return;
             }
-            let _ = app_clone.emit(
+            let _ = emit_to_frontend(
+                &app_clone,
                 "fs:change",
                 serde_json::json!({
                     "kind": kind,
@@ -4867,7 +4859,8 @@ async fn is_china_network() -> bool {
 /// Install Claude CLI via npm. Supports system npm or local Node.js npm.
 /// Uses --prefix to install into app-local directory when using local Node.js.
 async fn install_cli_via_npm(app: &AppHandle, china: bool) -> Result<(), String> {
-    let _ = app.emit(
+    let _ = emit_to_frontend(
+        app,
         "setup:download:progress",
         serde_json::json!({
             "downloaded": 0, "total": 0, "percent": 0, "phase": "npm_fallback"
@@ -4928,7 +4921,8 @@ async fn install_cli_via_npm(app: &AppHandle, china: bool) -> Result<(), String>
             cache_dir.display()
         );
 
-        let _ = app.emit(
+        let _ = emit_to_frontend(
+            app,
             "setup:download:progress",
             serde_json::json!({
                 "downloaded": 0, "total": 0, "percent": 50, "phase": "npm_fallback"
@@ -4969,7 +4963,8 @@ async fn install_cli_via_npm(app: &AppHandle, china: bool) -> Result<(), String>
         match result {
             Ok(Ok(output)) if output.status.success() => {
                 eprintln!("npm install succeeded via {}", registry);
-                let _ = app.emit(
+                let _ = emit_to_frontend(
+                    app,
                     "setup:download:progress",
                     serde_json::json!({
                         "downloaded": 0, "total": 0, "percent": 100, "phase": "installing"
@@ -5255,7 +5250,7 @@ async fn update_claude_cli(app: AppHandle) -> Result<String, String> {
     let mut last_err = String::new();
     for registry in &registries {
         eprintln!("[update_claude_cli] trying npm registry: {}", registry);
-        let _ = app.emit("setup:download:progress", serde_json::json!({
+        let _ = emit_to_frontend(&app, "setup:download:progress", serde_json::json!({
             "downloaded": 0, "total": 0, "percent": 30, "phase": "npm_fallback"
         }));
 
@@ -5295,7 +5290,7 @@ async fn update_claude_cli(app: AppHandle) -> Result<String, String> {
                 });
                 let version = check.version.unwrap_or_else(|| "unknown".to_string());
                 eprintln!("[update_claude_cli] npm installed v{} from {}", version, registry);
-                let _ = app.emit("setup:download:progress", serde_json::json!({
+                let _ = emit_to_frontend(&app, "setup:download:progress", serde_json::json!({
                     "downloaded": 0, "total": 0, "percent": 100, "phase": "complete"
                 }));
 
@@ -5419,7 +5414,8 @@ async fn install_claude_cli(app: AppHandle) -> Result<(), String> {
     let can_skip_install = existing_cli.is_some();
     if can_skip_install {
         eprintln!("CLI already found on system, skipping installation");
-        let _ = app.emit(
+        let _ = emit_to_frontend(
+            &app,
             "setup:download:progress",
             serde_json::json!({
                 "downloaded": 0, "total": 0, "percent": 100, "phase": "complete"
@@ -5611,7 +5607,8 @@ fn finalize_cli_install_paths(app: &AppHandle) {
         let _ = app;
     }
 
-    let _ = app.emit(
+    let _ = emit_to_frontend(
+        app,
         "setup:download:progress",
         serde_json::json!({
             "downloaded": 0, "total": 0, "percent": 100, "phase": "complete"
@@ -5865,7 +5862,8 @@ async fn install_node_env_inner(app: &AppHandle, china: bool) -> Result<(), Stri
 
     for (i, url) in sources.iter().enumerate() {
         eprintln!("Trying Node.js download: {}", url);
-        let _ = app.emit(
+        let _ = emit_to_frontend(
+            app,
             "setup:download:progress",
             serde_json::json!({
                 "downloaded": 0, "total": 0, "percent": 0, "phase": "node_downloading"
@@ -5889,7 +5887,8 @@ async fn install_node_env_inner(app: &AppHandle, china: bool) -> Result<(), Stri
         .ok_or_else(|| format!("All Node.js download sources failed: {}", last_err))?;
 
     // Extract
-    let _ = app.emit(
+    let _ = emit_to_frontend(
+        app,
         "setup:download:progress",
         serde_json::json!({
             "downloaded": 0, "total": 0, "percent": 85, "phase": "node_extracting"
@@ -5915,7 +5914,8 @@ async fn install_node_env_inner(app: &AppHandle, china: bool) -> Result<(), Stri
         }
     }
 
-    let _ = app.emit(
+    let _ = emit_to_frontend(
+        app,
         "setup:download:progress",
         serde_json::json!({
             "downloaded": 0, "total": 0, "percent": 100, "phase": "node_complete"
@@ -6011,7 +6011,8 @@ async fn install_git_bash_inner(app: &AppHandle, china: bool) -> Result<(), Stri
 
     for url in &sources {
         eprintln!("Trying PortableGit download: {}", url);
-        let _ = app.emit(
+        let _ = emit_to_frontend(
+            app,
             "setup:download:progress",
             serde_json::json!({
                 "downloaded": 0, "total": 0, "percent": 0, "phase": "git_downloading"
@@ -6039,7 +6040,8 @@ async fn install_git_bash_inner(app: &AppHandle, china: bool) -> Result<(), Stri
     std::fs::write(&temp_path, &bytes)
         .map_err(|e| format!("Failed to write PortableGit archive: {}", e))?;
 
-    let _ = app.emit(
+    let _ = emit_to_frontend(
+        app,
         "setup:download:progress",
         serde_json::json!({
             "downloaded": 0, "total": 0, "percent": 85, "phase": "git_extracting"
@@ -6086,7 +6088,8 @@ async fn install_git_bash_inner(app: &AppHandle, china: bool) -> Result<(), Stri
         return Err("bash.exe not found after PortableGit extraction".to_string());
     }
 
-    let _ = app.emit(
+    let _ = emit_to_frontend(
+        app,
         "setup:download:progress",
         serde_json::json!({
             "downloaded": 0, "total": 0, "percent": 100, "phase": "git_complete"
@@ -6129,7 +6132,8 @@ async fn download_with_progress(
         } else {
             0
         };
-        let _ = app.emit(
+        let _ = emit_to_frontend(
+            app,
             "setup:download:progress",
             serde_json::json!({
                 "downloaded": downloaded, "total": total, "percent": percent, "phase": phase
@@ -6218,15 +6222,6 @@ fn extract_node_archive(
 /// Start the Claude OAuth login flow by running `claude login`.
 #[tauri::command]
 async fn start_claude_login(app: AppHandle) -> Result<(), String> {
-    fn emit_to_frontend(app: &AppHandle, event: &str, payload: Value) -> Result<(), String> {
-        if let Err(e1) = app.emit_to("main", event, payload.clone()) {
-            if let Err(e2) = app.emit(event, payload) {
-                return Err(format!("emit_to failed: {}, emit failed: {}", e1, e2));
-            }
-        }
-        Ok(())
-    }
-
     let claude_bin = find_claude_binary().ok_or_else(|| {
         "Claude CLI not found. Please install it first via the Setup Wizard.".to_string()
     })?;
