@@ -33,96 +33,37 @@ export function formatErrorForUser(raw: string): string {
   return `${friendly}\n\n<details>\n<summary>${t('error.showDetails')}</summary>\n\n\`\`\`\n${raw}\n\`\`\`\n\n</details>`;
 }
 
-// --- Streaming text buffer (rAF-throttled + interval fallback, per-stdinId) ---
-// Coalesces rapid text_delta / thinking_delta events into a single state update
-// per animation frame (~60/s), preventing JS main thread starvation from
-// excessive React re-renders when the message list is large.
-//
-// CRITICAL: rAF alone is unreliable — heavy React re-renders can block the
-// rendering pipeline, preventing rAF callbacks from firing. A 200ms setInterval
-// fallback ensures buffered text is always flushed even when rAF is starved.
-//
-// TK-329 fix: each session gets its own buffer to prevent cross-contamination
-// when multiple sessions stream concurrently.
-interface _StreamBuffer {
-  text: string;
-  thinking: string;
-  raf: number;
-}
-const _streamBuffers = new Map<string, _StreamBuffer>();
+// --- Streaming text buffer ---
+// Ownership of the rAF buffer, orphan queue, and completion guard lives in
+// StreamController (src/stream/StreamController.ts). This module is now a
+// thin call-site for the singleton. See roadmap §4.3.1.
+import { streamController, DEFAULT_CONFIG as _STREAM_CONFIG } from '../stream/instance';
 
-// --- Orphan queue (#57-B) ---
-// When _doFlush fires after the stdinId has been unregistered AND
-// selectedSessionId is null, the previous code silently wiped the buffer.
-// Instead, stash the text in an orphan queue keyed by stdinId. The queue is
-// drained when registerStdinTab(stdinId, tabId) is later called.
-interface _OrphanEntry { text: string; thinking: string; expiresAt: number; }
-const _ORPHAN_TTL_MS = 5_000;
-const _ORPHAN_PER_STDIN_CAP_CHARS = 1 * 1024 * 1024;
-const _ORPHAN_TOTAL_CAP_CHARS = 10 * 1024 * 1024;
-const _orphanQueue = new Map<string, _OrphanEntry>();
-
-function _orphanTotalChars(): number {
-  let total = 0;
-  for (const entry of _orphanQueue.values()) total += entry.text.length + entry.thinking.length;
-  return total;
-}
-
-function _stashOrphan(stdinId: string, text: string, thinking: string) {
-  if (!text && !thinking) return;
-  _expireOrphans();
-  const existing = _orphanQueue.get(stdinId);
-  const merged: _OrphanEntry = existing
-    ? { text: existing.text + text, thinking: existing.thinking + thinking, expiresAt: Date.now() + _ORPHAN_TTL_MS }
-    : { text, thinking, expiresAt: Date.now() + _ORPHAN_TTL_MS };
-  const mergedChars = merged.text.length + merged.thinking.length;
-  if (mergedChars > _ORPHAN_PER_STDIN_CAP_CHARS) {
-    console.error('[stream-flush] orphan entry exceeds per-stdinId cap, dropping:', stdinId);
-    _orphanQueue.delete(stdinId);
-    return;
-  }
-  _orphanQueue.set(stdinId, merged);
-  if (_orphanTotalChars() > _ORPHAN_TOTAL_CAP_CHARS) {
-    while (_orphanTotalChars() > _ORPHAN_TOTAL_CAP_CHARS) {
-      const oldest = _orphanQueue.keys().next().value;
-      if (!oldest) break;
-      _orphanQueue.delete(oldest);
-    }
-  }
-}
-
-function _expireOrphans() {
-  const now = Date.now();
-  for (const [id, entry] of _orphanQueue.entries()) {
-    if (entry.expiresAt <= now) _orphanQueue.delete(id);
-  }
-}
-
-/** Drain any orphan buffer for the given stdinId into its newly known tab. */
+/** Drain any orphan buffer for the given stdinId into its newly known tab.
+ *  Called by sessionStore.registerStdinTab via the registered callback. */
 export function drainOrphanBuffer(stdinId: string, tabId: string) {
-  _expireOrphans();
-  const entry = _orphanQueue.get(stdinId);
-  if (!entry) return;
-  const store = useChatStore.getState();
-  if (entry.text) store.updatePartialMessage(tabId, entry.text);
-  if (entry.thinking) store.updatePartialThinking(tabId, entry.thinking);
-  _orphanQueue.delete(stdinId);
+  streamController.drainOrphan(stdinId, tabId);
 }
 
-/** Test-only seam for B3 orphan-queue regression coverage. Not part of the
+/** Test-only seam for orphan-queue regression coverage. Not part of the
  *  runtime API surface — do not import from production code. */
 export const __orphanTesting = {
-  stash: _stashOrphan,
-  expire: _expireOrphans,
-  size: (): number => _orphanQueue.size,
-  has: (stdinId: string): boolean => _orphanQueue.has(stdinId),
-  get: (stdinId: string) => _orphanQueue.get(stdinId),
-  clear: () => _orphanQueue.clear(),
-  totalChars: _orphanTotalChars,
-  TTL_MS: _ORPHAN_TTL_MS,
-  PER_STDIN_CAP: _ORPHAN_PER_STDIN_CAP_CHARS,
-  TOTAL_CAP: _ORPHAN_TOTAL_CAP_CHARS,
+  stash: (stdinId: string, text: string, thinking: string) =>
+    streamController.stashOrphan(stdinId, text, thinking),
+  expire: () => streamController.expireOrphans(),
+  size: (): number => streamController.__testing.orphansSize(),
+  has: (stdinId: string): boolean => streamController.__testing.hasOrphan(stdinId),
+  get: (stdinId: string) => streamController.__testing.getOrphan(stdinId),
+  clear: () => streamController.__testing.clear(),
+  totalChars: (): number => streamController.__testing.orphanTotalChars(),
+  TTL_MS: _STREAM_CONFIG.ttlMs,
+  PER_STDIN_CAP: _STREAM_CONFIG.perStdinCapChars,
+  TOTAL_CAP: _STREAM_CONFIG.totalCapChars,
 };
+
+// Register the drain callback so sessionStore.registerStdinTab can flush
+// orphaned buffers without creating a circular import dependency.
+setOrphanDrainCallback(drainOrphanBuffer);
 
 // --- Shared pendingCommand completion helper (#27) ---
 // Both foreground and background handlers must clear pendingCommandMsgId when
@@ -151,106 +92,11 @@ export function completePendingCommand(tabId: string, opts: CompletePendingComma
   store.setSessionMeta(tabId, { pendingCommandMsgId: undefined });
 }
 
-// Interval fallback: flush any stuck buffers every 200ms
-let _flushIntervalId: ReturnType<typeof setInterval> | null = null;
-
-function _ensureFlushInterval() {
-  if (_flushIntervalId) return;
-  _flushIntervalId = setInterval(() => {
-    for (const [stdinId, buf] of _streamBuffers) {
-      if (buf.text || buf.thinking) {
-        _doFlush(stdinId, buf);
-      }
-    }
-    // Stop interval when no active buffers remain
-    if (_streamBuffers.size === 0 && _flushIntervalId) {
-      clearInterval(_flushIntervalId);
-      _flushIntervalId = null;
-    }
-  }, 200);
-}
-
-function _getBuffer(stdinId: string): _StreamBuffer {
-  let buf = _streamBuffers.get(stdinId);
-  if (!buf) {
-    buf = { text: '', thinking: '', raf: 0 };
-    _streamBuffers.set(stdinId, buf);
-  }
-  return buf;
-}
-
-/** Core flush logic — shared by rAF callback and interval fallback. */
-function _doFlush(stdinId: string, buf: _StreamBuffer) {
-  if (!buf.text && !buf.thinking) return;
-
-  const mappedId = useSessionStore.getState().getTabForStdin(stdinId);
-  const tabId = mappedId || useSessionStore.getState().selectedSessionId || undefined;
-  if (!mappedId && tabId) {
-    console.warn('[stream-flush] stdinId mapping missing, fallback to selectedSessionId:', stdinId, '→', tabId);
-    useSessionStore.getState().registerStdinTab(stdinId, tabId);
-  }
-  if (!tabId) {
-    // Instead of silent wipe, stash text in orphan queue so a late
-    // registerStdinTab() can drain it. Bounded and TTL'd.
-    _stashOrphan(stdinId, buf.text, buf.thinking);
-    buf.text = '';
-    buf.thinking = '';
-    return;
-  }
-
-  const store = useChatStore.getState();
-  if (buf.text) {
-    store.updatePartialMessage(tabId, buf.text);
-    buf.text = '';
-  }
-  if (buf.thinking) {
-    store.updatePartialThinking(tabId, buf.thinking);
-    buf.thinking = '';
-  }
-}
-
-// Register the drain callback so sessionStore.registerStdinTab can flush
-// orphaned buffers without creating a circular import dependency.
-setOrphanDrainCallback(drainOrphanBuffer);
-
-function _scheduleStreamFlush(stdinId: string) {
-  const buf = _getBuffer(stdinId);
-  // Start the interval fallback on first buffer activity
-  _ensureFlushInterval();
-  if (buf.raf) return;
-  buf.raf = requestAnimationFrame(() => {
-    buf.raf = 0;
-    _doFlush(stdinId, buf);
-  });
-}
-
 /** Flush any buffered streaming text immediately (call before clearPartial).
  *  If stdinId is provided, flush only that session's buffer.
  *  If omitted, flush ALL buffers (backward compat). */
 export function flushStreamBuffer(stdinId?: string) {
-  const ids = stdinId ? [stdinId] : Array.from(_streamBuffers.keys());
-
-  for (const id of ids) {
-    const buf = _streamBuffers.get(id);
-    if (!buf) continue;
-
-    if (buf.raf) {
-      cancelAnimationFrame(buf.raf);
-      buf.raf = 0;
-    }
-    _doFlush(id, buf);
-  }
-
-  // Clean up buffers and stop interval when all cleared
-  if (!stdinId) {
-    _streamBuffers.clear();
-  } else {
-    _streamBuffers.delete(stdinId);
-  }
-  if (_streamBuffers.size === 0 && _flushIntervalId) {
-    clearInterval(_flushIntervalId);
-    _flushIntervalId = null;
-  }
+  streamController.flush(stdinId);
 }
 
 // --- File tree auto-refresh on file-mutating tool completions ---
@@ -1140,19 +986,13 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
           const text = evt.delta.text || '';
           if (text && msgStdinId) {
-            // Buffer text and flush via rAF to avoid excessive re-renders
-            // TK-329: per-stdinId buffer prevents cross-session contamination
-            const buf = _getBuffer(msgStdinId);
-            buf.text += text;
-            _scheduleStreamFlush(msgStdinId);
+            streamController.appendText(msgStdinId, text);
             agentActions.updatePhase(agentId, 'writing');
           }
         } else if (evt.type === 'content_block_delta' && evt.delta?.type === 'thinking_delta') {
           const thinkingText = evt.delta.thinking || '';
           if (thinkingText && msgStdinId) {
-            const buf = _getBuffer(msgStdinId);
-            buf.thinking += thinkingText;
-            _scheduleStreamFlush(msgStdinId);
+            streamController.appendThinking(msgStdinId, thinkingText);
             agentActions.updatePhase(agentId, 'thinking');
           } else {
             setActivityStatus({ phase: 'thinking' });
@@ -2219,9 +2059,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         if (msg.type === 'content_block_delta') {
           const text = msg.delta?.text || '';
           if (text && msgStdinId) {
-            const buf = _getBuffer(msgStdinId);
-            buf.text += text;
-            _scheduleStreamFlush(msgStdinId);
+            streamController.appendText(msgStdinId, text);
           }
         }
         break;
