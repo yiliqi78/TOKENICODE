@@ -647,6 +647,28 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         });
       }
     }
+    // B11: cached status may say 'running'/'reconnecting' but the process is gone
+    // (e.g. app restart, or ProcessExit handler was bypassed for this tab).
+    // Live processes here are tracked by stdinId; if the tab has no stdinId bound,
+    // treat the cache as stale and demote to 'idle' so the sidebar red dot clears.
+    const cachedActive = tab.sessionStatus === 'running' || tab.sessionStatus === 'reconnecting';
+    if (cachedActive) {
+      const hasStdinId = Boolean(get().tabs.get(tabId)?.sessionMeta.stdinId);
+      if (!hasStdinId) {
+        set((state) => {
+          const result = updateTab(state.tabs, tabId, (t) => ({
+            ...t,
+            sessionStatus: 'idle',
+            isStreaming: false,
+            partialText: '',
+            partialThinking: '',
+          }));
+          return result ?? {};
+        });
+        useSessionStore.getState().setSessionRunning(tabId, false);
+        return true;
+      }
+    }
     // Sync running state to sessionStore for sidebar indicator (FI-1 fix)
     useSessionStore.getState().setSessionRunning(tabId, tab.sessionStatus === 'running');
     return true;
