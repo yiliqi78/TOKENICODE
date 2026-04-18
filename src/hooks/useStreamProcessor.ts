@@ -109,6 +109,21 @@ export function drainOrphanBuffer(stdinId: string, tabId: string) {
   _orphanQueue.delete(stdinId);
 }
 
+/** Test-only seam for B3 orphan-queue regression coverage. Not part of the
+ *  runtime API surface — do not import from production code. */
+export const __orphanTesting = {
+  stash: _stashOrphan,
+  expire: _expireOrphans,
+  size: (): number => _orphanQueue.size,
+  has: (stdinId: string): boolean => _orphanQueue.has(stdinId),
+  get: (stdinId: string) => _orphanQueue.get(stdinId),
+  clear: () => _orphanQueue.clear(),
+  totalChars: _orphanTotalChars,
+  TTL_MS: _ORPHAN_TTL_MS,
+  PER_STDIN_CAP: _ORPHAN_PER_STDIN_CAP_CHARS,
+  TOTAL_CAP: _ORPHAN_TOTAL_CAP_CHARS,
+};
+
 // --- Shared pendingCommand completion helper (#27) ---
 // Both foreground and background handlers must clear pendingCommandMsgId when
 // a result or assistant event arrives. Without this, slash commands like /compact
