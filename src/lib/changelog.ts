@@ -19,6 +19,56 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.10.6',
+    date: '2026-04-18',
+    highlights: {
+      zh: [
+        'Windows 装不上 Claude CLI 的问题修好了（「不支持的 16 位应用程序」）',
+        '一批切会话、中断消息、卡「运行中」的老毛病都修了',
+        '跟 CC Switch 共存时会给出友好提示',
+      ],
+      en: [
+        'Fixed Windows Claude CLI install failure ("16-bit application not supported")',
+        'Batch of fixes for workspace switching, interrupted messages, and stuck "running" sessions',
+        'Friendly notice when CC Switch is installed alongside',
+      ],
+    },
+    categories: [
+      {
+        label: { zh: '新增', en: 'New' },
+        items: {
+          zh: [
+            '跟 CC Switch 共存时的友好提示 — 检测到同时装了 CC Switch，设置里会直接告诉你它俩怎么配合，不用自己琢磨',
+          ],
+          en: [
+            'CC Switch coexistence notice — when both are installed, Settings tells you how they work together',
+          ],
+        },
+      },
+      {
+        label: { zh: '修复', en: 'Fixed' },
+        items: {
+          zh: [
+            'Windows 装不上 Claude CLI — 之前装完打开会弹「不支持的 16 位应用程序」完全没法用。这版改成从官方直接下载绕开问题包，遇到坏掉的 CLI 会自动识别清理；设置 → CLI 新增「修复」按钮一键清理重装；国内用户自动挑版本最新的下载源',
+            '连续切换会话偶尔串流 / 丢流 — 刚切过去的会话看到别人的内容，或者自己发的消息直接没了。修好',
+            '中断消息后再发，容易绑错位置 — 重发的消息会误贴到上一条被中断的记录上。修好',
+            '重启后有会话卡在「运行中」 — 明明已经结束，界面上还一直转圈。修好',
+            '改完设置要刷新才生效 — 现在改完立即响应',
+            '标题生成偶尔卡住 — 加了 10 秒超时，不会再无限等待',
+          ],
+          en: [
+            'Windows Claude CLI install — previously crashed with "16-bit application not supported" and was unusable. Now downloads from the official source directly, self-heals corrupt installs, and Settings → CLI has a one-click Repair button. Mainland users auto-select the most up-to-date mirror',
+            'Occasional stream cross-talk / missing messages when switching sessions quickly — fixed',
+            'Sending after interrupting a message could attach the new message to the wrong record — fixed',
+            'Sessions stuck spinning as "running" after restart — fixed',
+            'Settings changes required a refresh to take effect — now instant',
+            'Title generation occasionally hung — now has a 10 s timeout',
+          ],
+        },
+      },
+    ],
+  },
+  {
     version: '0.10.5',
     date: '2026-04-17',
     highlights: {
