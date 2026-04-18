@@ -643,6 +643,10 @@ const messages: Record<Locale, Record<string, string>> = {
     'cli.delete': '删除',
     'cli.confirmDelete': '确定要删除此 CLI 吗？',
     'cli.inUse': '使用中',
+    'cli.repair': '修复',
+    'cli.repairTitle': '扫描并删除无法运行的 claude.exe（Windows 专用）',
+    'cli.repairNoneFound': '没有发现损坏的 CLI',
+    'cli.repairRemoved': '已移除 {count} 个损坏的 CLI，可点击"重试"重新安装',
 
     // Update
     'update.check': '检查更新',
@@ -1352,6 +1356,10 @@ const messages: Record<Locale, Record<string, string>> = {
     'cli.delete': 'Delete',
     'cli.confirmDelete': 'Are you sure you want to delete this CLI?',
     'cli.inUse': 'In Use',
+    'cli.repair': 'Repair',
+    'cli.repairTitle': 'Scan and remove unrunnable claude.exe files (Windows only)',
+    'cli.repairNoneFound': 'No corrupt CLI found',
+    'cli.repairRemoved': 'Removed {count} corrupt CLI file(s); click "Retry" to reinstall',
 
     // Update
     'update.check': 'Check for Updates',

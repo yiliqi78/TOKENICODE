@@ -366,6 +366,12 @@ export const bridge = {
   injectCliPath: (path: string) => invoke<string>('inject_cli_path', { path }),
   deleteCli: (path: string) => invoke<string>('delete_cli', { path }),
 
+  /** Scan all discoverable Claude CLIs and remove any that fail with
+   *  Windows error 193 ("不支持的 16 位应用程序" / corrupt .exe).
+   *  No-op on non-Windows. */
+  repairCli: () =>
+    invoke<{ scanned: string[]; removed: string[]; notes: string[] }>('repair_cli'),
+
   installClaudeCli: () =>
     invoke<void>('install_claude_cli'),
 

@@ -1525,14 +1525,10 @@ async fn start_claude_session(
             Ok(c) => c,
             Err(e) if e.raw_os_error() == Some(193) => {
                 // Error 193: not a valid Win32 application — binary is corrupt.
-                // Clean up the bad binary and try to find an alternative.
+                // Delete the exact file that failed (covers both ~/.claude/local/
+                // and npm-global paths) and fall back to the next candidate.
                 eprintln!("error 193 on '{}', cleaning up and retrying...", claude_bin);
-                if let Some(cli_dir) = cli_download_dir() {
-                    let suspect = cli_dir.join("claude.exe");
-                    if suspect.exists() {
-                        let _ = std::fs::remove_file(&suspect);
-                    }
-                }
+                remove_corrupt_claude_exe(&claude_bin);
                 let alt_bin = find_claude_binary().unwrap_or_else(|| "claude.cmd".to_string());
                 if alt_bin == claude_bin {
                     return Err(format!(
@@ -4533,6 +4529,52 @@ async fn run_claude_command(subcommand: String, cwd: Option<String>) -> Result<S
     }
 }
 
+/// Remove a claude.exe that Windows refuses to execute (error 193 / "16-bit application").
+///
+/// This covers the full set of known CLI locations, not just `~/.claude/local/`:
+///   - The AppLocal native-install dir (`cli_download_dir()`)
+///   - The app's npm-global prefix (where `@anthropic-ai/claude-code` lives)
+///
+/// For the npm case we also purge the `@anthropic-ai/claude-code` package dir
+/// so a subsequent scan falls back to the working `claude.cmd` shim (or triggers
+/// a clean reinstall), instead of re-discovering the same bad exe on the next run.
+#[cfg(target_os = "windows")]
+fn remove_corrupt_claude_exe(suspect_path: &str) {
+    let suspect = std::path::Path::new(suspect_path);
+    if suspect.exists() {
+        match std::fs::remove_file(suspect) {
+            Ok(()) => eprintln!("[cli_repair] removed corrupt exe: {}", suspect.display()),
+            Err(e) => eprintln!(
+                "[cli_repair] failed to remove {}: {}",
+                suspect.display(),
+                e
+            ),
+        }
+    }
+
+    // If the suspect lives inside our npm-global prefix, purge the pkg dir
+    // so find_claude_binary doesn't re-discover the same bad exe.
+    if let Ok(npm_dir) = npm_global_dir() {
+        let npm_dir_str = npm_dir.to_string_lossy().to_string();
+        if suspect_path.starts_with(npm_dir_str.as_str()) {
+            let pkg = npm_dir
+                .join("node_modules")
+                .join("@anthropic-ai")
+                .join("claude-code");
+            if pkg.exists() {
+                match std::fs::remove_dir_all(&pkg) {
+                    Ok(()) => eprintln!("[cli_repair] removed corrupt pkg: {}", pkg.display()),
+                    Err(e) => eprintln!(
+                        "[cli_repair] failed to remove pkg {}: {}",
+                        pkg.display(),
+                        e
+                    ),
+                }
+            }
+        }
+    }
+}
+
 /// Check whether the Claude CLI is installed and return its path and version.
 #[tauri::command]
 async fn check_claude_cli() -> Result<CliStatus, String> {
@@ -4646,18 +4688,22 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
                 Ok(_) => None,
                 Err(ref e) => {
                     eprintln!("check_claude_cli: failed to execute '{}': {}", path, e);
-                    // On Windows, error 193 means the binary is corrupt/incompatible.
-                    // Delete it and try to find a working alternative.
+                    // On Windows, error 193 means the binary is corrupt/incompatible
+                    // ("不支持的 16 位应用程序"). Covers two known failure modes:
+                    //   1. Native download truncated/corrupted in ~/.claude/local/
+                    //   2. npm-installed @anthropic-ai/claude-code shipped a broken
+                    //      Windows binary (upstream regression or optionalDep miss)
+                    // In both cases, delete the corrupt file at the exact path that
+                    // just failed, and for the npm case also purge the pkg so
+                    // find_claude_binary falls back to the working .cmd shim.
                     #[cfg(target_os = "windows")]
                     {
                         if e.raw_os_error() == Some(193) {
-                            eprintln!("error 193: removing corrupt binary and re-searching...");
-                            if let Some(cli_dir) = cli_download_dir() {
-                                let suspect = cli_dir.join("claude.exe");
-                                if suspect.exists() {
-                                    let _ = std::fs::remove_file(&suspect);
-                                }
-                            }
+                            eprintln!(
+                                "error 193: removing corrupt binary at '{}' and re-searching...",
+                                path
+                            );
+                            remove_corrupt_claude_exe(&path);
                             let alt = find_claude_binary();
                             let git_bash_missing = find_git_bash().is_none();
                             return match alt {
@@ -4811,6 +4857,85 @@ async fn inject_cli_path(path: String) -> Result<String, String> {
 #[tauri::command]
 async fn delete_cli(path: String) -> Result<String, String> {
     commands::cli_resolver::delete_cli(&path)
+}
+
+/// Result of a CLI repair scan: which binaries were probed, removed, kept.
+#[derive(serde::Serialize)]
+struct RepairReport {
+    scanned: Vec<String>,
+    removed: Vec<String>,
+    /// Non-fatal notes (e.g. "skipped non-app-local path").
+    notes: Vec<String>,
+}
+
+/// Scan all discoverable Claude CLI binaries, probe each by running
+/// `--version`, and remove any that fail with Windows error 193
+/// ("不支持的 16 位应用程序" / not-a-valid-Win32-application).
+///
+/// User-facing repair entry point — reached from the CLI settings tab.
+/// Safe to call on any platform (no-op on non-Windows, where error 193
+/// does not occur).
+#[tauri::command]
+async fn repair_cli() -> Result<RepairReport, String> {
+    let mut report = RepairReport {
+        scanned: Vec::new(),
+        removed: Vec::new(),
+        notes: Vec::new(),
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        report.notes.push(
+            "Repair is a Windows-specific operation (error 193 / 16-bit app). No-op here."
+                .to_string(),
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let enriched_path = build_enriched_path();
+        let candidates = commands::cli_resolver::resolve_ordered();
+        for (path, _source) in candidates {
+            // Only probe .exe binaries — .cmd / .bat shims can't trigger error 193.
+            if !path.ends_with(".exe") {
+                continue;
+            }
+            report.scanned.push(path.clone());
+
+            let probe = Command::new(&path)
+                .arg("--version")
+                .env("PATH", &enriched_path)
+                .stdin(Stdio::null())
+                .stderr(Stdio::null())
+                .creation_flags(0x08000000)
+                .output();
+
+            let probe_result =
+                tokio::time::timeout(std::time::Duration::from_secs(5), probe).await;
+
+            match probe_result {
+                // Timed out: leave it alone. Could be a hang, not corruption.
+                Err(_) => {
+                    report
+                        .notes
+                        .push(format!("timed out probing {} — skipped", path));
+                }
+                Ok(Ok(_)) => {
+                    // Exited (any status) — binary ran, not corrupt.
+                }
+                Ok(Err(ref e)) if e.raw_os_error() == Some(193) => {
+                    eprintln!("[repair_cli] error 193 on {} — removing", path);
+                    remove_corrupt_claude_exe(&path);
+                    report.removed.push(path);
+                }
+                Ok(Err(e)) => {
+                    report.notes.push(format!("spawn failed on {}: {}", path, e));
+                }
+            }
+        }
+    }
+
+    Ok(report)
 }
 
 /// Detect whether the user is behind the GFW (China network).
@@ -5027,47 +5152,127 @@ fn native_platform_key() -> &'static str {
     { "linux-arm64" }
 }
 
-/// Try to update the CLI by downloading a native binary from GCS.
-/// Only used for non-China users (GCS is fast globally; herear.cn bandwidth is too small
-/// for ~230MB binaries). China users go straight to npm fallback with version verification.
-async fn try_native_cli_update(china: bool) -> Result<String, String> {
-    // Skip native binary download for China — GCS may be blocked, herear.cn bandwidth too small
-    if china {
-        return Err("Native binary download skipped for China network".to_string());
+/// Probe a release base for `/latest` and return the version string.
+async fn fetch_latest_version(client: &reqwest::Client, base: &str) -> Option<String> {
+    let url = format!("{}/latest", base);
+    let resp = client.get(&url).send().await.ok()?;
+    if !resp.status().is_success() {
+        return None;
     }
+    let text = resp.text().await.ok()?;
+    let v = text.trim().to_string();
+    if v.is_empty() { None } else { Some(v) }
+}
+
+/// Order the two release bases, prefer the one with the highest version.
+///
+/// This protects against mirror lag: if `herear.cn` is several versions behind
+/// GCS (as happened 2026-04: GCS=2.1.114 vs mirror=2.1.92), we still serve the
+/// latest to users and log a warning. If one source is unreachable, the other
+/// is used unconditionally.
+///
+/// Returns `Vec<(base_url, version)>` in preferred order, empty if both fail.
+async fn choose_native_sources(china: bool) -> Vec<(&'static str, String)> {
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(6))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+
+    // China: probe both (mirror has lower latency, GCS has the freshest version).
+    // Non-China: GCS only — `herear.cn` is a China-oriented mirror with limited bandwidth.
+    let bases: Vec<&'static str> = if china {
+        vec![CLI_MIRROR_BASE, CLI_GCS_BASE]
+    } else {
+        vec![CLI_GCS_BASE]
+    };
+
+    let probes = futures_util::future::join_all(
+        bases
+            .iter()
+            .map(|b| async { (*b, fetch_latest_version(&client, b).await) }),
+    )
+    .await;
+
+    let mut available: Vec<(&'static str, String)> = probes
+        .into_iter()
+        .filter_map(|(b, v)| v.map(|v| (b, v)))
+        .collect();
+
+    if available.len() > 1 {
+        // Log lag if the china mirror is behind GCS so ops can notice.
+        if let (Some(mirror_v), Some(gcs_v)) = (
+            available.iter().find(|(b, _)| *b == CLI_MIRROR_BASE).map(|(_, v)| v.clone()),
+            available.iter().find(|(b, _)| *b == CLI_GCS_BASE).map(|(_, v)| v.clone()),
+        ) {
+            if version_gt(&gcs_v, &mirror_v) {
+                eprintln!(
+                    "[native_download] mirror lag detected: herear.cn={} < GCS={} — preferring GCS",
+                    mirror_v, gcs_v
+                );
+            }
+        }
+        // Sort descending by version — highest version first.
+        available.sort_by(|a, b| {
+            if version_gt(&a.1, &b.1) {
+                std::cmp::Ordering::Less
+            } else if version_gt(&b.1, &a.1) {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        });
+    }
+
+    available
+}
+
+/// Download and install a native CLI binary into `~/.claude/local/`.
+///
+/// Shared by both `install_claude_cli` (first-time install) and `update_claude_cli`
+/// (in-app update). Works for both China and non-China users:
+///   - China: probes both `herear.cn` mirror and GCS, serves whichever has the
+///     highest version (protects against mirror lag).
+///   - Non-China: GCS only.
+///
+/// Native binary install is the preferred path because it bypasses the npm
+/// optional-dependency fragility that caused TK-0.10.5's Windows install
+/// failure (bin/claude.exe shipped by `@anthropic-ai/claude-code` was corrupt,
+/// triggering Windows error 193 "16-bit application not supported").
+async fn try_native_cli_download(
+    app: Option<&AppHandle>,
+    china: bool,
+) -> Result<String, String> {
+    let sources = choose_native_sources(china).await;
+    if sources.is_empty() {
+        return Err("No native release source reachable".to_string());
+    }
+    // All candidate sources agree on platform key + binary name; pick the winning
+    // version from the first source and fetch its manifest for the checksum.
+    let (primary_base, version) = sources[0].clone();
+    eprintln!(
+        "[native_download] selected source: {} @ v{}",
+        primary_base, version
+    );
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| format!("HTTP client: {e}"))?;
 
-    let sources: Vec<&str> = vec![CLI_GCS_BASE];
-
-    // 1. Fetch latest version
-    let mut version: Option<String> = None;
-    for base in &sources {
-        let url = format!("{}/latest", base);
-        if let Ok(resp) = client.get(&url).send().await {
-            if resp.status().is_success() {
-                if let Ok(text) = resp.text().await {
-                    let v = text.trim().to_string();
-                    if !v.is_empty() {
-                        eprintln!("[native_update] latest version: {} (from {})", v, base);
-                        version = Some(v);
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    let version = version.ok_or("Cannot fetch latest version from any source")?;
-
-    // 2. Fetch manifest for checksum
+    // 1. Fetch manifest for checksum + binary name (try sources in order).
     let platform = native_platform_key();
     let mut expected_checksum = String::new();
-    let mut binary_name = if cfg!(target_os = "windows") { "claude.exe" } else { "claude" }.to_string();
+    let mut binary_name =
+        if cfg!(target_os = "windows") { "claude.exe" } else { "claude" }.to_string();
+    let mut manifest_ok = false;
 
-    for base in &sources {
+    for (base, ver) in &sources {
+        if ver != &version {
+            continue; // skip stale mirrors — we already committed to `version`
+        }
         let url = format!("{}/{}/manifest.json", base, version);
         if let Ok(resp) = client.get(&url).send().await {
             if let Ok(manifest) = resp.json::<serde_json::Value>().await {
@@ -5078,13 +5283,20 @@ async fn try_native_cli_update(china: bool) -> Result<String, String> {
                     if let Some(bn) = info.get("binary").and_then(|v| v.as_str()) {
                         binary_name = bn.to_string();
                     }
+                    manifest_ok = true;
                     break;
                 }
             }
         }
     }
+    if !manifest_ok {
+        return Err(format!(
+            "Cannot fetch manifest for v{} on platform {}",
+            version, platform
+        ));
+    }
 
-    // 3. Determine install path: ~/.claude/local/ (same as official install.sh)
+    // 2. Install path: ~/.claude/local/ (same layout as official install.sh).
     let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
     let install_dir = home.join(".claude").join("local");
     std::fs::create_dir_all(&install_dir)
@@ -5092,29 +5304,43 @@ async fn try_native_cli_update(china: bool) -> Result<String, String> {
     let dest_path = install_dir.join(&binary_name);
     let tmp_path = install_dir.join(format!("{}.tmp", binary_name));
 
-    // 4. Download binary (stream to disk, ~200MB)
+    // 3. Stream binary to tmp file (~200MB).
     let dl_client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(600))
         .build()
         .map_err(|e| format!("HTTP client: {e}"))?;
 
     let mut downloaded = false;
-    for base in &sources {
+    for (base, ver) in &sources {
+        if ver != &version {
+            continue;
+        }
         let url = format!("{}/{}/{}/{}", base, version, platform, binary_name);
-        eprintln!("[native_update] downloading from {}", url);
+        eprintln!("[native_download] downloading from {}", url);
+        if let Some(h) = app {
+            let _ = emit_to_frontend(
+                h,
+                "setup:download:progress",
+                serde_json::json!({
+                    "downloaded": 0, "total": 0, "percent": 10, "phase": "native_download"
+                }),
+            );
+        }
 
         let resp = match dl_client.get(&url).send().await {
             Ok(r) if r.status().is_success() => r,
             Ok(r) => {
-                eprintln!("[native_update] HTTP {} from {}", r.status(), base);
+                eprintln!("[native_download] HTTP {} from {}", r.status(), base);
                 continue;
             }
             Err(e) => {
-                eprintln!("[native_update] request failed: {} ({})", e, base);
+                eprintln!("[native_download] request failed: {} ({})", e, base);
                 continue;
             }
         };
 
+        let total_bytes = resp.content_length();
+        let mut written: u64 = 0;
         let mut stream = resp.bytes_stream();
         let mut file = std::fs::File::create(&tmp_path)
             .map_err(|e| format!("Cannot create tmp file: {e}"))?;
@@ -5124,10 +5350,22 @@ async fn try_native_cli_update(china: bool) -> Result<String, String> {
             let chunk = chunk.map_err(|e| format!("Download stream error: {e}"))?;
             file.write_all(&chunk)
                 .map_err(|e| format!("Write error: {e}"))?;
+            written += chunk.len() as u64;
+            if let (Some(h), Some(total)) = (app, total_bytes) {
+                let percent = ((written as f64 / total as f64) * 80.0) as u64 + 10;
+                let _ = emit_to_frontend(
+                    h,
+                    "setup:download:progress",
+                    serde_json::json!({
+                        "downloaded": written, "total": total,
+                        "percent": percent.min(90), "phase": "native_download"
+                    }),
+                );
+            }
         }
         drop(file);
 
-        // 5. Verify SHA-256 checksum
+        // 4. Verify SHA-256 checksum.
         if !expected_checksum.is_empty() {
             use sha2::{Digest, Sha256};
             let data = std::fs::read(&tmp_path)
@@ -5135,14 +5373,14 @@ async fn try_native_cli_update(china: bool) -> Result<String, String> {
             let actual = format!("{:x}", Sha256::digest(&data));
             if actual != expected_checksum {
                 eprintln!(
-                    "[native_update] checksum mismatch: expected {}… got {}…",
+                    "[native_download] checksum mismatch: expected {}… got {}…",
                     &expected_checksum[..12.min(expected_checksum.len())],
                     &actual[..12.min(actual.len())]
                 );
                 let _ = std::fs::remove_file(&tmp_path);
                 continue;
             }
-            eprintln!("[native_update] checksum verified");
+            eprintln!("[native_download] checksum verified");
         }
 
         downloaded = true;
@@ -5151,37 +5389,41 @@ async fn try_native_cli_update(china: bool) -> Result<String, String> {
 
     if !downloaded {
         let _ = std::fs::remove_file(&tmp_path);
-        return Err("All download sources failed".to_string());
+        return Err("All native download sources failed".to_string());
     }
 
-    // 6. Set executable permission and move to final location
+    // 5. Set executable permission and move to final location.
     #[cfg(not(target_os = "windows"))]
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755));
     }
 
-    // On Windows the running binary may be locked; try rename, then copy+delete
-    if let Err(_) = std::fs::rename(&tmp_path, &dest_path) {
+    // On Windows the running binary may be locked; try rename, then copy+delete.
+    if std::fs::rename(&tmp_path, &dest_path).is_err() {
         std::fs::copy(&tmp_path, &dest_path)
             .map_err(|e| format!("Cannot install binary: {e}"))?;
         let _ = std::fs::remove_file(&tmp_path);
     }
 
-    eprintln!("[native_update] installed {} -> {}", binary_name, dest_path.display());
+    eprintln!(
+        "[native_download] installed {} -> {}",
+        binary_name,
+        dest_path.display()
+    );
     Ok(version)
 }
 
 /// Update the Claude CLI to the latest version.
-/// Strategy:
-///   Non-China: native binary from GCS → npm fallback
-///   China: npm with multi-registry + version verification (npmmirror → npm official)
+/// Strategy (same for China and non-China):
+///   Phase 1: Native binary via GCS (and herear.cn mirror for China) with lag detection
+///   Phase 2: npm multi-registry fallback with version verification
 #[tauri::command]
 async fn update_claude_cli(app: AppHandle) -> Result<String, String> {
     let china = is_china_network().await;
 
-    // Phase 1: Try native binary download (non-China only, GCS CDN)
-    match try_native_cli_update(china).await {
+    // Phase 1: Try native binary download.
+    match try_native_cli_download(Some(&app), china).await {
         Ok(version) => {
             eprintln!("[update_claude_cli] native binary update success: v{}", version);
             return Ok(version);
@@ -5449,7 +5691,38 @@ async fn install_claude_cli(app: AppHandle) -> Result<(), String> {
         }
     }
 
-    // Phase 2: Ensure npm is available
+    // Phase 2: Try native binary download first.
+    // Preferred over npm because:
+    //   (a) Binary is served directly by Anthropic's GCS bucket — no npm
+    //       optional-dependency machinery that can silently skip the
+    //       Windows-specific package (TK-0.10.5 field report).
+    //   (b) No Node.js dependency on the happy path. Node.js install is
+    //       still triggered below if native fails, so npm can take over.
+    match try_native_cli_download(Some(&app), china).await {
+        Ok(version) => {
+            eprintln!(
+                "[install_claude_cli] native binary install success: v{}",
+                version
+            );
+            finalize_cli_install_paths(&app);
+            let _ = emit_to_frontend(
+                &app,
+                "setup:download:progress",
+                serde_json::json!({
+                    "downloaded": 0, "total": 0, "percent": 100, "phase": "complete"
+                }),
+            );
+            return Ok(());
+        }
+        Err(e) => {
+            eprintln!(
+                "[install_claude_cli] native binary unavailable: {}, falling back to npm",
+                e
+            );
+        }
+    }
+
+    // Phase 3: Ensure npm is available for the fallback path.
     let has_npm = is_system_npm_available().await || get_local_node_bin().is_some();
 
     if !has_npm {
@@ -5462,7 +5735,7 @@ async fn install_claude_cli(app: AppHandle) -> Result<(), String> {
         })?;
     }
 
-    // Phase 3: Install CLI via npm
+    // Phase 4: Install CLI via npm (fallback).
     install_cli_via_npm(&app, china)
         .await
         .map_err(|npm_err| format!("CLI installation failed via npm: {}", npm_err))?;
@@ -6896,6 +7169,7 @@ pub fn run() {
             get_pinned_cli,
             inject_cli_path,
             delete_cli,
+            repair_cli,
             install_claude_cli,
             update_claude_cli,
             check_cli_update,

@@ -454,19 +454,50 @@ function CliDiagnostics() {
     }
   }, [t]);
 
+  const handleRepair = useCallback(async () => {
+    setScanning(true);
+    setActionMsg('');
+    try {
+      const report = await bridge.repairCli();
+      if (report.removed.length === 0) {
+        setActionMsg(t('cli.repairNoneFound'));
+      } else {
+        setActionMsg(
+          t('cli.repairRemoved').replace('{count}', String(report.removed.length))
+        );
+      }
+      const updated = await bridge.diagnoseCli();
+      setCandidates(updated);
+    } catch (e) {
+      setActionMsg(String(e));
+    } finally {
+      setScanning(false);
+    }
+  }, [t]);
+
   const isActive = (path: string) => pinnedPath ? path === pinnedPath : candidates[0]?.path === path;
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <span className="text-[13px] font-medium text-text-primary">{t('cli.environment')}</span>
-        <button
-          onClick={handleScan}
-          disabled={scanning}
-          className="text-xs text-text-tertiary hover:text-text-primary transition-smooth disabled:opacity-50"
-        >
-          {scanning ? t('cli.scanning') : t('cli.rescan')}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleRepair}
+            disabled={scanning}
+            title={t('cli.repairTitle')}
+            className="text-xs text-text-tertiary hover:text-text-primary transition-smooth disabled:opacity-50"
+          >
+            {t('cli.repair')}
+          </button>
+          <button
+            onClick={handleScan}
+            disabled={scanning}
+            className="text-xs text-text-tertiary hover:text-text-primary transition-smooth disabled:opacity-50"
+          >
+            {scanning ? t('cli.scanning') : t('cli.rescan')}
+          </button>
+        </div>
       </div>
 
       {scanning && candidates.length === 0 && (
