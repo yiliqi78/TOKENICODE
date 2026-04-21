@@ -46,3 +46,12 @@ package-lock.json
 
 # Obsidian
 .obsidian/
+
+# Updater JSON (release artifacts, not source)
+latest.json
+latest-*.json
+
+# Internal / personal
+bug-reports/
+configs/
+.trellis/workspace/*/
