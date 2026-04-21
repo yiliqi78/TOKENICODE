@@ -60,3 +60,12 @@ CLAUDE.md
 AGENTS.md
 .claude/
 .trellis/
+
+# Internal docs (not for public repo)
+docs/cloud-thoughts*
+docs/auto-compact*
+docs/landing.html
+docs/TOKENICODE重构*
+docs/豆包*
+screenshots/rewind.png
+screenshots/slash-commands.png
