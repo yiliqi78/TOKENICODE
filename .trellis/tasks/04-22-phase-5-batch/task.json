@@ -1,0 +1,41 @@
+{
+  "id": "phase-5-batch",
+  "name": "phase-5-batch",
+  "title": "Phase 5: P2 batch \u2014 S16/S18/S20 + capability matrix",
+  "description": "",
+  "status": "pending",
+  "dev_type": "fullstack",
+  "scope": "stream",
+  "package": null,
+  "priority": "P1",
+  "creator": "suyuan",
+  "assignee": null,
+  "createdAt": "2026-04-22",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "fix/full-diagnosis",
+  "worktree_path": null,
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}
