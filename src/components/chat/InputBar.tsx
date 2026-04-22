@@ -14,7 +14,7 @@ import { useSessionStore } from '../../stores/sessionStore';
 import { useT } from '../../lib/i18n';
 import { SlashCommandPopover, getFilteredCommandList } from './SlashCommandPopover';
 import { useCommandStore } from '../../stores/commandStore';
-import { envFingerprint, resolveModelForProvider, resolveModelOrError } from '../../lib/api-provider';
+import { envFingerprint, resolveModelForProvider, resolveModelOrError, spawnConfigHash } from '../../lib/api-provider';
 import { useProviderStore } from '../../stores/providerStore';
 import { PROVIDER_PRESETS } from '../../lib/provider-presets';
 import { stripAnsi } from '../../lib/strip-ansi';
@@ -779,8 +779,27 @@ export function InputBar() {
     const existingStdinId = currentTabState.sessionMeta.stdinId;
     const currentStatus = currentTabState.sessionStatus;
 
+    // Phase 2 §6: hard-block queueing while an interaction card (AskUserQuestion,
+    // PlanReview, Permission) is unresolved — the queued text is almost always
+    // intended as the answer to the open card, not a follow-up turn. Treat it as
+    // such by restoring the input instead of silently queueing.
+    const hasUnresolvedInteraction = currentTabState.messages.some(
+      (m) =>
+        (m.type === 'question' || m.type === 'plan_review' || m.type === 'permission') &&
+        !m.resolved,
+    );
+
     if (existingStdinId && isSessionBusy(currentStatus)) {
-      useChatStore.getState().addPendingMessage(tabId, text);
+      if (hasUnresolvedInteraction) {
+        // Restore the text to inputDraft so the user notices the pending
+        // interaction card and can answer it directly.
+        useChatStore.getState().setInputDraft(tabId, rawInput);
+        return;
+      }
+      useChatStore.getState().addPendingMessage(tabId, text, {
+        enqueueConfigHash: spawnConfigHash(),
+        enqueueStdinId: existingStdinId,
+      });
       return;
     }
 
@@ -857,6 +876,21 @@ export function InputBar() {
       let stdinId = submitTabState.sessionMeta.stdinId;
       let sentViaStdin = false;
 
+      // Phase 2 §2.1/§2.2: unified config-mismatch check. If ANY of
+      // providerId / selectedModel / thinkingLevel / provider.updatedAt has
+      // changed since this process was spawned, we must kill + respawn (with
+      // --resume via cliResumeId from sessionStore) before sending.
+      // A missing sessionSpawnHash means this session predates the field
+      // (e.g. freshly reloaded old tab) — in that case we lock in the
+      // current hash on the first follow-up rather than respawn.
+      if (stdinId) {
+        const currentHash = spawnConfigHash();
+        const sessionSpawnHash = getActiveTabState().sessionMeta.spawnConfigHash;
+        if (sessionSpawnHash === undefined) {
+          setSessionMeta(tabId, { spawnConfigHash: currentHash });
+        }
+      }
+
       if (stdinId) {
         // Check if API provider config changed since this process was spawned (TK-303).
         // If so, the pre-warmed process has stale env vars — kill it and spawn fresh.
@@ -918,6 +952,21 @@ export function InputBar() {
             });
             stdinId = undefined;
           } else {
+          // Phase 2 §2.1/§2.2: catch-all config-drift check covering dimensions
+          // not caught by the envFingerprint / spawnedModel gates above —
+          // most importantly thinkingLevel (S4 fix). When the full
+          // spawnConfigHash differs, respawn with --resume (preserving
+          // conversation context) so the new process picks up the new env.
+          const catchAllHash = spawnConfigHash();
+          const sessionHash = getActiveTabState().sessionMeta.spawnConfigHash;
+          if (sessionHash !== undefined && catchAllHash !== sessionHash) {
+            console.warn('[TOKENICODE] spawnConfigHash changed (thinking/misc), respawning');
+            await teardownSession(stdinId, tabId, 'switch');
+            await waitForStdinCleared(tabId, stdinId);
+            // Unlike provider/model switch, thinking-level-only changes do NOT
+            // require stripping thinking blocks — signatures remain valid.
+            stdinId = undefined;
+          } else {
           // ===== Send via stdin to existing persistent process (pre-warmed or follow-up) =====
           try {
             await bridge.sendStdin(stdinId, text);
@@ -934,9 +983,10 @@ export function InputBar() {
             setSessionMeta(tabId, { stdinId: undefined });
             stdinId = undefined;
           }
-          }
-        }
-      }
+          } // close spawnConfigHash-mismatch else
+          } // close spawnedModel-mismatch else
+        } // close envFingerprint-mismatch else
+      } // close if(stdinId) outer gate
 
       if (!sentViaStdin) {
         // ===== No running process: spawn a new persistent stream-json process =====
@@ -1016,6 +1066,9 @@ export function InputBar() {
           sessionId: spawnResult.sessionInfo.cli_session_id ?? undefined,
           envFingerprint: envFingerprint(),
           spawnedModel: resolveModelForProvider(selectedModel),
+          // Phase 2 §2.1: lock in the spawn-time config hash for later
+          // mismatch detection in handleSubmit and the drain paths.
+          spawnConfigHash: spawnConfigHash(),
           modelSwitched: false,
           providerSwitched: false,
           modelSwitchPendingText: undefined,

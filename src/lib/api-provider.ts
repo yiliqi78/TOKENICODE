@@ -1,5 +1,5 @@
 import { useProviderStore } from '../stores/providerStore';
-import type { ModelId } from '../stores/settingsStore';
+import { useSettingsStore, type ModelId } from '../stores/settingsStore';
 
 /**
  * Result of model resolution — either a mapped model name or an error.
@@ -26,7 +26,10 @@ export function resolveModelOrError(selectedModel: string): ModelResolution {
 
   // 2. Fall back to tier mapping
   const tierMap: Record<string, 'opus' | 'sonnet' | 'haiku'> = {
+    'claude-opus-4-7-1m': 'opus',
     'claude-opus-4-7': 'opus',
+    'claude-opus-4-6-1m': 'opus',
+    'claude-opus-4-6': 'opus',
     'claude-sonnet-4-6': 'sonnet',
     'claude-haiku-4-5-20251001': 'haiku',
   };
@@ -68,4 +71,27 @@ export function envFingerprint(): string {
     activeProviderId,
     updatedAt: provider?.updatedAt ?? 0,
   });
+}
+
+/**
+ * Stable hash of the spawn-time CLI configuration.
+ *
+ * Captures the 4 dimensions whose change requires kill + respawn of the CLI
+ * process: active provider, selected model, thinking level, and the provider's
+ * own config `updatedAt` (base URL / API key / mappings).
+ *
+ * Deliberately EXCLUDES `sessionMode` — mode switches go through the runtime
+ * `set_permission_mode` SDK control protocol (see settingsStore.ts:364-389)
+ * and must NOT trigger a respawn. See v3 plan appendix E.2 H2.
+ */
+export function spawnConfigHash(): string {
+  const providerState = useProviderStore.getState();
+  const settings = useSettingsStore.getState();
+  const activeProvider = providerState.getActive();
+  return [
+    providerState.activeProviderId ?? '',
+    settings.selectedModel,
+    settings.thinkingLevel,
+    activeProvider?.updatedAt ?? 0,
+  ].join('|');
 }

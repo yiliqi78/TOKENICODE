@@ -115,6 +115,10 @@ export interface SessionMeta {
   /** JSON fingerprint of the active provider config used when spawning the CLI process.
    *  Compared before sending via stdin to detect stale pre-warm sessions. */
   envFingerprint?: string;
+  /** Stable hash of the 4 spawn-time CLI dimensions (provider + model +
+   *  thinkingLevel + provider.updatedAt). Phase 2 §2.1. Compared in
+   *  handleSubmit to detect config drift that requires kill + respawn. */
+  spawnConfigHash?: string;
   /** Snapshot of sessionMode at session spawn — per-session isolation (Phase 4) */
   snapshotMode?: import('./settingsStore').SessionMode;
   /** Snapshot of selectedModel at session spawn — per-session isolation (Phase 4) */
@@ -177,6 +181,22 @@ export interface ActivityStatus {
 
 // --- Per-session snapshot (backward compat type — kept for external consumers) ---
 
+/**
+ * A single item in the per-tab pending queue. Phase 2 §6 adds `enqueueConfigHash`
+ * + `enqueueStdinId` so the drain path can detect config drift (provider / model /
+ * thinking change) that happened after the message was queued and backfill to
+ * inputDraft instead of sending on a stale process.
+ */
+export interface PendingUserMessage {
+  text: string;
+  /** spawnConfigHash() snapshot captured when the message was enqueued. */
+  enqueueConfigHash?: string;
+  /** stdinId of the CLI process the user was talking to at enqueue time. */
+  enqueueStdinId?: string;
+  /** Timestamp of enqueue (Date.now()). */
+  enqueueAt?: number;
+}
+
 export interface SessionSnapshot {
   messages: ChatMessage[];
   isStreaming: boolean;
@@ -188,7 +208,7 @@ export interface SessionSnapshot {
   inputDraft: string;
   pendingAttachments: FileAttachment[];
   /** User messages queued while AI is actively processing (not yet sent to stdin) */
-  pendingUserMessages: string[];
+  pendingUserMessages: PendingUserMessage[];
 }
 
 // --- Tab session: the ONLY place session data lives ---
@@ -204,7 +224,7 @@ export interface TabSession {
   activityStatus: ActivityStatus;
   inputDraft: string;
   pendingAttachments: FileAttachment[];
-  pendingUserMessages: string[];
+  pendingUserMessages: PendingUserMessage[];
   /** Timestamp of last access for true LRU eviction */
   lastAccessedAt: number;
 }
@@ -229,10 +249,17 @@ interface ChatState {
   setSessionMeta: (tabId: string, meta: Partial<SessionMeta>) => void;
   setInputDraft: (tabId: string, text: string) => void;
   setPendingAttachments: (tabId: string, files: FileAttachment[]) => void;
-  addPendingMessage: (tabId: string, text: string) => void;
+  /** Enqueue a user message captured while the AI is mid-turn. Accepts the
+   *  optional spawnConfigHash + stdinId at enqueue time so the drain path
+   *  can detect config drift (Phase 2 §6). */
+  addPendingMessage: (
+    tabId: string,
+    text: string,
+    meta?: { enqueueConfigHash?: string; enqueueStdinId?: string },
+  ) => void;
   /** Dequeue the first pending message (FIFO). Returns undefined if empty. */
-  shiftPendingMessage: (tabId: string) => string | undefined;
-  flushPendingMessages: (tabId: string) => string[];
+  shiftPendingMessage: (tabId: string) => PendingUserMessage | undefined;
+  flushPendingMessages: (tabId: string) => PendingUserMessage[];
   clearPendingMessages: (tabId: string) => void;
   rewindToTurn: (tabId: string, startMsgIdx: number) => void;
   setInteractionState: (tabId: string, msgId: string, state: InteractionState, error?: string) => void;
@@ -506,11 +533,17 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       return result ?? {};
     }),
 
-  addPendingMessage: (tabId, text) =>
+  addPendingMessage: (tabId, text, meta) =>
     set((state) => {
+      const item: PendingUserMessage = {
+        text,
+        enqueueConfigHash: meta?.enqueueConfigHash,
+        enqueueStdinId: meta?.enqueueStdinId,
+        enqueueAt: Date.now(),
+      };
       const result = updateTab(state.tabs, tabId, (tab) => ({
         ...tab,
-        pendingUserMessages: [...tab.pendingUserMessages, text],
+        pendingUserMessages: [...tab.pendingUserMessages, item],
       }));
       return result ?? {};
     }),

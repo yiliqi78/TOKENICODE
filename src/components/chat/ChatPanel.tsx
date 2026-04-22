@@ -14,7 +14,7 @@ import { AgentPanel } from '../agents/AgentPanel';
 // bridge import removed — spawn goes through sessionLifecycle module
 import { open } from '@tauri-apps/plugin-dialog';
 import { useT } from '../../lib/i18n';
-import { envFingerprint, resolveModelForProvider } from '../../lib/api-provider';
+import { envFingerprint, resolveModelForProvider, spawnConfigHash } from '../../lib/api-provider';
 import { useProviderStore } from '../../stores/providerStore';
 import { spawnSession } from '../../lib/sessionLifecycle';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
@@ -664,12 +664,12 @@ export function ChatPanel() {
                 behind the streaming reply. Each one becomes a real user
                 message bubble when the current turn completes and the
                 FIFO drain in useStreamProcessor sends it. */}
-            {pendingUserMessages && pendingUserMessages.length > 0 && pendingUserMessages.map((pendingText, idx) => (
+            {pendingUserMessages && pendingUserMessages.length > 0 && pendingUserMessages.map((pending, idx) => (
               <div key={`pending_${idx}`} className="flex justify-end gap-3 mt-4 opacity-60">
                 <div className="flex flex-col items-end max-w-[75%]">
                   <div className="bg-bg-elevated border border-border-subtle text-text-primary
                     rounded-2xl rounded-br-md px-4 py-2.5 leading-relaxed whitespace-pre-wrap break-words">
-                    {pendingText}
+                    {pending.text}
                   </div>
                   <span className="text-[10px] text-text-tertiary mt-1 mr-1 flex items-center gap-1">
                     <svg className="w-2.5 h-2.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -842,6 +842,9 @@ async function startDraftSession(folderPath: string) {
       sessionId: spawnResult.sessionInfo.cli_session_id ?? undefined,
       envFingerprint: envFingerprint(),
       spawnedModel: model,
+      // Phase 2 §2.1: lock in the pre-warm spawn config hash so the first
+      // real user submit can detect drift correctly.
+      spawnConfigHash: spawnConfigHash(),
     });
   } catch {
     // Pre-warm failed — InputBar will spawn on first message instead

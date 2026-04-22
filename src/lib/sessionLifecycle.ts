@@ -435,7 +435,7 @@ export function handleProcessExitFinalize(stdinId: string, isTimeout = false): v
     const pending = tab.pendingUserMessages ?? [];
     if (pending.length > 0) {
       const draft = tab.inputDraft ?? '';
-      const pendingText = pending.join('\n\n');
+      const pendingText = pending.map((p) => p.text).join('\n\n');
       store.setInputDraft(tabId, draft ? `${draft}\n\n${pendingText}` : pendingText);
       store.clearPendingMessages(tabId);
     }

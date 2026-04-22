@@ -71,8 +71,8 @@ describe('Root Cause 5: Provider parameter white-list gaps', () => {
       'CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING', // always 1
     ];
 
-    // These are conditional
-    const conditionalEnvVars = [
+    // These are conditional (kept as documentation; not asserted on directly)
+    void [
       'CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS', // non-Anthropic only
       'CLAUDE_CODE_AUTO_COMPACT_WINDOW',         // 1M models only
     ];
@@ -157,7 +157,7 @@ describe('Root Cause 2: AskUserQuestion dual-path race', () => {
     expect(cardId).toBe(searchId); // IDs match → patch succeeds
 
     // BUG: But what if tool_use_id in control_request is undefined or different?
-    const pathB_broken = { ...pathB_event, tool_use_id: undefined };
+    void { ...pathB_event, tool_use_id: undefined };
     // Search falls back to: messages.find(m => m.type === 'question' && !m.resolved && m.toolName === 'AskUserQuestion')
     // This fallback SHOULD work... unless there are multiple unresolved questions
   });

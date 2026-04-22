@@ -6,7 +6,10 @@ import { useProviderStore } from '../../stores/providerStore';
 
 /** Tier mapping from official ModelId to provider tier key */
 const TIER_MAP: Record<string, 'opus' | 'sonnet' | 'haiku'> = {
+  'claude-opus-4-7-1m': 'opus',
   'claude-opus-4-7': 'opus',
+  'claude-opus-4-6-1m': 'opus',
+  'claude-opus-4-6': 'opus',
   'claude-sonnet-4-6': 'sonnet',
   'claude-haiku-4-5-20251001': 'haiku',
 };

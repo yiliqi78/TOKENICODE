@@ -5,7 +5,7 @@ import { useSessionStore, setOrphanDrainCallback } from '../stores/sessionStore'
 import { useAgentStore, resolveAgentId, getAgentDepth } from '../stores/agentStore';
 import { useFileStore } from '../stores/fileStore';
 import { bridge } from '../lib/tauri-bridge';
-import { envFingerprint, resolveModelForProvider } from '../lib/api-provider';
+import { envFingerprint, resolveModelForProvider, spawnConfigHash } from '../lib/api-provider';
 import { useProviderStore } from '../stores/providerStore';
 import { t } from '../lib/i18n';
 import {
@@ -593,29 +593,46 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         // Decision 5: stopping state blocks drain pending.
         // Use bgWasStopping (captured BEFORE setSessionStatus above) because the
         // status was already overwritten to completed/error by the time we get here.
+        //
+        // Phase 2 §6: before sending, verify the config hash captured at enqueue
+        // time still matches the current spawnConfigHash. If not, the user
+        // changed provider / model / thinking mid-turn and the queued text
+        // would be processed on a stale process — backfill to inputDraft instead.
         {
           const bgDrainTab = store.getTab(tabId);
           const bgAllPending = bgDrainTab?.pendingUserMessages ?? [];
           const bgFlushStdinId = bgDrainTab?.sessionMeta.stdinId;
           if (bgAllPending.length > 0 && bgFlushStdinId && !bgWasStopping) {
-            const bgCombined = bgAllPending.join('\n\n');
-            store.clearPendingMessages(tabId);
-            store.addMessage(tabId, {
-              id: generateMessageId(),
-              role: 'user',
-              type: 'text',
-              content: bgCombined,
-              timestamp: Date.now(),
-            });
-            store.setSessionStatus(tabId, 'running');
-            store.setSessionMeta(tabId, { turnStartTime: Date.now(), lastProgressAt: Date.now(), inputTokens: 0, outputTokens: 0 });
-            store.setActivityStatus(tabId, { phase: 'thinking' });
-            bridge.sendStdin(bgFlushStdinId, bgCombined).catch((err) => {
-              console.error('[TC:bg] Failed to send pending messages:', err);
+            const bgCurrentHash = spawnConfigHash();
+            const bgHashMismatch = bgAllPending.some(
+              (p) => p.enqueueConfigHash !== undefined && p.enqueueConfigHash !== bgCurrentHash,
+            );
+            if (bgHashMismatch) {
               const bgDraft = store.getTab(tabId)?.inputDraft ?? '';
-              store.setInputDraft(tabId, bgDraft ? `${bgDraft}\n\n${bgCombined}` : bgCombined);
-              store.setSessionStatus(tabId, 'error');
-            });
+              const bgBackfill = bgAllPending.map((p) => p.text).join('\n\n');
+              store.setInputDraft(tabId, bgDraft ? `${bgDraft}\n\n${bgBackfill}` : bgBackfill);
+              store.clearPendingMessages(tabId);
+              console.warn('[TC:bg] Config changed mid-queue — pending messages restored to draft');
+            } else {
+              const bgCombined = bgAllPending.map((p) => p.text).join('\n\n');
+              store.clearPendingMessages(tabId);
+              store.addMessage(tabId, {
+                id: generateMessageId(),
+                role: 'user',
+                type: 'text',
+                content: bgCombined,
+                timestamp: Date.now(),
+              });
+              store.setSessionStatus(tabId, 'running');
+              store.setSessionMeta(tabId, { turnStartTime: Date.now(), lastProgressAt: Date.now(), inputTokens: 0, outputTokens: 0 });
+              store.setActivityStatus(tabId, { phase: 'thinking' });
+              bridge.sendStdin(bgFlushStdinId, bgCombined).catch((err) => {
+                console.error('[TC:bg] Failed to send pending messages:', err);
+                const bgDraft = store.getTab(tabId)?.inputDraft ?? '';
+                store.setInputDraft(tabId, bgDraft ? `${bgDraft}\n\n${bgCombined}` : bgCombined);
+                store.setSessionStatus(tabId, 'error');
+              });
+            }
           }
         }
 
@@ -1691,6 +1708,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
                   sessionId: spawnResult.sessionInfo.cli_session_id ?? undefined,
                   envFingerprint: envFingerprint(),
                   spawnedModel: model,
+                  spawnConfigHash: spawnConfigHash(),
                 });
               } catch (retryErr) {
                 console.error('[TOKENICODE] Provider-switch auto-retry failed:', retryErr);
@@ -1931,43 +1949,56 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           const allPending = drainTab?.pendingUserMessages ?? [];
           const flushStdinId = drainTab?.sessionMeta.stdinId;
           if (allPending.length > 0 && flushStdinId && !fgWasStopping) {
-            const nextMsg = allPending.join('\n\n');
-            useChatStore.getState().clearPendingMessages(tabId);
-
-            // Add as a single user message — InputBar deliberately did NOT
-            // addMessage when enqueueing, because ChatPanel renders pending
-            // messages after the streaming bubble. Now they merge into one turn.
-            addMessage({
-              id: generateMessageId(),
-              role: 'user',
-              type: 'text',
-              content: nextMsg,
-              timestamp: Date.now(),
-            });
-            const nextTurnStartedAt = Date.now();
-            setSessionStatus('running');
-            setSessionMeta({
-              turnStartTime: nextTurnStartedAt,
-              lastProgressAt: nextTurnStartedAt,
-              inputTokens: 0,
-              outputTokens: 0,
-            });
-            setActivityStatus({ phase: 'thinking' });
-            agentActions.clearAgents();
-            agentActions.upsertAgent({
-              id: 'main',
-              parentId: null,
-              description: nextMsg.slice(0, 100),
-              phase: 'spawning',
-              startTime: Date.now(),
-              isMain: true,
-            });
-            bridge.sendStdin(flushStdinId, nextMsg).catch((err) => {
-              console.error('[TC] Failed to send pending messages:', err);
+            // Phase 2 §6: verify queued config hashes still match current before sending.
+            const currentHash = spawnConfigHash();
+            const hashMismatch = allPending.some(
+              (p) => p.enqueueConfigHash !== undefined && p.enqueueConfigHash !== currentHash,
+            );
+            if (hashMismatch) {
               const draft = useChatStore.getState().getTab(tabId)?.inputDraft ?? '';
-              useChatStore.getState().setInputDraft(tabId, draft ? `${draft}\n\n${nextMsg}` : nextMsg);
-              setSessionStatus('error');
-            });
+              const backfill = allPending.map((p) => p.text).join('\n\n');
+              useChatStore.getState().setInputDraft(tabId, draft ? `${draft}\n\n${backfill}` : backfill);
+              useChatStore.getState().clearPendingMessages(tabId);
+              console.warn('[TC] Config changed mid-queue — pending messages restored to draft');
+            } else {
+              const nextMsg = allPending.map((p) => p.text).join('\n\n');
+              useChatStore.getState().clearPendingMessages(tabId);
+
+              // Add as a single user message — InputBar deliberately did NOT
+              // addMessage when enqueueing, because ChatPanel renders pending
+              // messages after the streaming bubble. Now they merge into one turn.
+              addMessage({
+                id: generateMessageId(),
+                role: 'user',
+                type: 'text',
+                content: nextMsg,
+                timestamp: Date.now(),
+              });
+              const nextTurnStartedAt = Date.now();
+              setSessionStatus('running');
+              setSessionMeta({
+                turnStartTime: nextTurnStartedAt,
+                lastProgressAt: nextTurnStartedAt,
+                inputTokens: 0,
+                outputTokens: 0,
+              });
+              setActivityStatus({ phase: 'thinking' });
+              agentActions.clearAgents();
+              agentActions.upsertAgent({
+                id: 'main',
+                parentId: null,
+                description: nextMsg.slice(0, 100),
+                phase: 'spawning',
+                startTime: Date.now(),
+                isMain: true,
+              });
+              bridge.sendStdin(flushStdinId, nextMsg).catch((err) => {
+                console.error('[TC] Failed to send pending messages:', err);
+                const draft = useChatStore.getState().getTab(tabId)?.inputDraft ?? '';
+                useChatStore.getState().setInputDraft(tabId, draft ? `${draft}\n\n${nextMsg}` : nextMsg);
+                setSessionStatus('error');
+              });
+            }
           }
         }
 

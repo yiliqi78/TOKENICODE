@@ -6,7 +6,7 @@
  * 2. StreamController completion idempotency
  * 3. LRU eviction protection gaps
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   StreamController,
   type StreamRouter,
