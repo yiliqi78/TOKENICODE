@@ -58,6 +58,28 @@ TOKENICODE 是 Claude Code 的 Tauri 2 桌面 GUI。CLI 作为子进程运行，
 
 ---
 
+## 第 5 轮审查修正（2026-04-22，实施时必须遵守）
+
+以下是第 5 轮 review 发现的自相撞车问题，必须在 Phase 1 实施时修正：
+
+1. **cliResumeId 为唯一 resume 凭据**：
+   - `sessionStore.ts:109` 已有 `cliResumeId` 字段
+   - teardown 只清 `stdinId` 映射，**不清 `cliResumeId`**
+   - 切模型/Provider 的 respawn 路径依赖 `cliResumeId` 做 resume
+   - v3 原方案在 teardown 里清 `cliSessionId` 会导致 respawn 退回 fresh start
+
+2. **spawnConfigHash 不包含 sessionMode**：
+   - sessionMode 走运行时 `set_permission_mode`，不触发 kill+respawn
+   - hash 定义只包含：`model + providerId + thinkingLevel + envFingerprint`
+   - v3 原方案把 sessionMode 算进 hash 与运行时切 mode 撞车
+
+3. **lifecycle helper 绑 `tokenicode_permission_request`**：
+   - 后端真正发的是 stream channel 里的 `tokenicode_permission_request`（`lib.rs:1872`）
+   - 前端 `tauri-bridge.ts:498` 的 `onPermissionRequest` 是孤立监听器，无对应 emit
+   - spawnSession 不绑孤立的 `onPermissionRequest`，权限走 stream 通道
+
+---
+
 ## 实施步骤（按顺序）
 
 ### Step 1: 创建 `src/lib/sessionLifecycle.ts`
@@ -152,7 +174,7 @@ function ownershipCheck(msg: any): { tabId: string; tab: TabState } | null {
 3. 未回答 Question → cancelled
 4. pending → inputDraft 回填
 5. autoCompactFiredMap.delete(tabId)
-6. sessionMeta 清理（stdinId/cliSessionId → undefined，保留 cwdSnapshot/configSnapshot）
+6. sessionMeta 清理（stdinId → undefined，**保留 cliResumeId**、cwdSnapshot、configSnapshot）
 7. unregisterStdinTab
 8. unlisten 所有 listener
 9. StreamController.forgetCompletion(stdinId)
