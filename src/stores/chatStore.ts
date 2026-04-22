@@ -83,9 +83,21 @@ export interface SessionMeta {
   cost?: number;
   duration?: number;
   turns?: number;
+  /** @deprecated Use stdinId (for process routing) and cliResumeId in sessionStore (for resume).
+   *  This field may temporarily hold desk_* or CLI UUID; prefer the dedicated fields. */
   sessionId?: string;
   /** The desk-generated ID used as key in Rust StdinManager for sending follow-up messages */
   stdinId?: string;
+  /** Snapshot of the working directory at session spawn time — used by Rewind and
+   *  other features that need the original cwd rather than the current global value */
+  cwdSnapshot?: string;
+  /** Snapshot of config at session spawn time — used for config-mismatch detection */
+  configSnapshot?: {
+    model: string;
+    providerId: string;
+    thinkingLevel: string;
+    permissionMode: string;
+  };
   /** Message ID of a pending processing card (for CLI slash commands) */
   pendingCommandMsgId?: string;
   /** Accumulated input tokens from stream events (message_start) — per turn, reset each turn */
@@ -137,13 +149,24 @@ export interface SessionMeta {
 /**
  * Session lifecycle state.
  *
- * 'reconnecting' is an intermediate state that the global watchdog
- * (App.tsx) enters when it detects a stalled stream. During reconnecting
- * we keep the UI's partialText visible (unlike terminal states) and
- * attempt an automatic --resume to recover without user intervention.
- * On success we transition back to 'running'; on failure we go to 'error'.
+ * 'reconnecting' is an intermediate state entered when attempting to
+ * recover a stalled stream. During reconnecting we keep the UI's
+ * partialText visible (unlike terminal states) and attempt a --resume
+ * to recover without user intervention.
+ *
+ * 'stopping' is entered when the user clicks Stop or when the lifecycle
+ * module initiates a teardown (kill + wait for process_exit). During
+ * stopping we keep partialText visible and show a loading indicator.
+ * The process_exit handler transitions to a terminal state.
+ *
+ * 'stopped' is the terminal state after an explicit user stop (vs
+ * 'completed' for natural turn completion or 'error' for failures).
  */
-export type SessionStatus = 'idle' | 'running' | 'reconnecting' | 'completed' | 'error';
+export type SessionStatus = 'idle' | 'running' | 'reconnecting' | 'stopping' | 'stopped' | 'completed' | 'error';
+
+export function isSessionBusy(status: SessionStatus | undefined): boolean {
+  return status === 'running' || status === 'reconnecting' || status === 'stopping';
+}
 
 export type ActivityPhase = 'idle' | 'thinking' | 'writing' | 'tool' | 'awaiting' | 'completed' | 'error' | 'reconnecting';
 
@@ -182,6 +205,8 @@ export interface TabSession {
   inputDraft: string;
   pendingAttachments: FileAttachment[];
   pendingUserMessages: string[];
+  /** Timestamp of last access for true LRU eviction */
+  lastAccessedAt: number;
 }
 
 // --- Store State & Actions ---
@@ -274,14 +299,20 @@ const EMPTY_TAB: TabSession = {
   inputDraft: '',
   pendingAttachments: [],
   pendingUserMessages: [],
+  lastAccessedAt: 0,
 };
 
 function createTab(tabId: string): TabSession {
-  return { ...EMPTY_TAB, tabId };
+  return { ...EMPTY_TAB, tabId, lastAccessedAt: Date.now() };
 }
 
 /** Maximum number of tabs kept in memory. LRU eviction applies to idle tabs. */
 const MAX_CACHE = 8;
+
+function hasLiveStdinBinding(tabId: string, stdinId?: string): boolean {
+  if (!stdinId) return false;
+  return useSessionStore.getState().getTabForStdin(stdinId) === tabId;
+}
 
 /**
  * Immutable Map update helper: get tab, apply updater, return new Map.
@@ -387,6 +418,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     // Sync running state to sessionStore for tab indicators.
     // 'reconnecting' counts as running for sidebar indicator purposes
     // (the tab is still actively doing something — recovering).
+    // 'stopping' does NOT count as running — the session is winding down.
     useSessionStore.getState().setSessionRunning(
       tabId,
       status === 'running' || status === 'reconnecting',
@@ -396,15 +428,17 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         ...tab,
         sessionStatus: status,
         // Reset streaming state when session reaches a terminal state.
-        // IMPORTANT: do NOT reset on 'reconnecting' — we keep partialText
-        // visible so the user sees prior content while we re-establish.
-        ...(status === 'completed' || status === 'error' || status === 'idle'
+        // IMPORTANT: do NOT reset on 'reconnecting' or 'stopping' — we keep
+        // partialText visible so the user sees prior content while we
+        // re-establish or wait for process_exit.
+        ...(status === 'completed' || status === 'error' || status === 'idle' || status === 'stopped'
           ? { isStreaming: false, partialText: '', partialThinking: '' }
           : {}),
         // Sync activity status with session status
         ...(status === 'completed' ? { activityStatus: { phase: 'completed' as ActivityPhase } }
           : status === 'error' ? { activityStatus: { phase: 'error' as ActivityPhase } }
           : status === 'idle' ? { activityStatus: { phase: 'idle' as ActivityPhase } }
+          : status === 'stopped' ? { activityStatus: { phase: 'completed' as ActivityPhase } }
           : status === 'reconnecting' ? { activityStatus: { phase: 'reconnecting' as ActivityPhase } }
           : {}),
       }));
@@ -579,23 +613,39 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   // ------------------------------------------------------------------
 
   ensureTab: (tabId) => {
-    if (get().tabs.has(tabId)) return;
+    if (get().tabs.has(tabId)) {
+      // Touch lastAccessedAt on access
+      const existingTab = get().tabs.get(tabId);
+      if (existingTab) {
+        const newTabs = new Map(get().tabs);
+        newTabs.set(tabId, { ...existingTab, lastAccessedAt: Date.now() });
+        set({ tabs: newTabs, sessionCache: newTabs });
+      }
+      return;
+    }
     const newTabs = new Map(get().tabs);
     newTabs.set(tabId, createTab(tabId));
-    // LRU eviction — keep at most MAX_CACHE tabs
-    // Never evict tabs that are actively streaming — their disk JSONL may have
-    // been compacted, so the tab is the only source of full history (#32 fix)
+    // True LRU eviction — keep at most MAX_CACHE tabs.
+    // Sort candidates by lastAccessedAt ascending, evict the least recently accessed.
+    // Never evict tabs that are actively streaming, still busy, or still own a
+    // live stdin route (pre-warm sessions stay idle but the process is alive).
     if (newTabs.size > MAX_CACHE) {
-      const keysIter = newTabs.keys();
-      while (newTabs.size > MAX_CACHE) {
-        const oldest = keysIter.next().value;
-        if (oldest === undefined) break;
-        if (oldest === tabId) continue; // don't evict the tab we're creating
-        const entry = newTabs.get(oldest);
-        if (entry?.isStreaming || entry?.sessionStatus === 'running') continue; // protect active
-        newTabs.delete(oldest);
+      const candidates = Array.from(newTabs.entries())
+        .filter(([id, entry]) => {
+          if (id === tabId) return false; // don't evict the tab we're creating
+          if (entry.isStreaming) return false; // protect streaming tabs
+          if (isSessionBusy(entry.sessionStatus)) return false;
+          if (hasLiveStdinBinding(id, entry.sessionMeta.stdinId)) return false;
+          return true;
+        })
+        .sort(([, a], [, b]) => a.lastAccessedAt - b.lastAccessedAt); // oldest first
+
+      let idx = 0;
+      while (newTabs.size > MAX_CACHE && idx < candidates.length) {
+        newTabs.delete(candidates[idx][0]);
+        idx++;
       }
-      // If all candidates are streaming, allow cache to exceed MAX_CACHE
+      // If all candidates are protected, allow cache to exceed MAX_CACHE
     }
     set({ tabs: newTabs, sessionCache: newTabs });
   },
@@ -622,6 +672,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   restoreFromCache: (tabId) => {
     const tab = get().tabs.get(tabId);
     if (!tab) return false;
+    const restoredAt = Date.now();
     // #27/#30 safety net: if tab has zero messages but this is a persisted session
     // (has a disk path), treat as cache miss so the caller falls back to disk load.
     if (tab.messages.length === 0 && !tab.isStreaming && !tab.partialText) {
@@ -647,11 +698,11 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         });
       }
     }
-    // B11: cached status may say 'running'/'reconnecting' but the process is gone
+    // B11: cached status may say 'running'/'reconnecting'/'stopping' but the process is gone
     // (e.g. app restart, or ProcessExit handler was bypassed for this tab).
     // Live processes here are tracked by stdinId; if the tab has no stdinId bound,
     // treat the cache as stale and demote to 'idle' so the sidebar red dot clears.
-    const cachedActive = tab.sessionStatus === 'running' || tab.sessionStatus === 'reconnecting';
+    const cachedActive = isSessionBusy(tab.sessionStatus);
     if (cachedActive) {
       const hasStdinId = Boolean(get().tabs.get(tabId)?.sessionMeta.stdinId);
       if (!hasStdinId) {
@@ -662,6 +713,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             isStreaming: false,
             partialText: '',
             partialThinking: '',
+            lastAccessedAt: restoredAt,
           }));
           return result ?? {};
         });
@@ -669,6 +721,14 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         return true;
       }
     }
+    // Touch LRU timestamp so restored tabs are not immediately evicted (F7 fix)
+    set((state) => {
+      const result = updateTab(state.tabs, tabId, (t) => ({
+        ...t,
+        lastAccessedAt: restoredAt,
+      }));
+      return result ?? {};
+    });
     // Sync running state to sessionStore for sidebar indicator (FI-1 fix)
     useSessionStore.getState().setSessionRunning(tabId, tab.sessionStatus === 'running');
     return true;

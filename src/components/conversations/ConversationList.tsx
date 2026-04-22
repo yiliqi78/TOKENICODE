@@ -13,6 +13,7 @@ import { SessionGroup } from './SessionGroup';
 import { SessionItem } from './SessionItem';
 import { SessionContextMenu, ProjectContextMenu } from './SessionContextMenu';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
+import { teardownSession, waitForStdinCleared } from '../../lib/sessionLifecycle';
 
 // --- Path utilities ---
 
@@ -347,6 +348,8 @@ export function ConversationList() {
     // Only set the CLI UUID (for resume). Prevents inheriting a stale stdinId
     // from a previous session that might still be alive in the backend.
     setSessionMeta(sessionId, { sessionId, stdinId: undefined });
+    // PRD §9: Write cliResumeId in sessionStore — InputBar reads this for resume
+    useSessionStore.getState().setCliResumeId(sessionId, sessionId);
 
     try {
       const rawMessages = await bridge.loadSession(sessionPath);
@@ -389,6 +392,22 @@ export function ConversationList() {
   // --- Delete handlers ---
   const executeDelete = useCallback(async (sessionId: string, sessionPath: string) => {
     try {
+      // Kill running process before deleting (S8 fix — prevent residual processes)
+      const tab = useChatStore.getState().getTab(sessionId);
+      const routedStdinIds = Object.entries(useSessionStore.getState().stdinToTab)
+        .filter(([, tabId]) => tabId === sessionId)
+        .map(([stdinId]) => stdinId);
+      const stdinIds = Array.from(new Set([
+        ...(tab?.sessionMeta.stdinId ? [tab.sessionMeta.stdinId] : []),
+        ...routedStdinIds,
+      ]));
+      for (const stdinId of stdinIds) {
+        await teardownSession(stdinId, sessionId, 'delete');
+        if (tab?.sessionMeta.stdinId === stdinId) {
+          await waitForStdinCleared(sessionId, stdinId).catch(() => {});
+        }
+      }
+
       if (sessionPath) {
         await bridge.deleteSession(sessionId, sessionPath);
       } else {

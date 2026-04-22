@@ -7,8 +7,10 @@ mod protocol;
 // code paths.
 mod windows_ps;
 
-use commands::{ManagedProcess, ProcessManager, SessionInfo, StartSessionParams, StdinManager};
 use crate::events::emit_to_frontend;
+use commands::{
+    BypassModeMap, ManagedProcess, ProcessManager, SessionInfo, StartSessionParams, StdinManager,
+};
 // protocol module kept for ControlRequest (send_control_request) and tests
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -139,7 +141,10 @@ pub(crate) fn find_git_bash() -> Option<String> {
     ];
     // Also check non-C drives (D:, E:, F:, etc.) where Git may be installed
     for drive in b'D'..=b'F' {
-        candidates.push(format!(r"{}:\Program Files\Git\bin\bash.exe", drive as char));
+        candidates.push(format!(
+            r"{}:\Program Files\Git\bin\bash.exe",
+            drive as char
+        ));
     }
     for c in &candidates {
         if std::path::Path::new(c).exists() {
@@ -163,7 +168,9 @@ pub(crate) fn find_git_bash() -> Option<String> {
             let stdout = String::from_utf8_lossy(&output.stdout);
             if let Some(path) = stdout.lines().next() {
                 let path = path.trim().to_string();
-                if !path.is_empty() && commands::cli_resolver::is_valid_executable(std::path::Path::new(&path)) {
+                if !path.is_empty()
+                    && commands::cli_resolver::is_valid_executable(std::path::Path::new(&path))
+                {
                     return Some(path);
                 }
             }
@@ -321,11 +328,7 @@ fn probe_local_proxy() -> Option<String> {
     ];
     for &(port, scheme) in ports {
         let addr: std::net::SocketAddr = ([127, 0, 0, 1], port).into();
-        if std::net::TcpStream::connect_timeout(
-            &addr,
-            std::time::Duration::from_millis(80),
-        )
-        .is_ok()
+        if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(80)).is_ok()
         {
             let url = format!("{}://127.0.0.1:{}", scheme, port);
             eprintln!("auto-detected local proxy: {}", url);
@@ -451,7 +454,9 @@ fn truncate_large_content(value: &mut Value, max_bytes: usize) {
                     end -= 1;
                 }
                 s.truncate(end);
-                s.push_str("\n\n... [content truncated for display, full content available to Claude]");
+                s.push_str(
+                    "\n\n... [content truncated for display, full content available to Claude]",
+                );
             }
         }
         Value::Array(arr) => {
@@ -821,7 +826,10 @@ async fn test_provider_connection(
                         .build()
                         .unwrap_or_default()
                 } else {
-                    eprintln!("test_provider_connection: provider proxy {} unreachable, direct", purl);
+                    eprintln!(
+                        "test_provider_connection: provider proxy {} unreachable, direct",
+                        purl
+                    );
                     build_smart_http_client(
                         std::time::Duration::from_secs(10),
                         std::time::Duration::from_secs(30),
@@ -916,7 +924,11 @@ async fn test_provider_connection(
                 (
                     StepResult {
                         ok: false,
-                        message: format!("HTTP {} — {}", status, text.chars().take(200).collect::<String>()),
+                        message: format!(
+                            "HTTP {} — {}",
+                            status,
+                            text.chars().take(200).collect::<String>()
+                        ),
                     },
                     skipped,
                 )
@@ -926,24 +938,47 @@ async fn test_provider_connection(
                 let text = resp.text().await.unwrap_or_default();
                 let text_lower = text.to_lowercase();
                 let is_auth_error = text_lower.contains("invalid")
-                    && (text_lower.contains("api key") || text_lower.contains("api_key")
-                        || text_lower.contains("token") || text_lower.contains("credentials"));
+                    && (text_lower.contains("api key")
+                        || text_lower.contains("api_key")
+                        || text_lower.contains("token")
+                        || text_lower.contains("credentials"));
                 if is_auth_error {
                     (
-                        StepResult { ok: false, message: format!("HTTP 403 — {}", text.chars().take(200).collect::<String>()) },
+                        StepResult {
+                            ok: false,
+                            message: format!(
+                                "HTTP 403 — {}",
+                                text.chars().take(200).collect::<String>()
+                            ),
+                        },
                         skipped,
                     )
                 } else {
                     // 403 but not clearly auth — treat as auth OK + model issue
                     (
-                        StepResult { ok: true, message: "Authenticated (HTTP 403 — access restricted)".to_string() },
-                        StepResult { ok: false, message: format!("HTTP 403 — {}", text.chars().take(200).collect::<String>()) },
+                        StepResult {
+                            ok: true,
+                            message: "Authenticated (HTTP 403 — access restricted)".to_string(),
+                        },
+                        StepResult {
+                            ok: false,
+                            message: format!(
+                                "HTTP 403 — {}",
+                                text.chars().take(200).collect::<String>()
+                            ),
+                        },
                     )
                 }
             } else if status >= 200 && status < 300 {
                 (
-                    StepResult { ok: true, message: format!("Authenticated (HTTP {})", status) },
-                    StepResult { ok: true, message: format!("Model OK (HTTP {})", status) },
+                    StepResult {
+                        ok: true,
+                        message: format!("Authenticated (HTTP {})", status),
+                    },
+                    StepResult {
+                        ok: true,
+                        message: format!("Model OK (HTTP {})", status),
+                    },
                 )
             } else {
                 // 400, 404, 429, 500, etc. — auth is OK (server processed the request)
@@ -957,18 +992,34 @@ async fn test_provider_connection(
                             || text_lower.contains("invalid model")
                             || text_lower.contains("invalid_model")));
                 let model_result = if is_model_error {
-                    StepResult { ok: false, message: format!("HTTP {} — {}", status, text.chars().take(200).collect::<String>()) }
+                    StepResult {
+                        ok: false,
+                        message: format!(
+                            "HTTP {} — {}",
+                            status,
+                            text.chars().take(200).collect::<String>()
+                        ),
+                    }
                 } else {
-                    StepResult { ok: true, message: format!("Model accepted (HTTP {})", status) }
+                    StepResult {
+                        ok: true,
+                        message: format!("Model accepted (HTTP {})", status),
+                    }
                 };
                 (
-                    StepResult { ok: true, message: format!("Authenticated (HTTP {})", status) },
+                    StepResult {
+                        ok: true,
+                        message: format!("Authenticated (HTTP {})", status),
+                    },
                     model_result,
                 )
             }
         }
         Err(e) => (
-            StepResult { ok: false, message: format!("Request failed: {}", e) },
+            StepResult {
+                ok: false,
+                message: format!("Request failed: {}", e),
+            },
             skipped,
         ),
     };
@@ -1046,8 +1097,7 @@ fn resolve_provider_env(
     // will return 400 errors if these flags are present.
     // Only keep betas enabled when the base URL is explicitly Anthropic's native API.
     let base_lower = provider.base_url.to_lowercase();
-    let is_native_anthropic = base_lower.is_empty()
-        || base_lower.contains("api.anthropic.com");
+    let is_native_anthropic = base_lower.is_empty() || base_lower.contains("api.anthropic.com");
     if !is_native_anthropic {
         env.entry("CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS".to_string())
             .or_insert_with(|| "1".to_string());
@@ -1103,7 +1153,10 @@ fn resolve_provider_env(
 fn find_session_jsonl(session_id: &str) -> Option<std::path::PathBuf> {
     // Reject non-UUID session IDs to prevent path traversal (e.g. "../../../etc/passwd")
     if uuid::Uuid::parse_str(session_id).is_err() {
-        eprintln!("[TOKENICODE] find_session_jsonl: rejecting non-UUID session_id: {}", session_id);
+        eprintln!(
+            "[TOKENICODE] find_session_jsonl: rejecting non-UUID session_id: {}",
+            session_id
+        );
         return None;
     }
 
@@ -1147,8 +1200,8 @@ fn strip_thinking_blocks_from_session(session_id: &str) -> Result<usize, String>
     );
 
     // Read all lines
-    let file = std::fs::File::open(&jsonl_path)
-        .map_err(|e| format!("Failed to open JSONL: {}", e))?;
+    let file =
+        std::fs::File::open(&jsonl_path).map_err(|e| format!("Failed to open JSONL: {}", e))?;
     let reader = std::io::BufReader::new(file);
     let lines: Vec<String> = reader
         .lines()
@@ -1284,6 +1337,7 @@ async fn start_claude_session(
     app: AppHandle,
     state: State<'_, ProcessManager>,
     stdin_mgr: State<'_, StdinManager>,
+    bypass_modes: State<'_, BypassModeMap>,
     params: StartSessionParams,
 ) -> Result<SessionInfo, String> {
     let session_id = params
@@ -1293,6 +1347,7 @@ async fn start_claude_session(
     // Clean up any existing process with the same session_id
     stdin_mgr.remove(&session_id).await;
     state.remove(&session_id).await;
+    bypass_modes.remove(&session_id).await;
 
     // Use persistent stream-json input mode instead of per-message -p mode.
     // This keeps the CLI process alive so slash commands (/rewind, /compact, /cost, etc.) work.
@@ -1432,9 +1487,11 @@ async fn start_claude_session(
     // especially with non-ASCII (Chinese) characters in paths.
     #[cfg(target_os = "windows")]
     {
-        resolved_env.entry("MSYS_NO_PATHCONV".to_string())
+        resolved_env
+            .entry("MSYS_NO_PATHCONV".to_string())
             .or_insert_with(|| "1".to_string());
-        resolved_env.entry("MSYS2_ARG_CONV_EXCL".to_string())
+        resolved_env
+            .entry("MSYS2_ARG_CONV_EXCL".to_string())
             .or_insert_with(|| "*".to_string());
     }
 
@@ -1726,7 +1783,13 @@ async fn start_claude_session(
     let sid_clone = sid.clone();
     let stdin_clone = stdin_mgr.inner().clone();
     let exit_notify_clone = exit_notify.clone();
-    let is_bypass = permission_mode == "bypassPermissions";
+    let state_clone = state.inner().clone();
+    let stdin_mgr_clone = stdin_mgr.inner().clone();
+    let bypass_modes_clone = bypass_modes.inner().clone();
+    let bypass_flag = bypass_modes
+        .register(&sid, permission_mode == "bypassPermissions")
+        .await;
+    let bypass_flag_for_reader = bypass_flag.clone();
     tokio::spawn(async move {
         let stream_event = format!("claude:stream:{}", sid_clone);
         // Use a large buffer (1MB) to efficiently read large NDJSON lines from Claude CLI.
@@ -1740,9 +1803,12 @@ async fn start_claude_session(
         loop {
             let line = match lines.next_line().await {
                 Ok(Some(line)) => line,
-                Ok(None) => break,  // normal EOF
+                Ok(None) => break, // normal EOF
                 Err(e) => {
-                    eprintln!("[TOKENICODE:CRITICAL] stdout read error after {} lines: {}", line_count, e);
+                    eprintln!(
+                        "[TOKENICODE:CRITICAL] stdout read error after {} lines: {}",
+                        line_count, e
+                    );
                     break;
                 }
             };
@@ -1800,7 +1866,7 @@ async fn start_claude_session(
                         .unwrap_or_default();
 
                     // Bypass mode: auto-approve everything except user interactions.
-                    if is_bypass {
+                    if bypass_flag_for_reader.load(std::sync::atomic::Ordering::Relaxed) {
                         let tool_name = request
                             .get("tool_name")
                             .or_else(|| request.get("toolName"))
@@ -2019,6 +2085,16 @@ async fn start_claude_session(
         );
         // Notify frontend that session list may have changed
         let _ = emit_to_frontend(&app_clone, "sessions:changed", serde_json::json!(null));
+
+        // C2 fix: Clean up manager entries for naturally exited process.
+        // drop_entry does NOT send kill signal (unlike remove), so it's safe
+        // for already-dead processes.
+        state_clone.drop_entry(&sid_clone).await;
+        stdin_mgr_clone.drop_entry(&sid_clone).await;
+        bypass_modes_clone
+            .drop_if_current(&sid_clone, &bypass_flag_for_reader)
+            .await;
+
         // Signal kill_session that the process has fully exited
         exit_notify_clone.notify_one();
     });
@@ -2135,11 +2211,22 @@ async fn respond_permission(
 #[tauri::command]
 async fn send_control_request(
     stdin_mgr: State<'_, StdinManager>,
+    bypass_modes: State<'_, BypassModeMap>,
     session_id: String,
     subtype: String,
     payload: Value,
 ) -> Result<(), String> {
     use protocol::ControlRequest;
+    let next_bypass_mode = match subtype.as_str() {
+        "set_permission_mode" => Some(
+            payload
+                .get("mode")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing 'mode' in payload")?
+                == "bypassPermissions",
+        ),
+        _ => None,
+    };
     let req = match subtype.as_str() {
         "interrupt" => ControlRequest::interrupt(),
         "set_permission_mode" => {
@@ -2169,25 +2256,27 @@ async fn send_control_request(
     };
     let json_str = serde_json::to_string(&req)
         .map_err(|e| format!("Failed to serialize control request: {}", e))?;
-    stdin_mgr.send(&session_id, &json_str).await
+    stdin_mgr.send(&session_id, &json_str).await?;
+    if let Some(is_bypass) = next_bypass_mode {
+        bypass_modes.set_bypass(&session_id, is_bypass).await;
+    }
+    Ok(())
 }
 
 #[tauri::command]
 async fn kill_session(
     state: State<'_, ProcessManager>,
     stdin_mgr: State<'_, StdinManager>,
+    bypass_modes: State<'_, BypassModeMap>,
     session_id: String,
 ) -> Result<(), String> {
     stdin_mgr.remove(&session_id).await;
+    bypass_modes.remove(&session_id).await;
     if let Some(notify) = state.remove(&session_id).await {
         // Wait for the stdout reader to confirm process exit before returning.
         // Without this, the frontend can send a new message before the old process
         // has fully cleaned up, causing SESSION_ALREADY_ACTIVE errors.
-        let _ = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            notify.notified(),
-        )
-        .await;
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), notify.notified()).await;
     }
     Ok(())
 }
@@ -2195,9 +2284,7 @@ async fn kill_session(
 /// TK-329: List all active stdinIds from ProcessManager.
 /// Frontend uses this after refresh to detect and clean up orphaned backend processes.
 #[tauri::command]
-async fn list_active_processes(
-    state: State<'_, ProcessManager>,
-) -> Result<Vec<String>, String> {
+async fn list_active_processes(state: State<'_, ProcessManager>) -> Result<Vec<String>, String> {
     Ok(state.active_ids().await)
 }
 
@@ -2238,11 +2325,13 @@ fn load_tracked_sessions() -> std::collections::HashSet<String> {
             let names_filter: Option<std::collections::HashSet<String>> =
                 session_names_path().ok().and_then(|p| {
                     std::fs::read_to_string(&p).ok().and_then(|content| {
-                        serde_json::from_str::<serde_json::Value>(&content).ok().map(|v| {
-                            v.as_object()
-                                .map(|obj| obj.keys().cloned().collect())
-                                .unwrap_or_default()
-                        })
+                        serde_json::from_str::<serde_json::Value>(&content)
+                            .ok()
+                            .map(|v| {
+                                v.as_object()
+                                    .map(|obj| obj.keys().cloned().collect())
+                                    .unwrap_or_default()
+                            })
                     })
                 });
 
@@ -2255,9 +2344,13 @@ fn load_tracked_sessions() -> std::collections::HashSet<String> {
                                 if p.extension().map_or(false, |e| e == "jsonl") {
                                     if let Some(stem) = p.file_stem() {
                                         let id = stem.to_string_lossy().to_string();
-                                        if id.starts_with("desk_") { continue; }
+                                        if id.starts_with("desk_") {
+                                            continue;
+                                        }
                                         if let Some(ref filter) = names_filter {
-                                            if filter.contains(&id) { set.insert(id); }
+                                            if filter.contains(&id) {
+                                                set.insert(id);
+                                            }
                                         } else {
                                             set.insert(id);
                                         }
@@ -2278,8 +2371,16 @@ fn load_tracked_sessions() -> std::collections::HashSet<String> {
                         let _ = writeln!(f, "{}", id);
                     }
                 }
-                let mode = if names_filter.is_some() { "filtered by session_names" } else { "all (no filter)" };
-                eprintln!("[TOKENICODE] Rebuilt tracked_sessions.txt: {} sessions ({})", set.len(), mode);
+                let mode = if names_filter.is_some() {
+                    "filtered by session_names"
+                } else {
+                    "all (no filter)"
+                };
+                eprintln!(
+                    "[TOKENICODE] Rebuilt tracked_sessions.txt: {} sessions ({})",
+                    set.len(),
+                    mode
+                );
             }
         }
     }
@@ -3348,7 +3449,11 @@ async fn create_directory(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn export_session_markdown(path: String, output_path: String, conversation_only: bool) -> Result<(), String> {
+async fn export_session_markdown(
+    path: String,
+    output_path: String,
+    conversation_only: bool,
+) -> Result<(), String> {
     use std::io::{BufRead, Write};
     let file = std::fs::File::open(&path).map_err(|e| format!("Failed to open session: {}", e))?;
     let reader = std::io::BufReader::new(file);
@@ -3391,7 +3496,9 @@ async fn export_session_markdown(path: String, output_path: String, conversation
                                         text_buf.push_str(text);
                                         text_buf.push_str("\n\n");
                                     }
-                                } else if !conversation_only && block["type"].as_str() == Some("tool_use") {
+                                } else if !conversation_only
+                                    && block["type"].as_str() == Some("tool_use")
+                                {
                                     let name = block["name"].as_str().unwrap_or("Tool");
                                     text_buf.push_str(&format!("**Tool: {}**\n\n", name));
                                     if let Some(input) = block.get("input") {
@@ -3569,11 +3676,8 @@ async fn watch_directory(
                 .paths
                 .iter()
                 .filter(|p| {
-                    !p.components().any(|c| {
-                        IGNORED_SEGMENTS
-                            .iter()
-                            .any(|seg| c.as_os_str() == *seg)
-                    })
+                    !p.components()
+                        .any(|c| IGNORED_SEGMENTS.iter().any(|seg| c.as_os_str() == *seg))
                 })
                 .map(|p| p.to_string_lossy().to_string())
                 .collect();
@@ -4435,14 +4539,17 @@ async fn rewind_files(
     let enriched_path = build_enriched_path();
 
     let mut rewind_cmd = tokio::process::Command::new(&claude_bin);
-    rewind_cmd.args(&["--resume", &session_id, "--rewind-files", &checkpoint_uuid])
+    rewind_cmd
+        .args(&["--resume", &session_id, "--rewind-files", &checkpoint_uuid])
         .current_dir(&cwd)
         .env("PATH", &enriched_path)
         .env("CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING", "1")
         .env_remove("CLAUDECODE");
     // Disable MSYS2 auto path conversion on Windows (Chinese path fix)
     #[cfg(target_os = "windows")]
-    rewind_cmd.env("MSYS_NO_PATHCONV", "1").env("MSYS2_ARG_CONV_EXCL", "*");
+    rewind_cmd
+        .env("MSYS_NO_PATHCONV", "1")
+        .env("MSYS2_ARG_CONV_EXCL", "*");
 
     let output = rewind_cmd
         .stdout(std::process::Stdio::piped())
@@ -4504,7 +4611,8 @@ async fn run_claude_command(subcommand: String, cwd: Option<String>) -> Result<S
     {
         cmd.creation_flags(0x08000000);
         // Disable MSYS2 auto path conversion on Windows (Chinese path fix)
-        cmd.env("MSYS_NO_PATHCONV", "1").env("MSYS2_ARG_CONV_EXCL", "*");
+        cmd.env("MSYS_NO_PATHCONV", "1")
+            .env("MSYS2_ARG_CONV_EXCL", "*");
     }
     if let Some(ref dir) = cwd {
         cmd.current_dir(dir);
@@ -4544,11 +4652,7 @@ fn remove_corrupt_claude_exe(suspect_path: &str) {
     if suspect.exists() {
         match std::fs::remove_file(suspect) {
             Ok(()) => eprintln!("[cli_repair] removed corrupt exe: {}", suspect.display()),
-            Err(e) => eprintln!(
-                "[cli_repair] failed to remove {}: {}",
-                suspect.display(),
-                e
-            ),
+            Err(e) => eprintln!("[cli_repair] failed to remove {}: {}", suspect.display(), e),
         }
     }
 
@@ -4564,11 +4668,9 @@ fn remove_corrupt_claude_exe(suspect_path: &str) {
             if pkg.exists() {
                 match std::fs::remove_dir_all(&pkg) {
                     Ok(()) => eprintln!("[cli_repair] removed corrupt pkg: {}", pkg.display()),
-                    Err(e) => eprintln!(
-                        "[cli_repair] failed to remove pkg {}: {}",
-                        pkg.display(),
-                        e
-                    ),
+                    Err(e) => {
+                        eprintln!("[cli_repair] failed to remove pkg {}: {}", pkg.display(), e)
+                    }
                 }
             }
         }
@@ -4611,7 +4713,9 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
                             "[check_claude_cli] --version timed out for '{}', trying fallback...",
                             path
                         );
-                        let fallback = find_claude_binary_ordered().into_iter().find(|p| p != &path);
+                        let fallback = find_claude_binary_ordered()
+                            .into_iter()
+                            .find(|p| p != &path);
                         let git_bash_missing = find_git_bash().is_none();
                         return match fallback {
                             Some(alt_path) => {
@@ -4650,7 +4754,9 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
                         path
                     );
                     // The app-local binary is hanging; try to find an alternative via system PATH
-                    let fallback = find_claude_binary_ordered().into_iter().find(|p| p != &path);
+                    let fallback = find_claude_binary_ordered()
+                        .into_iter()
+                        .find(|p| p != &path);
                     let git_bash_missing = false;
                     return match fallback {
                         Some(alt_path) => {
@@ -4814,13 +4920,17 @@ async fn diagnose_cli() -> Result<Vec<commands::cli_resolver::CliCandidate>, Str
                 }
             }
             Ok(Ok(_)) => {
-                candidate.issues.push("--version returned non-zero exit".to_string());
+                candidate
+                    .issues
+                    .push("--version returned non-zero exit".to_string());
             }
             Ok(Err(e)) => {
                 candidate.issues.push(format!("failed to execute: {}", e));
             }
             Err(_) => {
-                candidate.issues.push("--version timed out (3s)".to_string());
+                candidate
+                    .issues
+                    .push("--version timed out (3s)".to_string());
             }
         }
     }
@@ -4830,7 +4940,9 @@ async fn diagnose_cli() -> Result<Vec<commands::cli_resolver::CliCandidate>, Str
 
 /// Clean up selected CLI installations.
 #[tauri::command]
-async fn cleanup_old_cli(targets: Vec<String>) -> Result<commands::cli_resolver::CleanupResult, String> {
+async fn cleanup_old_cli(
+    targets: Vec<String>,
+) -> Result<commands::cli_resolver::CleanupResult, String> {
     Ok(commands::cli_resolver::cleanup(&targets))
 }
 
@@ -4910,8 +5022,7 @@ async fn repair_cli() -> Result<RepairReport, String> {
                 .creation_flags(0x08000000)
                 .output();
 
-            let probe_result =
-                tokio::time::timeout(std::time::Duration::from_secs(5), probe).await;
+            let probe_result = tokio::time::timeout(std::time::Duration::from_secs(5), probe).await;
 
             match probe_result {
                 // Timed out: leave it alone. Could be a hang, not corruption.
@@ -4929,7 +5040,9 @@ async fn repair_cli() -> Result<RepairReport, String> {
                     report.removed.push(path);
                 }
                 Ok(Err(e)) => {
-                    report.notes.push(format!("spawn failed on {}: {}", path, e));
+                    report
+                        .notes
+                        .push(format!("spawn failed on {}: {}", path, e));
                 }
             }
         }
@@ -5122,7 +5235,12 @@ async fn install_cli_via_npm(app: &AppHandle, china: bool) -> Result<(), String>
 fn version_gt(a: &str, b: &str) -> bool {
     let parse = |s: &str| -> Vec<u64> {
         // Take only the first whitespace-delimited token ("2.1.92 (Claude Code)" → "2.1.92")
-        let ver = s.trim().trim_start_matches('v').split_whitespace().next().unwrap_or("");
+        let ver = s
+            .trim()
+            .trim_start_matches('v')
+            .split_whitespace()
+            .next()
+            .unwrap_or("");
         ver.split('.')
             .filter_map(|p| p.parse::<u64>().ok())
             .collect()
@@ -5139,17 +5257,29 @@ fn version_gt(a: &str, b: &str) -> bool {
 /// Return the platform key matching the server manifest (e.g. "win32-x64").
 fn native_platform_key() -> &'static str {
     #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-    { "win32-x64" }
+    {
+        "win32-x64"
+    }
     #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
-    { "win32-arm64" }
+    {
+        "win32-arm64"
+    }
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    { "darwin-arm64" }
+    {
+        "darwin-arm64"
+    }
     #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-    { "darwin-x64" }
+    {
+        "darwin-x64"
+    }
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    { "linux-x64" }
+    {
+        "linux-x64"
+    }
     #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-    { "linux-arm64" }
+    {
+        "linux-arm64"
+    }
 }
 
 /// Probe a release base for `/latest` and return the version string.
@@ -5161,7 +5291,11 @@ async fn fetch_latest_version(client: &reqwest::Client, base: &str) -> Option<St
     }
     let text = resp.text().await.ok()?;
     let v = text.trim().to_string();
-    if v.is_empty() { None } else { Some(v) }
+    if v.is_empty() {
+        None
+    } else {
+        Some(v)
+    }
 }
 
 /// Order the two release bases, prefer the one with the highest version.
@@ -5204,8 +5338,14 @@ async fn choose_native_sources(china: bool) -> Vec<(&'static str, String)> {
     if available.len() > 1 {
         // Log lag if the china mirror is behind GCS so ops can notice.
         if let (Some(mirror_v), Some(gcs_v)) = (
-            available.iter().find(|(b, _)| *b == CLI_MIRROR_BASE).map(|(_, v)| v.clone()),
-            available.iter().find(|(b, _)| *b == CLI_GCS_BASE).map(|(_, v)| v.clone()),
+            available
+                .iter()
+                .find(|(b, _)| *b == CLI_MIRROR_BASE)
+                .map(|(_, v)| v.clone()),
+            available
+                .iter()
+                .find(|(b, _)| *b == CLI_GCS_BASE)
+                .map(|(_, v)| v.clone()),
         ) {
             if version_gt(&gcs_v, &mirror_v) {
                 eprintln!(
@@ -5241,10 +5381,7 @@ async fn choose_native_sources(china: bool) -> Vec<(&'static str, String)> {
 /// optional-dependency fragility that caused TK-0.10.5's Windows install
 /// failure (bin/claude.exe shipped by `@anthropic-ai/claude-code` was corrupt,
 /// triggering Windows error 193 "16-bit application not supported").
-async fn try_native_cli_download(
-    app: Option<&AppHandle>,
-    china: bool,
-) -> Result<String, String> {
+async fn try_native_cli_download(app: Option<&AppHandle>, china: bool) -> Result<String, String> {
     let sources = choose_native_sources(china).await;
     if sources.is_empty() {
         return Err("No native release source reachable".to_string());
@@ -5265,8 +5402,12 @@ async fn try_native_cli_download(
     // 1. Fetch manifest for checksum + binary name (try sources in order).
     let platform = native_platform_key();
     let mut expected_checksum = String::new();
-    let mut binary_name =
-        if cfg!(target_os = "windows") { "claude.exe" } else { "claude" }.to_string();
+    let mut binary_name = if cfg!(target_os = "windows") {
+        "claude.exe"
+    } else {
+        "claude"
+    }
+    .to_string();
     let mut manifest_ok = false;
 
     for (base, ver) in &sources {
@@ -5342,8 +5483,8 @@ async fn try_native_cli_download(
         let total_bytes = resp.content_length();
         let mut written: u64 = 0;
         let mut stream = resp.bytes_stream();
-        let mut file = std::fs::File::create(&tmp_path)
-            .map_err(|e| format!("Cannot create tmp file: {e}"))?;
+        let mut file =
+            std::fs::File::create(&tmp_path).map_err(|e| format!("Cannot create tmp file: {e}"))?;
 
         use std::io::Write;
         while let Some(chunk) = stream.next().await {
@@ -5368,8 +5509,8 @@ async fn try_native_cli_download(
         // 4. Verify SHA-256 checksum.
         if !expected_checksum.is_empty() {
             use sha2::{Digest, Sha256};
-            let data = std::fs::read(&tmp_path)
-                .map_err(|e| format!("Cannot read tmp file: {e}"))?;
+            let data =
+                std::fs::read(&tmp_path).map_err(|e| format!("Cannot read tmp file: {e}"))?;
             let actual = format!("{:x}", Sha256::digest(&data));
             if actual != expected_checksum {
                 eprintln!(
@@ -5401,8 +5542,7 @@ async fn try_native_cli_download(
 
     // On Windows the running binary may be locked; try rename, then copy+delete.
     if std::fs::rename(&tmp_path, &dest_path).is_err() {
-        std::fs::copy(&tmp_path, &dest_path)
-            .map_err(|e| format!("Cannot install binary: {e}"))?;
+        std::fs::copy(&tmp_path, &dest_path).map_err(|e| format!("Cannot install binary: {e}"))?;
         let _ = std::fs::remove_file(&tmp_path);
     }
 
@@ -5425,11 +5565,17 @@ async fn update_claude_cli(app: AppHandle) -> Result<String, String> {
     // Phase 1: Try native binary download.
     match try_native_cli_download(Some(&app), china).await {
         Ok(version) => {
-            eprintln!("[update_claude_cli] native binary update success: v{}", version);
+            eprintln!(
+                "[update_claude_cli] native binary update success: v{}",
+                version
+            );
             return Ok(version);
         }
         Err(e) => {
-            eprintln!("[update_claude_cli] native binary skipped/failed: {}, using npm", e);
+            eprintln!(
+                "[update_claude_cli] native binary skipped/failed: {}, using npm",
+                e
+            );
         }
     }
 
@@ -5464,7 +5610,10 @@ async fn update_claude_cli(app: AppHandle) -> Result<String, String> {
             .build()
             .unwrap_or_default();
         let urls = if china {
-            vec![format!("{}/latest", CLI_MIRROR_BASE), format!("{}/latest", CLI_GCS_BASE)]
+            vec![
+                format!("{}/latest", CLI_MIRROR_BASE),
+                format!("{}/latest", CLI_GCS_BASE),
+            ]
         } else {
             vec![format!("{}/latest", CLI_GCS_BASE)]
         };
@@ -5473,7 +5622,10 @@ async fn update_claude_cli(app: AppHandle) -> Result<String, String> {
             if let Ok(resp) = c.get(url).send().await {
                 if let Ok(text) = resp.text().await {
                     let v = text.trim().to_string();
-                    if !v.is_empty() { ver = Some(v); break; }
+                    if !v.is_empty() {
+                        ver = Some(v);
+                        break;
+                    }
                 }
             }
         }
@@ -5492,9 +5644,13 @@ async fn update_claude_cli(app: AppHandle) -> Result<String, String> {
     let mut last_err = String::new();
     for registry in &registries {
         eprintln!("[update_claude_cli] trying npm registry: {}", registry);
-        let _ = emit_to_frontend(&app, "setup:download:progress", serde_json::json!({
-            "downloaded": 0, "total": 0, "percent": 30, "phase": "npm_fallback"
-        }));
+        let _ = emit_to_frontend(
+            &app,
+            "setup:download:progress",
+            serde_json::json!({
+                "downloaded": 0, "total": 0, "percent": 30, "phase": "npm_fallback"
+            }),
+        );
 
         let args: Vec<String> = vec![
             "install".to_string(),
@@ -5527,14 +5683,23 @@ async fn update_claude_cli(app: AppHandle) -> Result<String, String> {
         match result {
             Ok(Ok(output)) if output.status.success() => {
                 let check = check_claude_cli().await.unwrap_or(CliStatus {
-                    installed: false, version: None,
-                    path: None, git_bash_missing: false,
+                    installed: false,
+                    version: None,
+                    path: None,
+                    git_bash_missing: false,
                 });
                 let version = check.version.unwrap_or_else(|| "unknown".to_string());
-                eprintln!("[update_claude_cli] npm installed v{} from {}", version, registry);
-                let _ = emit_to_frontend(&app, "setup:download:progress", serde_json::json!({
-                    "downloaded": 0, "total": 0, "percent": 100, "phase": "complete"
-                }));
+                eprintln!(
+                    "[update_claude_cli] npm installed v{} from {}",
+                    version, registry
+                );
+                let _ = emit_to_frontend(
+                    &app,
+                    "setup:download:progress",
+                    serde_json::json!({
+                        "downloaded": 0, "total": 0, "percent": 100, "phase": "complete"
+                    }),
+                );
 
                 // Version verification: if target is known and installed version is stale,
                 // try next registry (npmmirror may be behind)
@@ -5544,7 +5709,10 @@ async fn update_claude_cli(app: AppHandle) -> Result<String, String> {
                             "[update_claude_cli] v{} < target v{}, trying next registry",
                             version, target
                         );
-                        last_err = format!("Mirror {} has v{} but latest is v{}", registry, version, target);
+                        last_err = format!(
+                            "Mirror {} has v{} but latest is v{}",
+                            registry, version, target
+                        );
                         continue;
                     }
                 }
@@ -5553,7 +5721,11 @@ async fn update_claude_cli(app: AppHandle) -> Result<String, String> {
             }
             Ok(Ok(output)) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                last_err = format!("npm install failed ({}): {}", registry, stderr.chars().take(500).collect::<String>());
+                last_err = format!(
+                    "npm install failed ({}): {}",
+                    registry,
+                    stderr.chars().take(500).collect::<String>()
+                );
                 eprintln!("[update_claude_cli] {}", last_err);
             }
             Ok(Err(e)) => {
@@ -5628,7 +5800,10 @@ async fn check_cli_update() -> Result<CliUpdateCheck, String> {
             .await
         {
             let json: serde_json::Value = resp.json().await.unwrap_or_default();
-            latest = json.get("version").and_then(|v| v.as_str()).map(String::from);
+            latest = json
+                .get("version")
+                .and_then(|v| v.as_str())
+                .map(String::from);
         }
     }
 
@@ -5637,7 +5812,11 @@ async fn check_cli_update() -> Result<CliUpdateCheck, String> {
         _ => false,
     };
 
-    Ok(CliUpdateCheck { current, latest, update_available })
+    Ok(CliUpdateCheck {
+        current,
+        latest,
+        update_available,
+    })
 }
 
 /// Install the Claude CLI via npm with network-aware mirror selection:
@@ -6833,7 +7012,10 @@ async fn generate_session_title(
             Some(m) => (env, keys, m),
             None => {
                 // Provider has no haiku mapping — degrade silently, don't error.
-                eprintln!("[title-gen] provider {} has no haiku mapping, skipping", pid);
+                eprintln!(
+                    "[title-gen] provider {} has no haiku mapping, skipping",
+                    pid
+                );
                 return Ok(None);
             }
         }
@@ -7083,6 +7265,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(ProcessManager::new())
         .manage(StdinManager::new())
+        .manage(BypassModeMap::new())
         .manage(WatcherManager::default())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {

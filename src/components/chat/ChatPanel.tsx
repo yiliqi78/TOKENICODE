@@ -11,11 +11,12 @@ import { useSessionStore } from '../../stores/sessionStore';
 import { useFileStore } from '../../stores/fileStore';
 import { useAgentStore } from '../../stores/agentStore';
 import { AgentPanel } from '../agents/AgentPanel';
-import { bridge, onClaudeStream, onClaudeStderr } from '../../lib/tauri-bridge';
+// bridge import removed — spawn goes through sessionLifecycle module
 import { open } from '@tauri-apps/plugin-dialog';
 import { useT } from '../../lib/i18n';
 import { envFingerprint, resolveModelForProvider } from '../../lib/api-provider';
 import { useProviderStore } from '../../stores/providerStore';
+import { spawnSession } from '../../lib/sessionLifecycle';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
 import { SetupWizard } from '../setup/SetupWizard';
 import { AiAvatar } from '../shared/AiAvatar';
@@ -688,7 +689,7 @@ export function ChatPanel() {
               </div>
             ))}
             {/* Inline activity status indicator — like Claude Desktop App */}
-            {(sessionStatus === 'running' || sessionStatus === 'reconnecting' || activityStatus.phase === 'awaiting') && (
+            {(sessionStatus === 'running' || sessionStatus === 'reconnecting' || sessionStatus === 'stopping' || activityStatus.phase === 'awaiting') && (
               <ActivityIndicator activityStatus={activityStatus} sessionMeta={sessionMeta} />
             )}
           </div>
@@ -786,73 +787,62 @@ async function startDraftSession(folderPath: string) {
   // Send empty prompt — Rust will skip the NDJSON send.
   const preWarmId = `desk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   try {
-    // Register stream listeners before spawning
-    const unlisten = await onClaudeStream(preWarmId, (msg: any) => {
-      // Tag message with stdinId so the handler can route to correct session
-      msg.__stdinId = preWarmId;
-      // Forward to InputBar's handler via a global — will be overridden when InputBar mounts
-      const handler = (window as any).__claudeStreamHandler;
-      if (handler) {
-        // Replay any events that arrived while handler was briefly null (React effect cycle)
-        const queue: any[] = (window as any).__claudeStreamQueue;
-        if (queue && queue.length > 0) {
-          console.warn(`[TOKENICODE] replaying ${queue.length} queued pre-warm events`);
-          const pending = queue.splice(0);
-          for (const queued of pending) handler(queued);
-        }
-        handler(msg);
-      } else {
-        // Handler not yet available (InputBar not mounted or React effect cycle) — queue the event
-        if (!(window as any).__claudeStreamQueue) (window as any).__claudeStreamQueue = [];
-        (window as any).__claudeStreamQueue.push(msg);
-        console.warn('[TOKENICODE] pre-warm event queued (handler not ready):', msg.type);
-      }
-    });
-    const unlistenStderr = await onClaudeStderr(preWarmId, (line: string) => {
-      // Log pre-warm stderr for debugging (errors here explain why CLI may fail)
-      console.warn('[TOKENICODE] pre-warm stderr:', line);
-    });
+    const settings = useSettingsStore.getState();
+    const model = resolveModelForProvider(settings.selectedModel);
+    const providerId = useProviderStore.getState().activeProviderId || '';
+    const permissionMode = mapSessionModeToPermissionMode(settings.sessionMode);
 
-    // Store unlisten per stdinId for multi-session support
-    if (!(window as any).__claudeUnlisteners) {
-      (window as any).__claudeUnlisteners = {};
-    }
-    (window as any).__claudeUnlisteners[preWarmId] = () => {
-      unlisten();
-      unlistenStderr();
-    };
-
-    const session = await bridge.startSession({
-      prompt: '',  // empty = pre-warm, no message sent
-      cwd: folderPath,
-      model: resolveModelForProvider(useSettingsStore.getState().selectedModel),
-      session_id: preWarmId,
-      thinking_level: useSettingsStore.getState().thinkingLevel,
-      provider_id: useProviderStore.getState().activeProviderId || undefined,
-      permission_mode: mapSessionModeToPermissionMode(useSettingsStore.getState().sessionMode),
-    });
-
-    // Store stdinId so InputBar can send the first message via stdin
+    // Ensure tab exists before writing sessionMeta
     useChatStore.getState().ensureTab(draftId);
-    useChatStore.getState().setSessionMeta(draftId, {
-      sessionId: session.cli_session_id || session.stdin_id,
+
+    // Use lifecycle module for unified spawn
+    const spawnResult = await spawnSession({
+      tabId: draftId,
       stdinId: preWarmId,
-      envFingerprint: envFingerprint(),
-      spawnedModel: resolveModelForProvider(useSettingsStore.getState().selectedModel),
+      cwdSnapshot: folderPath,
+      configSnapshot: {
+        model,
+        providerId,
+        thinkingLevel: settings.thinkingLevel,
+        permissionMode,
+      },
+      sessionModeSnapshot: settings.sessionMode,
+      sessionParams: {
+        prompt: '',  // empty = pre-warm, no message sent
+        cwd: folderPath,
+        model,
+        session_id: preWarmId,
+        thinking_level: settings.thinkingLevel,
+        provider_id: providerId || undefined,
+        permission_mode: permissionMode,
+      },
+      onStream: (msg: any) => {
+        // Forward to InputBar's handler via a global
+        const handler = (window as any).__claudeStreamHandler;
+        if (handler) {
+          const queue: any[] = (window as any).__claudeStreamQueue;
+          if (queue && queue.length > 0) {
+            const pending = queue.splice(0);
+            for (const queued of pending) handler(queued);
+          }
+          handler(msg);
+        } else {
+          if (!(window as any).__claudeStreamQueue) (window as any).__claudeStreamQueue = [];
+          (window as any).__claudeStreamQueue.push(msg);
+        }
+      },
+      onStderr: (line: string) => {
+        console.warn('[TOKENICODE] pre-warm stderr:', line);
+      },
+      setRunning: false,
     });
 
-    // Register stdinId → tabId mapping for background stream routing
-    useSessionStore.getState().registerStdinTab(preWarmId, draftId);
-    // Store cliResumeId for resume logic
-    if (session.cli_session_id) {
-      useSessionStore.getState().setCliResumeId(draftId, session.cli_session_id);
-    }
-
-    // Skip desk_* IDs — they pollute tracked_sessions.txt (multi-session isolation fix)
-    const trackId = session.cli_session_id || session.stdin_id;
-    if (!trackId.startsWith('desk_')) {
-      bridge.trackSession(trackId).catch(() => {});
-    }
+    // Write additional meta
+    useChatStore.getState().setSessionMeta(draftId, {
+      sessionId: spawnResult.sessionInfo.cli_session_id ?? undefined,
+      envFingerprint: envFingerprint(),
+      spawnedModel: model,
+    });
   } catch {
     // Pre-warm failed — InputBar will spawn on first message instead
   }

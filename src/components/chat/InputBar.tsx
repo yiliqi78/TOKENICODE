@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { useChatStore, useActiveTab, getActiveTabState, generateMessageId, generateInterruptedId } from '../../stores/chatStore';
+import { useChatStore, useActiveTab, getActiveTabState, generateMessageId, isSessionBusy } from '../../stores/chatStore';
 import { useSettingsStore, MODEL_OPTIONS, mapSessionModeToPermissionMode, setSessionModeLocal, type ThinkingLevel } from '../../stores/settingsStore';
-import { bridge, onClaudeStream, onClaudeStderr, onSessionExit, onPermissionRequest, type UnifiedCommand, type PermissionRequest } from '../../lib/tauri-bridge';
+import { bridge, type UnifiedCommand } from '../../lib/tauri-bridge';
 import { ModelSelector } from './ModelSelector';
 // import { ModeSelector } from './ModeSelector';
 import { FileUploadChips } from './FileUploadChips';
@@ -23,6 +23,7 @@ import { PlanReviewCard } from './PlanReviewCard';
 import { PermissionCard } from './PermissionCard';
 import { QuestionCard } from './QuestionCard';
 import { TiptapEditor, type TiptapEditorHandle } from './TiptapEditor';
+import { spawnSession, teardownSession, cleanupStdinRoute, waitForStdinCleared } from '../../lib/sessionLifecycle';
 // drag-state import removed — tree drag handled by ChatPanel
 
 /** Thinking effort level configuration data */
@@ -220,6 +221,12 @@ export function InputBar() {
     // If CLI is still alive (e.g., Bypass auto-accepted ExitPlanMode),
     // just dismiss the card — no restart needed.
     if (meta.stdinId && status === 'running') {
+      if (useSettingsStore.getState().sessionMode !== 'code') {
+        setSessionModeLocal('code');
+      }
+      if (meta.snapshotMode === 'plan') {
+        useChatStore.getState().setSessionMeta(tabId, { snapshotMode: 'code' });
+      }
       useChatStore.getState().setActivityStatus(tabId, { phase: 'thinking' });
       return;
     }
@@ -231,14 +238,11 @@ export function InputBar() {
       useSettingsStore.getState().setSessionMode('code');
     }
 
-    // Clean up dead CLI process
+    // Clean up dead CLI process via lifecycle module
     if (meta.stdinId) {
-      useChatStore.getState().setSessionMeta(tabId, { stdinId: undefined });
-      bridge.killSession(meta.stdinId).catch(() => {});
-      if ((window as any).__claudeUnlisteners?.[meta.stdinId]) {
-        (window as any).__claudeUnlisteners[meta.stdinId]();
-        delete (window as any).__claudeUnlisteners[meta.stdinId];
-      }
+      const exitingStdinId = meta.stdinId;
+      await teardownSession(exitingStdinId, tabId, 'plan-approve');
+      await waitForStdinCleared(tabId, exitingStdinId);
     }
 
     // Restart with --resume <sessionId>
@@ -354,10 +358,11 @@ export function InputBar() {
     useCommandStore.getState().fetchCommands(workingDirectory || undefined);
   }, [workingDirectory]);
 
-  // 'reconnecting' counts as running — keep input disabled while the
-  // watchdog is auto-recovering, so the user can't interleave a new
-  // message while we're mid-resume.
-  const isRunning = sessionStatus === 'running' || sessionStatus === 'reconnecting';
+  // Shared busy state for follow-up placeholder / stop controls / selector lock.
+  // We keep a stricter editor lock for `stopping` below so the user can't
+  // interleave a new message while teardown is still in flight.
+  const isRunning = isSessionBusy(sessionStatus);
+  const isStopping = sessionStatus === 'stopping';
   const isAwaiting = isRunning && activityPhase === 'awaiting';
 
   // Whether this is a follow-up (session already has a CLI session ID)
@@ -383,8 +388,6 @@ export function InputBar() {
   const handleStderrLineRef = useRef<(line: string, sid: string) => void>(() => {});
   /** Last non-empty stderr line — shown to user if process exits without response */
   const lastStderrRef = useRef('');
-  /** Tracks whether auto-compact has been triggered in this session to avoid repeat fires */
-  const autoCompactFiredRef = useRef(false);
   /** Tracks ExitPlanMode in current turn for Code mode auto-restart */
   const exitPlanModeSeenRef = useRef(false);
   /** When true, next handleSubmit skips creating user message bubble (Code mode silent restart) */
@@ -393,7 +396,6 @@ export function InputBar() {
   // Stream processing hook — handles foreground + background stream messages
   const { handleStreamMessage } = useStreamProcessor({
     exitPlanModeSeenRef,
-    autoCompactFiredRef,
     silentRestartRef,
     handleSubmitRef,
     handleStderrLineRef,
@@ -660,6 +662,15 @@ export function InputBar() {
     );
     if (pendingPlanReview && !text && !useCommandStore.getState().activePrefix) {
       const stdinId = tabState.sessionMeta.stdinId;
+      const hasLivePlanSession = Boolean(stdinId && tabState.sessionStatus === 'running');
+      if (!hasLivePlanSession) {
+        useChatStore.getState().updateMessage(tabId, pendingPlanReview.id, {
+          resolved: true,
+          interactionState: 'failed',
+          interactionError: 'CLI process exited',
+        });
+        return;
+      }
       const permData = pendingPlanReview.permissionData;
       if (permData?.requestId && stdinId) {
         try {
@@ -679,6 +690,7 @@ export function InputBar() {
       if (useSettingsStore.getState().sessionMode === 'plan') {
         setSessionModeLocal('code');
       }
+      useChatStore.getState().setSessionMeta(tabId, { snapshotMode: 'code' });
       useChatStore.getState().updateMessage(tabId, pendingPlanReview.id, {
         resolved: true,
         interactionState: 'resolved',
@@ -767,7 +779,7 @@ export function InputBar() {
     const existingStdinId = currentTabState.sessionMeta.stdinId;
     const currentStatus = currentTabState.sessionStatus;
 
-    if (existingStdinId && (currentStatus === 'running' || currentStatus === 'reconnecting')) {
+    if (existingStdinId && isSessionBusy(currentStatus)) {
       useChatStore.getState().addPendingMessage(tabId, text);
       return;
     }
@@ -808,8 +820,6 @@ export function InputBar() {
       startTime: Date.now(),
       isMain: true,
     });
-
-    let sessionStdinId: string | undefined;
 
     try {
       if (!workingDirectory) {
@@ -854,15 +864,13 @@ export function InputBar() {
         const sessionFp = getActiveTabState().sessionMeta.envFingerprint;
         if (currentFp !== sessionFp) {
           console.warn('[TOKENICODE] API provider config changed, killing stale session');
-          bridge.killSession(stdinId).catch(() => {});
-          if ((window as any).__claudeUnlisteners?.[stdinId]) {
-            (window as any).__claudeUnlisteners[stdinId]();
-            delete (window as any).__claudeUnlisteners[stdinId];
-          }
-          // Keep sessionId so we attempt resume (preserving context).
+          // Use lifecycle teardown — properly unregisters stdinTab mapping
+          await teardownSession(stdinId, tabId, 'switch');
+          await waitForStdinCleared(tabId, stdinId);
+          // Keep cliResumeId so we attempt resume (preserving context).
           // If the resume fails due to thinking signature mismatch, the
           // stream error handler will auto-retry without resume.
-          setSessionMeta(tabId, { stdinId: undefined, envFingerprint: undefined, providerSwitched: true, providerSwitchPendingText: text });
+          setSessionMeta(tabId, { envFingerprint: undefined, providerSwitched: true, providerSwitchPendingText: text });
           // Clean thinking blocks from history to avoid signature mismatch on resume.
           // Provider change likely routes to a different backend that can't verify
           // the old model's thinking signatures.
@@ -888,14 +896,12 @@ export function InputBar() {
             const oldShort = MODEL_OPTIONS.find((m) => m.id === spawnedModel)?.short ?? spawnedModel;
             const newShort = MODEL_OPTIONS.find((m) => m.id === currentModel)?.short ?? currentModel;
             console.warn(`[TOKENICODE] Model changed (${oldShort} → ${newShort}), killing stale session`);
-            bridge.killSession(stdinId).catch(() => {});
-            if ((window as any).__claudeUnlisteners?.[stdinId]) {
-              (window as any).__claudeUnlisteners[stdinId]();
-              delete (window as any).__claudeUnlisteners[stdinId];
-            }
+            // Use lifecycle teardown — properly unregisters stdinTab mapping
+            await teardownSession(stdinId, tabId, 'switch');
+            await waitForStdinCleared(tabId, stdinId);
             // System message already inserted by ModelSelector — no duplicate here.
-            // Keep sessionId so we attempt resume (preserving context).
-            setSessionMeta(tabId, { stdinId: undefined, spawnedModel: undefined, modelSwitched: true, modelSwitchPendingText: text });
+            // Keep cliResumeId so we attempt resume (preserving context).
+            setSessionMeta(tabId, { spawnedModel: undefined, modelSwitched: true, modelSwitchPendingText: text });
             // Clean thinking blocks from history to avoid signature mismatch on resume.
             // Thinking signatures are model-specific; resuming with a different model
             // causes the API to reject the request (400).
@@ -922,12 +928,9 @@ export function InputBar() {
             }
           } catch (stdinErr) {
             // stdin write failed (broken pipe — process already exited).
-            // Clean up dead listeners (P0-5 fix) and fall through to spawn a new process.
+            // Drop the stale stdin route via lifecycle helpers, then spawn fresh.
             console.warn('[TOKENICODE] sendStdin failed, spawning new process:', stdinErr);
-            if ((window as any).__claudeUnlisteners?.[stdinId]) {
-              (window as any).__claudeUnlisteners[stdinId]();
-              delete (window as any).__claudeUnlisteners[stdinId];
-            }
+            cleanupStdinRoute(stdinId);
             setSessionMeta(tabId, { stdinId: undefined });
             stdinId = undefined;
           }
@@ -952,159 +955,65 @@ export function InputBar() {
           ? (useSessionStore.getState().sessions.find((s) => s.id === tabId)?.cliResumeId ?? undefined)
           : undefined;
 
-        // TK-329 fix: only clean up THIS tab's old stdinId listener, not the global singleton.
-        // The old __claudeUnlisten global could kill another tab's active listener.
+        // Clean up old stdinId listener if any (via lifecycle module)
         const oldStdinId = getActiveTabState().sessionMeta.stdinId;
-        if (oldStdinId && (window as any).__claudeUnlisteners?.[oldStdinId]) {
-          (window as any).__claudeUnlisteners[oldStdinId]();
-          delete (window as any).__claudeUnlisteners[oldStdinId];
-          // Also flush any pending stream buffer for the old session
+        if (oldStdinId) {
+          cleanupStdinRoute(oldStdinId);
           flushStreamBuffer(oldStdinId);
         }
 
         const cwd = workingDirectory;
 
-        // Generate the desk-side session ID FIRST so we can register
-        // event listeners BEFORE spawning the process.
+        // Generate the desk-side session ID
         const preGeneratedId = `desk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        sessionStdinId = preGeneratedId;
 
         // Reset guards for the new session
-        autoCompactFiredRef.current = false;
         exitPlanModeSeenRef.current = false;
 
-        // TK-329 fix: register stdinId → tabId mapping BEFORE listeners,
-        // so events arriving immediately after spawn can be routed correctly.
-        const earlyTabId = useSessionStore.getState().selectedSessionId;
-        if (earlyTabId) {
-          useSessionStore.getState().registerStdinTab(preGeneratedId, earlyTabId);
-        }
-
-        // Register listeners BEFORE starting the session
-        const unlisten = await onClaudeStream(
-          preGeneratedId,
-          (msg: any) => {
-            msg.__stdinId = preGeneratedId;
-            handleStreamMessage(msg);
-          }
-        );
-
-        const unlistenStderr = await onClaudeStderr(
-          preGeneratedId,
-          (line: string) => {
-            handleStderrLine(line, preGeneratedId);
-          }
-        );
-
-        // SDK control protocol: listen for structured permission requests
-        const unlistenPermission = await onPermissionRequest(
-          preGeneratedId,
-          (req: PermissionRequest) => {
-            // Background routing: check if this stdinId belongs to a non-active tab
-            const reqOwnerTabId = useSessionStore.getState().getTabForStdin(preGeneratedId);
-            const reqActiveTabId = useSessionStore.getState().selectedSessionId;
-            if (reqOwnerTabId && reqOwnerTabId !== reqActiveTabId) {
-              // Route to background cache instead of foreground
-              const cache = useChatStore.getState();
-              cache.addMessageToCache(reqOwnerTabId, {
-                id: generateMessageId(),
-                role: 'assistant',
-                type: 'permission',
-                content: req.description || `${req.tool_name} wants to execute`,
-                permissionTool: req.tool_name,
-                permissionDescription: req.description || '',
-                timestamp: Date.now(),
-                interactionState: 'pending',
-                permissionData: {
-                  requestId: req.request_id,
-                  toolName: req.tool_name,
-                  input: req.input,
-                  description: req.description,
-                  toolUseId: req.tool_use_id,
-                },
-              });
-              cache.setActivityInCache(reqOwnerTabId, { phase: 'awaiting' });
-              return;
-            }
-            const { addMessage: addMsg, setActivityStatus: setActivity } = useChatStore.getState();
-            const fgTabId = useSessionStore.getState().selectedSessionId;
-            if (fgTabId) {
-              addMsg(fgTabId, {
-                id: generateMessageId(),
-                role: 'assistant',
-                type: 'permission',
-                content: req.description || `${req.tool_name} wants to execute`,
-                permissionTool: req.tool_name,
-                permissionDescription: req.description || '',
-                timestamp: Date.now(),
-                interactionState: 'pending',
-                permissionData: {
-                  requestId: req.request_id,
-                  toolName: req.tool_name,
-                  input: req.input,
-                  description: req.description,
-                  toolUseId: req.tool_use_id,
-                },
-              });
-              setActivity(fgTabId, { phase: 'awaiting' });
-            }
-          }
-        );
-
-        // Backup exit detection: if process_exit from stdout stream is missed
-        // (e.g., listener was removed), this fires as a safety net.
-        const unlistenExit = await onSessionExit(preGeneratedId, () => {
-          // Resolve the tab that owns this stdinId
-          const exitTabId = useSessionStore.getState().getTabForStdin(preGeneratedId) || tabId;
-          const exitTab = useChatStore.getState().getTab(exitTabId);
-          if (!exitTab) return;
-          // Only act if this is still the active stdinId (avoid stale cleanup)
-          if (exitTab.sessionMeta.stdinId === preGeneratedId) {
-            useChatStore.getState().setSessionMeta(exitTabId, { stdinId: undefined });
-            if (exitTab.sessionStatus === 'running') {
-              useChatStore.getState().setSessionStatus(exitTabId, 'idle');
-            }
-          }
-        });
-
-        // Store unlisten per stdinId for multi-session support
-        if (!(window as any).__claudeUnlisteners) {
-          (window as any).__claudeUnlisteners = {};
-        }
-        (window as any).__claudeUnlisteners[preGeneratedId] = () => {
-          unlisten();
-          unlistenStderr();
-          unlistenPermission();
-          unlistenExit();
-        };
-
-        // Spawn persistent process (first message sent via stdin inside Rust)
-        // If resuming a historical session, pass resume_session_id so the CLI
-        // picks up the existing conversation context.
         // Read sessionMode from store (not closure) so plan-approve → code
         // mode switch is visible even when called via rAF.
         const liveSessionMode = useSettingsStore.getState().sessionMode;
         const didSwitchModel = getActiveTabState().sessionMeta.modelSwitched || getActiveTabState().sessionMeta.providerSwitched;
         console.log('[TOKENICODE:session] starting session', { cwd, stdinId: preGeneratedId, mode: liveSessionMode, provider: useProviderStore.getState().activeProviderId, modelSwitch: !!didSwitchModel, resumeSessionId: existingSessionId });
-        const session = await bridge.startSession({
-          prompt: text,
-          cwd,
-          model: resolveModelForProvider(selectedModel),
-          session_id: preGeneratedId,
-          resume_session_id: existingSessionId || undefined,
-          thinking_level: useSettingsStore.getState().thinkingLevel,
-          session_mode: (liveSessionMode === 'ask' || liveSessionMode === 'plan') ? liveSessionMode : undefined,
-          provider_id: useProviderStore.getState().activeProviderId || undefined,
-          permission_mode: mapSessionModeToPermissionMode(liveSessionMode),
-          model_switch: didSwitchModel ? true : undefined,
-        });
-        console.log('[TOKENICODE:session] started successfully', { stdinId: session.stdin_id, cliSessionId: session.cli_session_id, pid: session.pid, cli: session.cli_path });
 
-        // Store stdinId for stdin communication + cli_session_id for resume
-        // Also clear model/provider switch flags — the switch has been handled by this spawn.
-        setSessionMeta(tabId, {
-          sessionId: session.cli_session_id || session.stdin_id,
+        // Use lifecycle module for unified spawn
+        const spawnResult = await spawnSession({
+          tabId,
           stdinId: preGeneratedId,
+          cwdSnapshot: cwd,
+          configSnapshot: {
+            model: resolveModelForProvider(selectedModel),
+            providerId: useProviderStore.getState().activeProviderId || '',
+            thinkingLevel: useSettingsStore.getState().thinkingLevel,
+            permissionMode: mapSessionModeToPermissionMode(liveSessionMode),
+          },
+          sessionModeSnapshot: liveSessionMode,
+          sessionParams: {
+            prompt: text,
+            cwd,
+            model: resolveModelForProvider(selectedModel),
+            session_id: preGeneratedId,
+            resume_session_id: existingSessionId || undefined,
+            thinking_level: useSettingsStore.getState().thinkingLevel,
+            session_mode: (liveSessionMode === 'ask' || liveSessionMode === 'plan') ? liveSessionMode : undefined,
+            provider_id: useProviderStore.getState().activeProviderId || undefined,
+            permission_mode: mapSessionModeToPermissionMode(liveSessionMode),
+            model_switch: didSwitchModel ? true : undefined,
+          },
+          onStream: handleStreamMessage,
+          onStderr: (line: string) => handleStderrLine(line, preGeneratedId),
+        });
+
+        console.log('[TOKENICODE:session] started successfully', {
+          stdinId: spawnResult.sessionInfo.stdin_id,
+          cliSessionId: spawnResult.sessionInfo.cli_session_id,
+          pid: spawnResult.sessionInfo.pid,
+          cli: spawnResult.sessionInfo.cli_path,
+        });
+
+        // Write additional meta (envFingerprint, spawnedModel, clear switch flags)
+        setSessionMeta(tabId, {
+          sessionId: spawnResult.sessionInfo.cli_session_id ?? undefined,
           envFingerprint: envFingerprint(),
           spawnedModel: resolveModelForProvider(selectedModel),
           modelSwitched: false,
@@ -1112,30 +1021,13 @@ export function InputBar() {
           modelSwitchPendingText: undefined,
           providerSwitchPendingText: undefined,
         });
-        // Store cliResumeId in sessionStore (the primary source for resume logic)
-        if (session.cli_session_id) {
-          useSessionStore.getState().setCliResumeId(tabId, session.cli_session_id);
-        }
-        // Note: stdinId → tabId mapping already registered before listener setup (TK-329)
 
-        // Track the session and refresh conversation list
-        // Skip desk_* IDs — they pollute tracked_sessions.txt (multi-session isolation fix)
-        const trackId = session.cli_session_id || session.stdin_id;
-        if (!trackId.startsWith('desk_')) {
-          bridge.trackSession(trackId).catch(() => {});
-        }
         useSessionStore.getState().fetchSessions();
         // Delayed retry in case JSONL file isn't written yet
         setTimeout(() => useSessionStore.getState().fetchSessions(), 1500);
       }
     } catch (err: any) {
-      if (sessionStdinId && (window as any).__claudeUnlisteners?.[sessionStdinId]) {
-        (window as any).__claudeUnlisteners[sessionStdinId]();
-        delete (window as any).__claudeUnlisteners[sessionStdinId];
-      }
-      if (sessionStdinId) {
-        useSessionStore.getState().unregisterStdinTab(sessionStdinId);
-      }
+      // spawnSession handles its own rollback — no need to manually unlisten/unregister
       setSessionStatus(tabId, 'error');
       addMessage(tabId, {
         id: generateMessageId(),
@@ -1217,8 +1109,8 @@ export function InputBar() {
 
     // Permission prompts are now handled via SDK control protocol (P1-03/P1-04).
     // The Rust backend intercepts control_request messages from stdout and emits
-    // them on the claude:permission_request channel, which is handled by
-    // onPermissionRequest above. Stderr is now purely for diagnostic logging.
+    // them as tokenicode_permission_request in the stream channel, handled by
+    // the stream processor. Stderr is now purely for diagnostic logging.
   }, []);
 
   // Keep stderr ref in sync so auto-retry logic in handleStreamMessage can call it
@@ -1317,6 +1209,10 @@ export function InputBar() {
       // Cmd+Enter / Ctrl+Enter → let tiptap insert newline (default behavior)
       return false;
     } else if (!e.shiftKey) {
+      if (isStopping) {
+        e.preventDefault();
+        return true;
+      }
       // Plain Enter → send message
       e.preventDefault();
       handleSubmit();
@@ -1438,6 +1334,7 @@ export function InputBar() {
             <TiptapEditor
               ref={textareaRef}
               data-chat-input
+              editable={!isStopping}
               onUpdate={(text) => {
                 setInput(text);
                 detectSlashCommand(text);
@@ -1468,56 +1365,12 @@ export function InputBar() {
               onClick={async () => {
                 const stopTabId = useSessionStore.getState().selectedSessionId;
                 const sid = getActiveTabState().sessionMeta.stdinId;
+                if (!stopTabId || !sid) return;
 
-                // Preserve any mid-stream content BEFORE setSessionStatus
-                // wipes partialText/partialThinking. Without this, everything
-                // that streamed during the interrupted turn is lost.
-                // flushStreamBuffer is statically imported at the top — DO NOT
-                // use dynamic import() here, the async await lets React
-                // re-render and race with the state update.
-                if (stopTabId) {
-                  if (sid) flushStreamBuffer(sid);
-                  const stopTab = useChatStore.getState().getTab(stopTabId);
-                  const stopPText = stopTab?.partialText ?? '';
-                  const stopPThinking = stopTab?.partialThinking ?? '';
-                  if (stopPThinking.trim().length > 0) {
-                    useChatStore.getState().addMessage(stopTabId, {
-                      id: generateInterruptedId('thinking'),
-                      role: 'assistant',
-                      type: 'thinking',
-                      content: stopPThinking,
-                      timestamp: Date.now(),
-                    });
-                  }
-                  if (stopPText.trim().length > 0) {
-                    useChatStore.getState().addMessage(stopTabId, {
-                      id: generateInterruptedId('text'),
-                      role: 'assistant',
-                      type: 'text',
-                      content: stopPText,
-                      timestamp: Date.now(),
-                    });
-                  }
-                }
-
-                // Immediately clear stdinId so no further messages are sent to the dead process
-                if (stopTabId) {
-                  useChatStore.getState().setSessionMeta(stopTabId, { stdinId: undefined });
-                  useChatStore.getState().setSessionStatus(stopTabId, 'completed');
-                  useChatStore.getState().setActivityStatus(stopTabId, { phase: 'completed' });
-                }
-                if (sid) {
-                  await bridge.killSession(sid).catch(() => {});
-                  // Don't unlisten immediately — let process_exit fire naturally to clean up.
-                  // The listener will be replaced when a new session spawns (line ~788).
-                  // As a safety net, force-clean after 3s if process_exit hasn't arrived.
-                  setTimeout(() => {
-                    if ((window as any).__claudeUnlisteners?.[sid]) {
-                      (window as any).__claudeUnlisteners[sid]();
-                      delete (window as any).__claudeUnlisteners[sid];
-                    }
-                  }, 3000);
-                }
+                // Use lifecycle teardown — sets 'stopping' state, keeps listeners,
+                // waits for process_exit to do full finalization. The process_exit
+                // handler preserves partial text/thinking as interrupted messages.
+                await teardownSession(sid, stopTabId, 'stop');
               }}
               className="flex-shrink-0 self-end w-8 h-8 rounded-[10px]
                 bg-red-500/15 text-red-500
@@ -1533,7 +1386,7 @@ export function InputBar() {
           )}
           <button
             onClick={handleSubmit}
-            disabled={isAwaiting || (!input.trim() && !activePrefix)}
+            disabled={isAwaiting || isStopping || (!input.trim() && !activePrefix)}
             className={`flex-shrink-0 self-end w-8 h-8 rounded-[10px]
               flex items-center justify-center transition-smooth
               disabled:opacity-30 disabled:cursor-not-allowed

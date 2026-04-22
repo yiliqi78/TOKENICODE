@@ -81,6 +81,11 @@ impl StdinManager {
         let mut map = self.handles.lock().await;
         map.remove(id);
     }
+
+    /// Alias for remove — used by drop_entry path for natural process exit.
+    pub async fn drop_entry(&self, id: &str) {
+        self.remove(id).await;
+    }
 }
 
 impl ProcessManager {
@@ -118,6 +123,14 @@ impl ProcessManager {
     pub async fn active_ids(&self) -> Vec<String> {
         let map = self.processes.lock().await;
         map.keys().cloned().collect()
+    }
+
+    /// Remove a process entry WITHOUT sending a kill signal.
+    /// Used for naturally exited processes where the child is already dead.
+    /// Prevents active_ids from accumulating stale entries (C2 fix).
+    pub async fn drop_entry(&self, id: &str) {
+        let mut map = self.processes.lock().await;
+        map.remove(id);
     }
 }
 
@@ -158,6 +171,19 @@ impl BypassModeMap {
     pub async fn remove(&self, session_id: &str) {
         let mut map = self.flags.lock().await;
         map.remove(session_id);
+    }
+
+    /// Remove the stored flag only if it still points to the same Arc.
+    /// This avoids an old stdout reader dropping a newer session's flag when
+    /// the same stdin_id is reused during a fast restart.
+    pub async fn drop_if_current(&self, session_id: &str, current: &Arc<AtomicBool>) {
+        let mut map = self.flags.lock().await;
+        if map
+            .get(session_id)
+            .is_some_and(|flag| Arc::ptr_eq(flag, current))
+        {
+            map.remove(session_id);
+        }
     }
 }
 

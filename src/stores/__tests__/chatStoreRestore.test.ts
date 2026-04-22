@@ -47,6 +47,8 @@ describe('chatStore · B11 — stale-running demotion on restoreFromCache', () =
     mock.selectedSessionId = null;
     mock.sessions = [];
     mock.setSessionRunning.mockClear();
+    mock.getTabForStdin.mockReset();
+    mock.getTabForStdin.mockReturnValue(undefined);
   });
 
   it('cached "running" with no live process → demotes to idle', () => {
@@ -94,6 +96,52 @@ describe('chatStore · B11 — stale-running demotion on restoreFromCache', () =
 
     useChatStore.getState().restoreFromCache('recon');
     expect(useChatStore.getState().getTab('recon')?.sessionStatus).toBe('idle');
+  });
+
+  it('stale-active early return still refreshes lastAccessedAt', () => {
+    const store = useChatStore.getState();
+    store.ensureTab('stale-lru');
+    store.addMessage('stale-lru', msg('m1'));
+    store.setSessionStatus('stale-lru', 'stopping');
+    useChatStore.setState((state) => {
+      const tabs = new Map(state.tabs);
+      const tab = tabs.get('stale-lru');
+      if (!tab) return {};
+      tabs.set('stale-lru', { ...tab, lastAccessedAt: 1 });
+      return { tabs, sessionCache: tabs };
+    });
+
+    const ok = useChatStore.getState().restoreFromCache('stale-lru');
+
+    expect(ok).toBe(true);
+    expect(useChatStore.getState().getTab('stale-lru')?.lastAccessedAt).toBeGreaterThan(1);
+  });
+
+  it('idle tab with a live stdin route is protected from LRU eviction', () => {
+    const store = useChatStore.getState();
+    const ids = ['prewarm', 'old-1', 'old-2', 'old-3', 'old-4', 'old-5', 'old-6', 'old-7'];
+    for (const id of ids) {
+      store.ensureTab(id);
+      store.addMessage(id, msg(`m-${id}`));
+    }
+    store.setSessionMeta('prewarm', { stdinId: 'stdin-live' });
+    (useSessionStore as any).__mock.getTabForStdin.mockImplementation((stdinId: string) =>
+      stdinId === 'stdin-live' ? 'prewarm' : undefined,
+    );
+    useChatStore.setState((state) => {
+      const tabs = new Map(state.tabs);
+      ids.forEach((id, idx) => {
+        const tab = tabs.get(id);
+        if (!tab) return;
+        tabs.set(id, { ...tab, lastAccessedAt: idx + 1 });
+      });
+      return { tabs, sessionCache: tabs };
+    });
+
+    store.ensureTab('incoming');
+
+    expect(useChatStore.getState().getTab('prewarm')).toBeDefined();
+    expect(useChatStore.getState().getTab('old-1')).toBeUndefined();
   });
 
   it('cached "idle" is never upgraded or touched', () => {

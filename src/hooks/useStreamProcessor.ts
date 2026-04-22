@@ -1,13 +1,23 @@
 import { useCallback, type MutableRefObject } from 'react';
-import { useChatStore, generateMessageId, generateInterruptedId, type ChatMessage } from '../stores/chatStore';
+import { useChatStore, generateMessageId, type ChatMessage } from '../stores/chatStore';
 import { useSettingsStore, mapSessionModeToPermissionMode, getEffectiveMode } from '../stores/settingsStore';
 import { useSessionStore, setOrphanDrainCallback } from '../stores/sessionStore';
 import { useAgentStore, resolveAgentId, getAgentDepth } from '../stores/agentStore';
 import { useFileStore } from '../stores/fileStore';
-import { bridge, onClaudeStream, onClaudeStderr } from '../lib/tauri-bridge';
+import { bridge } from '../lib/tauri-bridge';
 import { envFingerprint, resolveModelForProvider } from '../lib/api-provider';
 import { useProviderStore } from '../stores/providerStore';
 import { t } from '../lib/i18n';
+import {
+  checkOwnership,
+  handleProcessExitFinalize,
+  cleanupStdinRoute,
+  spawnSession,
+  teardownSession,
+  waitForStdinCleared,
+  hasAutoCompactFired,
+  markAutoCompactFired,
+} from '../lib/sessionLifecycle';
 
 // --- Error classification for user-facing messages ---
 // Each pattern maps to a friendly i18n key. Matched errors show the friendly
@@ -42,7 +52,18 @@ import { streamController, DEFAULT_CONFIG as _STREAM_CONFIG } from '../stream/in
 /** Drain any orphan buffer for the given stdinId into its newly known tab.
  *  Called by sessionStore.registerStdinTab via the registered callback. */
 export function drainOrphanBuffer(stdinId: string, tabId: string) {
-  streamController.drainOrphan(stdinId, tabId);
+  streamController.drainOrphan(stdinId, tabId, (msg: unknown) => {
+    const globalWindow = window as any;
+    const handler = globalWindow.__claudeStreamHandler;
+    if (typeof handler === 'function') {
+      handler(msg);
+      return;
+    }
+    if (!Array.isArray(globalWindow.__claudeStreamQueue)) {
+      globalWindow.__claudeStreamQueue = [];
+    }
+    globalWindow.__claudeStreamQueue.push(msg);
+  });
 }
 
 /** Test-only seam for orphan-queue regression coverage. Not part of the
@@ -50,6 +71,8 @@ export function drainOrphanBuffer(stdinId: string, tabId: string) {
 export const __orphanTesting = {
   stash: (stdinId: string, text: string, thinking: string) =>
     streamController.stashOrphan(stdinId, text, thinking),
+  stashEvent: (stdinId: string, event: unknown) =>
+    streamController.stashOrphanEvent(stdinId, event),
   expire: () => streamController.expireOrphans(),
   size: (): number => streamController.__testing.orphansSize(),
   has: (stdinId: string): boolean => streamController.__testing.hasOrphan(stdinId),
@@ -142,7 +165,6 @@ function _maybeRefreshFileTree(tabId: string, toolUseId?: string, toolName?: str
  */
 export interface StreamProcessorConfig {
   exitPlanModeSeenRef: MutableRefObject<boolean>;
-  autoCompactFiredRef: MutableRefObject<boolean>;
   silentRestartRef: MutableRefObject<boolean>;
   handleSubmitRef: MutableRefObject<() => void>;
   handleStderrLineRef: MutableRefObject<(line: string, sid: string) => void>;
@@ -160,7 +182,6 @@ export interface StreamProcessorConfig {
 export function useStreamProcessor(config: StreamProcessorConfig) {
   const {
     exitPlanModeSeenRef,
-    autoCompactFiredRef,
     silentRestartRef,
     handleSubmitRef,
     handleStderrLineRef,
@@ -173,6 +194,14 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
    */
   const handleBackgroundStreamMessage = useCallback((msg: any, tabId: string) => {
     const store = useChatStore.getState();
+
+    // Ownership guard: reject stale messages from old processes (F5 fix).
+    if (msg.__stdinId) {
+      const bgTab = store.getTab(tabId);
+      if (bgTab?.sessionMeta.stdinId && bgTab.sessionMeta.stdinId !== msg.__stdinId) {
+        return; // stale message — discard
+      }
+    }
 
     // Update lastProgressAt for stall detection on background tabs
     store.setSessionMeta(tabId, { lastProgressAt: Date.now() });
@@ -511,6 +540,9 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         break;
       }
       case 'result': {
+        // Capture stopping state BEFORE status update — needed for drain guard below
+        const bgWasStopping = store.getTab(tabId)?.sessionStatus === 'stopping';
+
         // Clear pending command on result (e.g. /compact completing on background tab)
         completePendingCommand(tabId, {
           costSummary: msg.total_cost_usd != null ? {
@@ -558,11 +590,14 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         }
         // BATCH drain for background tabs: same as foreground — combine
         // ALL pending messages into a single user turn.
+        // Decision 5: stopping state blocks drain pending.
+        // Use bgWasStopping (captured BEFORE setSessionStatus above) because the
+        // status was already overwritten to completed/error by the time we get here.
         {
           const bgDrainTab = store.getTab(tabId);
           const bgAllPending = bgDrainTab?.pendingUserMessages ?? [];
           const bgFlushStdinId = bgDrainTab?.sessionMeta.stdinId;
-          if (bgAllPending.length > 0 && bgFlushStdinId) {
+          if (bgAllPending.length > 0 && bgFlushStdinId && !bgWasStopping) {
             const bgCombined = bgAllPending.join('\n\n');
             store.clearPendingMessages(tabId);
             store.addMessage(tabId, {
@@ -585,6 +620,54 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         }
 
         useSessionStore.getState().fetchSessions();
+
+        // S13 fix: Auto-compact for background tabs (same as foreground)
+        {
+          const bgCompactTab = store.getTab(tabId);
+          const bgResultInputTokens = msg.usage?.input_tokens || 0;
+          const bgCompactStdinId = bgCompactTab?.sessionMeta.stdinId;
+          if (bgResultInputTokens > 160_000 && !hasAutoCompactFired(tabId) && bgCompactStdinId && msg.subtype === 'success') {
+            markAutoCompactFired(tabId);
+            console.log('[TOKENICODE] Background tab auto-compact triggered:', tabId, 'inputTokens =', bgResultInputTokens);
+            const bgCompactMsgId = generateMessageId();
+            const bgCompactStartedAt = Date.now();
+            store.addMessage(tabId, {
+              id: bgCompactMsgId,
+              role: 'system',
+              type: 'text',
+              content: t('chat.autoCompacting'),
+              commandType: 'processing',
+              commandData: { command: '/compact' },
+              commandStartTime: bgCompactStartedAt,
+              timestamp: Date.now(),
+            });
+            store.setSessionMeta(tabId, { pendingCommandMsgId: bgCompactMsgId });
+            store.setSessionStatus(tabId, 'running');
+            store.setSessionMeta(tabId, {
+              turnStartTime: bgCompactStartedAt,
+              lastProgressAt: bgCompactStartedAt,
+              inputTokens: 0,
+              outputTokens: 0,
+            });
+            store.setActivityStatus(tabId, { phase: 'thinking' });
+            bridge.sendStdin(bgCompactStdinId, '/compact').catch((err) => {
+              console.error('[TOKENICODE] Background tab auto-compact failed:', err);
+              completePendingCommand(tabId, { output: 'Compact failed to start' });
+              if (store.getTab(tabId)?.sessionStatus === 'running') {
+                store.setSessionStatus(tabId, 'error');
+              }
+            });
+            setTimeout(() => {
+              const meta = store.getTab(tabId)?.sessionMeta ?? {};
+              if (meta.pendingCommandMsgId === bgCompactMsgId) {
+                completePendingCommand(tabId, { output: 'Compact timed out' });
+                if (store.getTab(tabId)?.sessionStatus === 'running') {
+                  store.setSessionStatus(tabId, 'idle');
+                }
+              }
+            }, 15_000);
+          }
+        }
 
         // AI Title Generation for background tabs (same 3rd-turn logic)
         if (msg.subtype === 'success') {
@@ -636,59 +719,26 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         break;
       }
       case 'process_exit': {
-        // Flush any remaining stream buffer before cleanup (#64)
-        flushStreamBuffer(msg.__stdinId);
-
-        // Flush mid-stream content to final messages BEFORE setSessionStatus('idle')
-        // wipes partialText/partialThinking. Same rationale as the foreground
-        // handler: preserve interrupted content so the user doesn't lose it.
-        {
-          const bgTab = store.getTab(tabId);
-          const bgThinking = bgTab?.partialThinking ?? '';
-          const bgText = bgTab?.partialText ?? '';
-          if (bgThinking.trim().length > 0) {
-            store.addMessage(tabId, {
-              id: generateInterruptedId('thinking'),
-              role: 'assistant',
-              type: 'thinking',
-              content: bgThinking,
-              timestamp: Date.now(),
-            });
-          }
-          if (bgText.trim().length > 0) {
-            store.addMessage(tabId, {
-              id: generateInterruptedId('text'),
-              role: 'assistant',
-              type: 'text',
-              content: bgText,
-              timestamp: Date.now(),
-            });
-          }
-        }
-
-        // P0-5: Clean up Tauri event listeners for background tab.
-        // __claudeUnlisteners is keyed by stdinId (desk_xxx), NOT tabId (session uuid).
-        // Use msg.__stdinId (tagged by the listener closure) to find the correct entry.
         const bgStdinId = msg.__stdinId;
-        if (bgStdinId && (window as any).__claudeUnlisteners?.[bgStdinId]) {
-          (window as any).__claudeUnlisteners[bgStdinId]();
-          delete (window as any).__claudeUnlisteners[bgStdinId];
-        }
-        store.setSessionStatus(tabId, 'idle');
-        store.setSessionMeta(tabId, { stdinId: undefined });
-        // Clean up stdinToTab mapping to prevent memory leak
+
+        // Ownership guard for background exit
         if (bgStdinId) {
-          useSessionStore.getState().unregisterStdinTab(bgStdinId);
+          const ownership = checkOwnership(bgStdinId);
+          if (!ownership.valid) {
+            cleanupStdinRoute(bgStdinId);
+            break;
+          }
         }
-        // Restore pending messages to input draft (#142/#70)
-        const bgExitPending = store.getTab(tabId)?.pendingUserMessages ?? [];
-        if (bgExitPending.length > 0) {
-          const bgExitDraft = store.getTab(tabId)?.inputDraft ?? '';
-          const bgPendingText = bgExitPending.join('\n\n');
-          store.setInputDraft(tabId, bgExitDraft ? `${bgExitDraft}\n\n${bgPendingText}` : bgPendingText);
-          store.clearPendingMessages(tabId);
+
+        // Delegate full finalization to lifecycle module (idempotent)
+        if (bgStdinId) {
+          handleProcessExitFinalize(bgStdinId);
+        } else {
+          // Fallback: no stdinId on message
+          store.setSessionStatus(tabId, 'idle');
+          store.setSessionMeta(tabId, { stdinId: undefined });
+          useSessionStore.getState().fetchSessions();
         }
-        useSessionStore.getState().fetchSessions();
         break;
       }
       case 'system':
@@ -737,6 +787,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
       ? useSessionStore.getState().getTabForStdin(msgStdinId)
       : undefined;
     const activeTabId = useSessionStore.getState().selectedSessionId;
+
     const isBackground = ownerTabId && ownerTabId !== activeTabId;
 
     // If stream belongs to a background tab, route key events to cache and return
@@ -749,9 +800,25 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
       return;
     }
 
-    // Resolve tabId once for all foreground store calls
+    // Resolve tabId once for all foreground store calls.
+    // NEW-E fix: if ownerTabId is undefined (no stdinToTab mapping), stash to
+    // orphan queue instead of falling through to activeTabId.
+    if (!ownerTabId && msgStdinId) {
+      streamController.stashOrphanEvent(msgStdinId, msg);
+      return;
+    }
+
     const tabId = ownerTabId || activeTabId;
     if (!tabId) return;
+
+    // Ownership guard: reject stale messages BEFORE any state writes (F4 fix).
+    // Must run before permission handling, cliResumeId capture, or switch block.
+    if (msgStdinId) {
+      const guardTab = useChatStore.getState().getTab(tabId);
+      if (guardTab?.sessionMeta.stdinId && guardTab.sessionMeta.stdinId !== msgStdinId) {
+        return; // stale message from old process — discard
+      }
+    }
 
     // Update lastProgressAt on every foreground stream event for stall detection
     useChatStore.getState().setSessionMeta(tabId, { lastProgressAt: Date.now() });
@@ -765,7 +832,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         const tabState = useChatStore.getState().getTab(tabId);
         if (getEffectiveMode(tabState?.sessionMeta) !== 'plan') {
           // Auto-approve: CLI doesn't need user confirmation outside Plan mode
-          const stdinId = tabState?.sessionMeta.stdinId;
+          const stdinId = msg.__stdinId;
           if (stdinId) {
             bridge.respondPermission(stdinId, msg.request_id, true, undefined, msg.tool_use_id, msg.input);
           }
@@ -901,8 +968,10 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
     // Capture the CLI's own session ID from stream events (used for --resume)
     const cliSessionId = msg.session_id || msg.sessionId;
     if (cliSessionId) {
-      const currentId = useChatStore.getState().getTab(tabId)?.sessionMeta.sessionId;
-      if (currentId !== cliSessionId) {
+      // Write to cliResumeId (the primary resume credential) in sessionStore
+      const currentResumeId = useSessionStore.getState().sessions.find((s) => s.id === tabId)?.cliResumeId;
+      if (currentResumeId !== cliSessionId) {
+        // Also write to sessionMeta.sessionId for backward compat
         setSessionMeta({ sessionId: cliSessionId });
         // Also store in sessionStore for hadRealExchange-guarded resume
         useSessionStore.getState().setCliResumeId(tabId, cliSessionId);
@@ -942,6 +1011,17 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         useChatStore.setState({ tabs: newTabs, sessionCache: newTabs });
       }
     };
+
+    // Ownership guard: verify that the message's stdinId still matches
+    // the tab's current stdinId. Stale messages from old processes that
+    // arrive after a Provider/Model switch are silently dropped.
+    if (msgStdinId) {
+      const currentTab = useChatStore.getState().getTab(tabId);
+      if (currentTab?.sessionMeta.stdinId && currentTab.sessionMeta.stdinId !== msgStdinId) {
+        // Stale message from old process — skip
+        return;
+      }
+    }
 
     switch (msg.type) {
       // --- stream_event: wrapper for real-time streaming events from --include-partial-messages ---
@@ -1476,6 +1556,8 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         break;
 
       case 'result': {
+        // Capture stopping state BEFORE any status updates — needed for drain guard later
+        const fgWasStopping = useChatStore.getState().getTab(tabId)?.sessionStatus === 'stopping';
 
         // Sub-agent results carry parent_tool_use_id — they must NOT terminate the
         // main session. Only the main agent's result (no parent_tool_use_id) ends the
@@ -1517,14 +1599,11 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             console.warn(`[TOKENICODE] Thinking signature error after ${switchType} switch — auto-retrying without resume`);
             const retryText = retryCandidate;
 
-            // Kill the current (failed) process
+            // Kill the current (failed) process + clean up listeners via lifecycle module
             const failedStdinId = meta.stdinId;
             if (failedStdinId) {
               bridge.killSession(failedStdinId).catch(() => {});
-              if ((window as any).__claudeUnlisteners?.[failedStdinId]) {
-                (window as any).__claudeUnlisteners[failedStdinId]();
-                delete (window as any).__claudeUnlisteners[failedStdinId];
-              }
+              cleanupStdinRoute(failedStdinId);
             }
 
             // Clear sessionId (abandon resume) and switch flags
@@ -1537,8 +1616,9 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               modelSwitchPendingText: undefined,
             });
             // Also clear cliResumeId in sessionStore
-            const retryTabId = useSessionStore.getState().selectedSessionId;
-            if (retryTabId) useSessionStore.getState().setCliResumeId(retryTabId, null);
+            // NEW-F fix: use owning tabId from stdinToTab mapping, NOT selectedSessionId
+            const retryTabId = tabId;
+            useSessionStore.getState().setCliResumeId(retryTabId, null);
 
             // Show system notice
             addMessage({
@@ -1551,14 +1631,18 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             });
 
             // Re-send: spawn a fresh process without resume_session_id
+            // Use lifecycle module — ensures proper stdinTab registration,
+            // listener setup, rollback on failure, and ownership tracking.
             (async () => {
-              // P0-5: Declare retryId outside try so catch can clean up listeners on failure
               const retryId = `desk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
               try {
                 const cwd = useSettingsStore.getState().workingDirectory;
                 if (!cwd) return;
                 const selectedModel = useSettingsStore.getState().selectedModel;
                 const sessionMode = useSettingsStore.getState().sessionMode;
+                const model = resolveModelForProvider(selectedModel);
+                const providerId = useProviderStore.getState().activeProviderId || '';
+                const permissionMode = mapSessionModeToPermissionMode(sessionMode);
 
                 const retryTurnStartedAt = Date.now();
                 setSessionStatus('running');
@@ -1575,45 +1659,42 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
                   description: retryText.slice(0, 100),
                   phase: 'spawning', startTime: Date.now(), isMain: true,
                 });
-                const retryUnlisten = await onClaudeStream(retryId, (m: any) => {
-                  m.__stdinId = retryId;
-                  handleStreamMessage(m);
-                });
-                const retryUnlistenStderr = await onClaudeStderr(retryId, (line: string) => {
-                  handleStderrLineRef.current(line, retryId);
-                });
-                if (!(window as any).__claudeUnlisteners) (window as any).__claudeUnlisteners = {};
-                (window as any).__claudeUnlisteners[retryId] = () => { retryUnlisten(); retryUnlistenStderr(); };
-                (window as any).__claudeUnlisten = (window as any).__claudeUnlisteners[retryId];
 
-                const session = await bridge.startSession({
-                  prompt: retryText,
-                  cwd,
-                  model: resolveModelForProvider(selectedModel),
-                  session_id: retryId,
-                  // No resume_session_id — fresh start to avoid thinking signature issue
-                  thinking_level: useSettingsStore.getState().thinkingLevel,
-                  session_mode: (sessionMode === 'ask' || sessionMode === 'plan') ? sessionMode : undefined,
-                  provider_id: useProviderStore.getState().activeProviderId || undefined,
-                  permission_mode: mapSessionModeToPermissionMode(sessionMode),
+                // NEW-F fix: use owning tabId (retryTabId), not selectedSessionId
+                const spawnResult = await spawnSession({
+                  tabId: retryTabId,
+                  stdinId: retryId,
+                  cwdSnapshot: cwd,
+                  configSnapshot: {
+                    model,
+                    providerId,
+                    thinkingLevel: useSettingsStore.getState().thinkingLevel,
+                    permissionMode,
+                  },
+                  sessionModeSnapshot: sessionMode,
+                  sessionParams: {
+                    prompt: retryText,
+                    cwd,
+                    model,
+                    session_id: retryId,
+                    // No resume_session_id — fresh start to avoid thinking signature issue
+                    thinking_level: useSettingsStore.getState().thinkingLevel,
+                    session_mode: (sessionMode === 'ask' || sessionMode === 'plan') ? sessionMode : undefined,
+                    provider_id: providerId || undefined,
+                    permission_mode: permissionMode,
+                  },
+                  onStream: handleStreamMessage,
+                  onStderr: (line: string) => handleStderrLineRef.current(line, retryId),
                 });
 
-                setSessionMeta({ sessionId: session.stdin_id, stdinId: retryId, envFingerprint: envFingerprint(), spawnedModel: resolveModelForProvider(selectedModel) });
-                const tabId = useSessionStore.getState().selectedSessionId;
-                if (tabId) {
-                  useSessionStore.getState().registerStdinTab(retryId, tabId);
-                  if (session.cli_session_id) {
-                    useSessionStore.getState().setCliResumeId(tabId, session.cli_session_id);
-                  }
-                }
-                if (session.cli_session_id) bridge.trackSession(session.cli_session_id).catch(() => {});
+                setSessionMeta({
+                  sessionId: spawnResult.sessionInfo.cli_session_id ?? undefined,
+                  envFingerprint: envFingerprint(),
+                  spawnedModel: model,
+                });
               } catch (retryErr) {
                 console.error('[TOKENICODE] Provider-switch auto-retry failed:', retryErr);
-                // P0-5: Clean up the retry listeners on failure
-                if ((window as any).__claudeUnlisteners?.[retryId]) {
-                  (window as any).__claudeUnlisteners[retryId]();
-                  delete (window as any).__claudeUnlisteners[retryId];
-                }
+                // spawnSession handles its own rollback — no manual listener cleanup needed
                 setSessionStatus('error');
                 addMessage({
                   id: generateMessageId(),
@@ -1634,21 +1715,23 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             && msg.subtype !== 'success') {
           exitPlanModeSeenRef.current = false;
           console.log('[TOKENICODE] Code mode ExitPlanMode exit detected — auto-restarting with --resume');
-          // Clean up dead process
           const oldStdinId = useChatStore.getState().getTab(tabId)?.sessionMeta.stdinId;
-          if (oldStdinId) {
-            useChatStore.getState().setSessionMeta(tabId, { stdinId: undefined });
-            bridge.killSession(oldStdinId).catch(() => {});
-            if ((window as any).__claudeUnlisteners?.[oldStdinId]) {
-              (window as any).__claudeUnlisteners[oldStdinId]();
-              delete (window as any).__claudeUnlisteners[oldStdinId];
+          void (async () => {
+            if (oldStdinId) {
+              try {
+                await teardownSession(oldStdinId, tabId, 'plan-approve');
+                await waitForStdinCleared(tabId, oldStdinId);
+              } catch (err) {
+                console.warn('[TOKENICODE] ExitPlanMode auto-restart teardown failed:', err);
+                return;
+              }
             }
-          }
-          // Silently restart — no user message bubble
-          silentRestartRef.current = true;
-          setInputSync('Continue.');
-          useChatStore.getState().setActivityStatus(tabId, { phase: 'thinking' });
-          requestAnimationFrame(() => handleSubmitRef.current());
+            // Silently restart — no user message bubble
+            silentRestartRef.current = true;
+            setInputSync('Continue.');
+            useChatStore.getState().setActivityStatus(tabId, { phase: 'thinking' });
+            requestAnimationFrame(() => handleSubmitRef.current());
+          })();
           break;
         }
         exitPlanModeSeenRef.current = false;
@@ -1755,7 +1838,9 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
 
         // --- AI Title Generation (TK-001): on 3rd successful turn, generate a title ---
         if (msg.subtype === 'success') {
-          const sessionId = useChatStore.getState().getTab(tabId)?.sessionMeta.sessionId;
+          const fallbackSessionId = useChatStore.getState().getTab(tabId)?.sessionMeta.sessionId;
+          const sessionId = useSessionStore.getState().sessions.find((s) => s.id === tabId)?.cliResumeId
+            ?? (fallbackSessionId && !fallbackSessionId.startsWith('desk_') ? fallbackSessionId : undefined);
           if (sessionId) {
             const customPreviews = useSessionStore.getState().customPreviews;
             if (!customPreviews[sessionId]) {
@@ -1790,8 +1875,8 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         // Fires at most once per session to avoid infinite loops.
         const resultInputTokens = msg.usage?.input_tokens || 0;
         const compactStdinId = useChatStore.getState().getTab(tabId)?.sessionMeta.stdinId;
-        if (resultInputTokens > 160_000 && !autoCompactFiredRef.current && compactStdinId && msg.subtype === 'success') {
-          autoCompactFiredRef.current = true;
+        if (resultInputTokens > 160_000 && !hasAutoCompactFired(tabId) && compactStdinId && msg.subtype === 'success') {
+          markAutoCompactFired(tabId);
           console.log('[TOKENICODE] Auto-compact triggered: inputTokens =', resultInputTokens);
           const compactMsgId = generateMessageId();
           addMessage({
@@ -1838,11 +1923,14 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         // context to the current task" — sending them one-by-one would
         // make the AI handle each separately, which is rarely what the
         // user wants. Combine them so the AI processes everything in one go.
+        // Decision 5: stopping state blocks drain pending.
+        // Use fgWasStopping (captured at result case entry) because setSessionStatus
+        // on line ~1751 already changed the status to completed/error.
         {
           const drainTab = useChatStore.getState().getTab(tabId);
           const allPending = drainTab?.pendingUserMessages ?? [];
           const flushStdinId = drainTab?.sessionMeta.stdinId;
-          if (allPending.length > 0 && flushStdinId) {
+          if (allPending.length > 0 && flushStdinId && !fgWasStopping) {
             const nextMsg = allPending.join('\n\n');
             useChatStore.getState().clearPendingMessages(tabId);
 
@@ -1907,69 +1995,30 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
       }
 
       case 'process_exit': {
-        // STEP 1: Force-flush the per-stdinId rAF stream buffer into
-        // chatStore.partialText / partialThinking BEFORE reading them.
-        // Otherwise the last few text_delta tokens that arrived just
-        // before Stop was pressed will still be sitting in the in-memory
-        // buffer (rAF scheduled, not yet committed to store) and we'd
-        // miss them.
-        flushStreamBuffer(msg.__stdinId);
+        const exitingStdinId = msg.__stdinId;
+        console.log('[TOKENICODE:session] process_exit received', { stdinId: exitingStdinId });
 
-        // STEP 2: Flush any mid-stream content to final messages so it
-        // survives the Stop button / kill_session path.
-        {
-          const exitTabData = useChatStore.getState().getTab(tabId);
-          const pThinking = exitTabData?.partialThinking ?? '';
-          const pText = exitTabData?.partialText ?? '';
-          console.log('[TOKENICODE:session] process_exit flush check', {
-            stdinId: msg.__stdinId,
-            hasText: pText.length > 0,
-            hasThinking: pThinking.length > 0,
-            textPreview: pText.slice(0, 40),
-          });
-          if (pThinking.trim().length > 0) {
-            addMessage({
-              id: generateInterruptedId('thinking'),
-              role: 'assistant',
-              type: 'thinking',
-              content: pThinking,
-              timestamp: Date.now(),
-            });
+        // Ownership guard: verify this exit belongs to the current tab
+        if (exitingStdinId) {
+          const ownership = checkOwnership(exitingStdinId);
+          if (!ownership.valid) {
+            // Stale exit from old process — drop any leftover route and listeners
+            cleanupStdinRoute(exitingStdinId);
+            break;
           }
-          if (pText.trim().length > 0) {
-            addMessage({
-              id: generateInterruptedId('text'),
-              role: 'assistant',
-              type: 'text',
-              content: pText,
-              timestamp: Date.now(),
-            });
-          }
-        }
-
-        // The CLI process has exited — clear the stdin handle but keep sessionId for resume
-        clearPartial();
-        console.log('[TOKENICODE:session] process_exit received', { stdinId: msg.__stdinId });
-
-        // Bug C fix (#27): Clear stuck pendingCommandMsgId (e.g., /compact without result)
-        const exitPendingCmd = useChatStore.getState().getTab(tabId)?.sessionMeta.pendingCommandMsgId;
-        if (exitPendingCmd) {
-          useChatStore.getState().updateMessage(tabId, exitPendingCmd, { commandCompleted: true });
-          useChatStore.getState().setSessionMeta(tabId, { pendingCommandMsgId: undefined });
         }
 
         // If the session was running and no assistant messages were received,
-        // the process failed at startup. Show the last stderr error to the user.
+        // the process failed at startup. Show the last stderr error.
         const exitTabData = useChatStore.getState().getTab(tabId);
         const exitStatus = exitTabData?.sessionStatus;
-        const exitMsgs = exitTabData?.messages ?? [];
         if (exitStatus === 'running') {
+          const exitMsgs = exitTabData?.messages ?? [];
           const hasAssistantReply = exitMsgs.some(
             (m: ChatMessage) => m.role === 'assistant' && (m.type === 'text' || m.type === 'tool_use'),
           );
           if (!hasAssistantReply) {
             if (lastStderrRef.current) {
-              // Detect macOS TCC permission errors and provide actionable guidance
               const stderr = lastStderrRef.current;
               const isTccError = /unexpected|operation not permitted|permission denied/i.test(stderr);
               const cwd = useSettingsStore.getState().workingDirectory || '';
@@ -1985,8 +2034,6 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
                 timestamp: Date.now(),
               });
             } else {
-              // No stderr captured — CLI exited silently. Show a generic error
-              // so the user knows something went wrong (previously this was silent).
               addMessage({
                 id: generateMessageId(),
                 role: 'system',
@@ -1998,29 +2045,17 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           }
         }
 
-        // P0-5: Clean up Tauri event listeners for this session to prevent leaks
-        const exitingStdinId = msg.__stdinId || useChatStore.getState().getTab(tabId)?.sessionMeta.stdinId;
-        if (exitingStdinId && (window as any).__claudeUnlisteners?.[exitingStdinId]) {
-          (window as any).__claudeUnlisteners[exitingStdinId]();
-          delete (window as any).__claudeUnlisteners[exitingStdinId];
-        }
-        if ((window as any).__claudeUnlisten) {
-          (window as any).__claudeUnlisten = null;
-        }
-
-        {
-          const exitMessages = useChatStore.getState().getTab(tabId)?.messages ?? [];
-          for (const m of exitMessages) {
-            if (['permission', 'question', 'plan_review'].includes(m.type) && !m.resolved) {
-              useChatStore.getState().updateMessage(tabId, m.id, {
-                interactionState: 'failed',
-                interactionError: 'CLI process exited',
-              });
-            }
-          }
+        // Delegate full finalization to the lifecycle module (idempotent)
+        if (exitingStdinId) {
+          handleProcessExitFinalize(exitingStdinId);
+        } else {
+          // Fallback: no stdinId on message, clear manually
+          clearPartial();
+          setSessionStatus('idle');
+          setSessionMeta({ stdinId: undefined, lastProgressAt: undefined });
         }
 
-        setSessionStatus('idle');
+        // Desktop notification
         if (!document.hasFocus() && 'Notification' in window) {
           if (Notification.permission === 'granted') {
             new Notification('TOKENICODE', { body: t('notification.chatComplete') });
@@ -2033,24 +2068,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           }
         }
 
-        setSessionMeta({ stdinId: undefined, lastProgressAt: undefined });
-        // Clean up stdinId → tabId mapping to prevent memory leak
-        if (exitingStdinId) {
-          useSessionStore.getState().unregisterStdinTab(exitingStdinId);
-        }
-        // Bug B fix (#28): Don't discard pending messages — restore to input draft
-        const remainingPending = useChatStore.getState().getTab(tabId)?.pendingUserMessages ?? [];
-        if (remainingPending.length > 0) {
-          const draft = useChatStore.getState().getTab(tabId)?.inputDraft ?? '';
-          const pendingText = remainingPending.join('\n\n');
-          useChatStore.getState().setInputDraft(tabId,
-            draft ? `${draft}\n\n${pendingText}` : pendingText
-          );
-          useChatStore.getState().clearPendingMessages(tabId);
-        }
-
         agentActions.completeAll();
-        useSessionStore.getState().fetchSessions();
         break;
       }
 
@@ -2079,7 +2097,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         });
       }
     }
-  }, [handleBackgroundStreamMessage, exitPlanModeSeenRef, autoCompactFiredRef, silentRestartRef, handleSubmitRef, handleStderrLineRef, setInputSync]);
+  }, [handleBackgroundStreamMessage, exitPlanModeSeenRef, silentRestartRef, handleSubmitRef, handleStderrLineRef, setInputSync]);
 
   return { handleStreamMessage, handleBackgroundStreamMessage };
 }

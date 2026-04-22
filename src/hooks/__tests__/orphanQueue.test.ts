@@ -24,6 +24,34 @@ import { useSessionStore } from '../../stores/sessionStore';
 import { useChatStore } from '../../stores/chatStore';
 import { __orphanTesting, drainOrphanBuffer } from '../useStreamProcessor';
 
+if (typeof (globalThis as any).window === 'undefined') {
+  (globalThis as any).window = globalThis;
+}
+
+function createStorageMock() {
+  const storage = new Map<string, string>();
+  return {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      storage.set(key, value);
+    },
+    removeItem: (key: string) => {
+      storage.delete(key);
+    },
+    clear: () => {
+      storage.clear();
+    },
+  };
+}
+
+if (typeof (globalThis as any).sessionStorage === 'undefined') {
+  (globalThis as any).sessionStorage = createStorageMock();
+}
+
+if (typeof (globalThis as any).localStorage === 'undefined') {
+  (globalThis as any).localStorage = createStorageMock();
+}
+
 function resetStores() {
   useSessionStore.setState({
     sessions: [],
@@ -43,6 +71,10 @@ describe('B3 · orphan queue', () => {
   beforeEach(() => {
     resetStores();
     vi.useRealTimers();
+    (globalThis as any).sessionStorage.clear();
+    (globalThis as any).localStorage.clear();
+    delete (globalThis as any).__claudeStreamHandler;
+    delete (globalThis as any).__claudeStreamQueue;
   });
 
   it('expires entries after the TTL window', () => {
@@ -77,6 +109,30 @@ describe('B3 · orphan queue', () => {
     drainOrphanBuffer('stdin_x', 'tab_x');
     expect(useChatStore.getState().getTab('tab_x')?.partialText).toBe('direct-drain');
     expect(__orphanTesting.has('stdin_x')).toBe(false);
+  });
+
+  it('replays queued orphan events when the stdin route appears', () => {
+    const handled: any[] = [];
+    (globalThis as any).__claudeStreamHandler = (msg: any) => handled.push(msg);
+    useChatStore.getState().ensureTab('tab_evt');
+
+    __orphanTesting.stashEvent('stdin_evt', {
+      type: 'tokenicode_permission_request',
+      request_id: 'req_evt',
+      tool_name: 'ExitPlanMode',
+      __stdinId: 'stdin_evt',
+    });
+
+    useSessionStore.getState().registerStdinTab('stdin_evt', 'tab_evt');
+
+    expect(handled).toEqual([
+      expect.objectContaining({
+        type: 'tokenicode_permission_request',
+        request_id: 'req_evt',
+        __stdinId: 'stdin_evt',
+      }),
+    ]);
+    expect(__orphanTesting.has('stdin_evt')).toBe(false);
   });
 
   it('enforces per-stdinId character cap (drops oversize entry)', () => {

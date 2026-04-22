@@ -99,6 +99,9 @@ export function FeedbackTab() {
     const sessionMeta = selectedTabId
       ? useChatStore.getState().getTab(selectedTabId)?.sessionMeta
       : undefined;
+    const fallbackSessionId = sessionMeta?.sessionId && !sessionMeta.sessionId.startsWith('desk_')
+      ? sessionMeta.sessionId
+      : undefined;
 
     const metadata: FeedbackMetadata = {
       app_name: APP_NAME,
@@ -106,7 +109,7 @@ export function FeedbackTab() {
       locale,
       provider_name: providerName,
       model: useSettingsStore.getState().selectedModel,
-      session_id: sessionMeta?.sessionId,
+      session_id: (selectedTabId ? useSessionStore.getState().sessions.find((s) => s.id === selectedTabId)?.cliResumeId : null) ?? fallbackSessionId,
       user_contact: contact.trim() || undefined,
     };
 

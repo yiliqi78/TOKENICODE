@@ -8,7 +8,7 @@ import { SettingsPanel } from './components/settings/SettingsPanel';
 import { ImageLightbox } from './components/shared/ImageLightbox';
 import { ChangelogModal } from './components/shared/ChangelogModal';
 import { Toast } from './components/shared/Toast';
-import { useSettingsStore, mapSessionModeToPermissionMode } from './stores/settingsStore';
+import { useSettingsStore } from './stores/settingsStore';
 import { useProviderStore } from './stores/providerStore';
 import type { ColorTheme, Theme } from './stores/settingsStore';
 import { useFileStore } from './stores/fileStore';
@@ -17,7 +17,7 @@ import { useSessionStore } from './stores/sessionStore';
 import { APP_NAME, IS_ALPHA } from './lib/edition';
 import { useAgentStore } from './stores/agentStore';
 import { bridge, onFileChange } from './lib/tauri-bridge';
-import { inspectSessionForRecovery } from './lib/session-recovery';
+import { hasRecoverableFrontendSession } from './lib/sessionLifecycle';
 import { useAutoUpdateCheck } from './hooks/useAutoUpdateCheck';
 import { useT } from './lib/i18n';
 import { openUrl } from '@tauri-apps/plugin-opener';
@@ -119,170 +119,11 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // ── Global stream watchdog + auto-recovery ──────────────────────
-  //
-  // Phase 0 + Phase 1 of the streaming-stall fix. Runs at the App level
-  // (not per-ChatPanel) so it covers background tabs whose ChatPanel is
-  // not mounted.
-  //
-  // Every 3 seconds it scans every tab in chatStore.tabs. For any tab
-  // where sessionStatus === 'running' and no stream event has arrived
-  // in the last STALL_THRESHOLD_MS, it enters the auto-recovery flow:
-  //
-  //   1. Transition the tab to 'reconnecting' (UI shows "重连中…")
-  //   2. killSession the stalled CLI process
-  //   3. Read the on-disk JSONL via inspectSessionForRecovery
-  //   4. Depending on the decision:
-  //        - resume   → spawn a fresh CLI with --resume
-  //        - finalize → transition to 'idle'
-  //        - fail     → transition to 'error'
-  //
-  // Clock-jump protection: if the tick detects that wall time moved
-  // forward by more than CLOCK_JUMP_MS between ticks (e.g. laptop woke
-  // from sleep), it refreshes all lastProgressAt values to now.
-  useEffect(() => {
-    const STALL_THRESHOLD_MS = 180_000;   // 3 minutes — lenient for slow providers
-    const TICK_INTERVAL_MS = 3_000;
-    const CLOCK_JUMP_MS = 60_000;
-    let lastTickAt = Date.now();
-    const recovering = new Set<string>();
-
-    const attemptRecovery = async (tabId: string, stdinId: string) => {
-      if (recovering.has(tabId)) return;
-      recovering.add(tabId);
-
-      const cs = useChatStore.getState();
-      const ss = useSessionStore.getState();
-
-      try {
-        // 1. Enter reconnecting — UI keeps partialText visible
-        cs.setSessionStatus(tabId, 'reconnecting');
-
-        // 2. Kill the stalled CLI process + unbind listener
-        try {
-          await bridge.killSession(stdinId);
-        } catch {
-          /* already dead — fine */
-        }
-        const unlisteners = (window as any).__claudeUnlisteners;
-        if (unlisteners && unlisteners[stdinId]) {
-          try {
-            unlisteners[stdinId]();
-          } catch {
-            /* ignore */
-          }
-          delete unlisteners[stdinId];
-        }
-        ss.unregisterStdinTab(stdinId);
-
-        // 3. Look up the session metadata we need to resume.
-        // TC has no cliResumeId field on SessionListItem — the CLI UUID
-        // lives in tab.sessionMeta.sessionId (set by useStreamProcessor
-        // on the first session_id stream event).
-        const session = ss.sessions.find((s) => s.id === tabId);
-        const tab = cs.getTab(tabId);
-        const decision = await inspectSessionForRecovery({
-          cliResumeId: tab?.sessionMeta?.sessionId ?? null,
-          sessionPath: session?.path ?? null,
-        });
-
-        console.warn('[TOKENICODE:watchdog] recovery decision', { tabId, decision });
-
-        if (decision.kind === 'finalize') {
-          cs.setSessionStatus(tabId, 'idle');
-          cs.setSessionMeta(tabId, { stdinId: undefined });
-          return;
-        }
-        if (decision.kind === 'fail') {
-          cs.setSessionStatus(tabId, 'error');
-          cs.setSessionMeta(tabId, { stdinId: undefined });
-          return;
-        }
-
-        // 4. Resume path — start a fresh CLI with --resume
-        const newStdinId = `desk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        const cwd = workingDirectory ?? '';
-
-        // Fall back to global settings if the original snapshot is missing
-        // (should rarely happen — InputBar stores snapshots on spawn).
-        const settings = useSettingsStore.getState();
-        const effectiveMode = tab?.sessionMeta?.snapshotMode ?? settings.sessionMode;
-        const effectiveThinking = tab?.sessionMeta?.snapshotThinking ?? settings.thinkingLevel;
-
-        await bridge.startSession({
-          prompt: '',  // empty prompt = pre-warm, no message sent
-          cwd,
-          session_id: newStdinId,
-          resume_session_id: decision.cliResumeId,
-          model: tab?.sessionMeta?.spawnedModel ?? tab?.sessionMeta?.model,
-          provider_id: tab?.sessionMeta?.snapshotProviderId ?? undefined,
-          permission_mode: mapSessionModeToPermissionMode(effectiveMode),
-          thinking_level: effectiveThinking,
-        });
-
-        ss.registerStdinTab(newStdinId, tabId);
-        cs.setSessionMeta(tabId, {
-          stdinId: newStdinId,
-          lastProgressAt: Date.now(),
-        });
-        cs.setSessionStatus(tabId, 'running');
-        console.warn('[TOKENICODE:watchdog] resumed successfully', { tabId, newStdinId });
-      } catch (e) {
-        console.error('[TOKENICODE:watchdog] recovery failed', e);
-        try {
-          useChatStore.getState().setSessionStatus(tabId, 'error');
-        } catch {
-          /* ignore */
-        }
-      } finally {
-        recovering.delete(tabId);
-      }
-    };
-
-    const tick = () => {
-      const now = Date.now();
-
-      if (now - lastTickAt > CLOCK_JUMP_MS) {
-        console.warn(
-          '[TOKENICODE:watchdog] clock jump detected',
-          { gap_ms: now - lastTickAt },
-        );
-        const tabs = useChatStore.getState().tabs;
-        tabs.forEach((tab, tabId) => {
-          if (tab.sessionStatus === 'running') {
-            useChatStore.getState().setSessionMeta(tabId, { lastProgressAt: now });
-          }
-        });
-        lastTickAt = now;
-        return;
-      }
-      lastTickAt = now;
-
-      const tabs = useChatStore.getState().tabs;
-      tabs.forEach((tab, tabId) => {
-        if (tab.sessionStatus !== 'running') return;
-        const lastAt = tab.sessionMeta?.lastProgressAt;
-        if (!lastAt) return;
-        if (now - lastAt < STALL_THRESHOLD_MS) return;
-
-        const stdinId = tab.sessionMeta?.stdinId;
-        if (!stdinId) return;
-
-        console.warn('[TOKENICODE:watchdog] stall detected — attempting recovery', {
-          tabId,
-          stdinId,
-          stalled_ms: now - lastAt,
-        });
-        attemptRecovery(tabId, stdinId).catch((err) =>
-          console.error('[TOKENICODE:watchdog] attemptRecovery uncaught', err),
-        );
-      });
-    };
-
-    const interval = setInterval(tick, TICK_INTERVAL_MS);
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workingDirectory]);
+  // ── Watchdog removed (Phase 1 decision §5.8) ──────────────────────
+  // The automatic 3-minute stall detection and auto-recovery was removed because:
+  // 1. It never successfully recovered in practice (empty prompt bug, no listeners)
+  // 2. Phase 1 lifecycle fixes reduce the root causes of stalled sessions
+  // Manual retry is available via the "session unresponsive" button in ChatPanel.
 
   // Confirm before closing the window (red X / Cmd+Q)
   const closePendingRef = useRef(false);
@@ -355,11 +196,18 @@ function App() {
   useEffect(() => {
     bridge.listActiveProcesses().then((activeIds) => {
       if (!activeIds.length) return;
-      const { stdinToTab } = useSessionStore.getState();
-      const orphaned = activeIds.filter((id) => !stdinToTab[id]);
+      const orphaned = activeIds.filter((id) => !hasRecoverableFrontendSession(id));
       for (const id of orphaned) {
         console.log('[TOKENICODE:cleanup] killing orphaned process:', id);
+        const ownerTabId = useSessionStore.getState().getTabForStdin(id);
         bridge.killSession(id).catch(() => {});
+        useSessionStore.getState().unregisterStdinTab(id);
+        if (ownerTabId && useChatStore.getState().getTab(ownerTabId)?.sessionMeta.stdinId === id) {
+          useChatStore.getState().setSessionMeta(ownerTabId, {
+            stdinId: undefined,
+            lastProgressAt: undefined,
+          });
+        }
       }
     }).catch(() => {});
   }, []);

@@ -11,12 +11,13 @@
  *   5. Cancel
  */
 import { useMemo, useCallback } from 'react';
-import { useChatStore, useActiveTab, getActiveTabState, generateMessageId } from '../stores/chatStore';
+import { useChatStore, useActiveTab, getActiveTabState, generateMessageId, isSessionBusy } from '../stores/chatStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { bridge } from '../lib/tauri-bridge';
 import { parseTurns, type Turn } from '../lib/turns';
 import { t } from '../lib/i18n';
+import { teardownSession, waitForStdinCleared } from '../lib/sessionLifecycle';
 
 export type RewindAction = 'restore_all' | 'restore_conversation' | 'restore_code' | 'summarize';
 
@@ -29,8 +30,16 @@ async function restoreFilesViaCheckpoint(turn: Turn): Promise<boolean> {
 
   const tabState = getActiveTabState();
   const stdinId = tabState.sessionMeta.stdinId;
-  const sessionId = tabState.sessionMeta.sessionId;
-  const cwd = useSettingsStore.getState().workingDirectory;
+  const fallbackSessionId = tabState.sessionMeta.sessionId && !tabState.sessionMeta.sessionId.startsWith('desk_')
+    ? tabState.sessionMeta.sessionId
+    : undefined;
+  // Use cliResumeId from sessionStore as the primary resume credential
+  const tabId = useSessionStore.getState().selectedSessionId;
+  const sessionId = tabId
+    ? (useSessionStore.getState().sessions.find((s) => s.id === tabId)?.cliResumeId ?? fallbackSessionId)
+    : fallbackSessionId;
+  // Use cwdSnapshot when available, fall back to global workingDirectory
+  const cwd = tabState.sessionMeta.cwdSnapshot || useSettingsStore.getState().workingDirectory;
   if (!sessionId || !cwd) return false;
 
   try {
@@ -52,26 +61,17 @@ export function useRewind() {
 
   /** Button visible as long as there are user messages */
   const showRewind = turns.length >= 1;
-  /** Button enabled when there is at least 1 turn and not running */
-  const canRewind = turns.length >= 1 && sessionStatus !== 'running';
+  /** Button enabled when there is at least 1 turn and the session is not busy */
+  const canRewind = turns.length >= 1 && !isSessionBusy(sessionStatus);
 
-  /** Kill the current CLI process and clean up listeners */
+  /** Kill the current CLI process and clean up via lifecycle module */
   const killProcess = useCallback(async () => {
     const state = getActiveTabState();
     const stdinId = state.sessionMeta.stdinId;
-    if (stdinId) {
-      await bridge.killSession(stdinId).catch(() => {});
-      // Unlisten BEFORE unregistering: Tauri's unlisten synchronously removes
-      // the listener, so in-flight events are dropped before they reach
-      // handleStreamMessage, eliminating the routing race window.
-      if ((window as any).__claudeUnlisteners?.[stdinId]) {
-        (window as any).__claudeUnlisteners[stdinId]();
-        delete (window as any).__claudeUnlisteners[stdinId];
-      }
-      if ((window as any).__claudeUnlisten) {
-        (window as any).__claudeUnlisten = null;
-      }
-      useSessionStore.getState().unregisterStdinTab(stdinId);
+    const tid = useSessionStore.getState().selectedSessionId;
+    if (stdinId && tid) {
+      await teardownSession(stdinId, tid, 'rewind');
+      await waitForStdinCleared(tid, stdinId);
     }
   }, []);
 
@@ -83,6 +83,9 @@ export function useRewind() {
     if (!tid) return;
     useChatStore.getState().setSessionStatus(tid, 'idle');
     useChatStore.getState().setSessionMeta(tid, { stdinId: undefined, sessionId: undefined });
+    // Clear CLI resume credential so the next message starts fresh instead of
+    // --resume'ing the pre-rewind conversation context.
+    useSessionStore.getState().setCliResumeId(tid, null);
   }, []);
 
   /** Save rewound state to tab cache */
@@ -123,6 +126,7 @@ export function useRewind() {
       await killProcess();
     } catch (err) {
       console.warn('[useRewind] Failed to kill process:', err);
+      return;
     }
 
     // Grab original text before truncating

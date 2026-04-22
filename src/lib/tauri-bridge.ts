@@ -493,7 +493,9 @@ export interface PermissionRequest {
 
 // --- Event Listeners ---
 
-/** Listen for structured permission requests from the SDK control protocol.
+/** @deprecated This listener has no corresponding backend emit — permission requests
+ *  arrive through the main stream channel as `tokenicode_permission_request` messages.
+ *  Kept for reference; will be removed in a future cleanup pass.
  *  @param stdinId - Desk-generated process key (NOT the CLI session UUID) */
 export function onPermissionRequest(
   stdinId: string,

@@ -62,40 +62,53 @@ export function PlanReviewCard({ message, floating }: Props) {
     // Respond to ExitPlanMode control_request if pending (SDK control protocol)
     const permData = message.permissionData;
     const planTabId = useSessionStore.getState().selectedSessionId;
+    const liveState = getActiveTabState();
+    const liveStdinId = liveState.sessionMeta.stdinId;
+    if (!liveStdinId || liveState.sessionStatus !== 'running') {
+      if (planTabId) {
+        useChatStore.getState().updateMessage(planTabId, message.id, {
+          resolved: true,
+          interactionState: 'failed',
+          interactionError: 'CLI process exited',
+        });
+      }
+      setApproving(false);
+      return;
+    }
     if (permData?.requestId && planTabId) {
       useChatStore.getState().updateMessage(planTabId, message.id, {
         interactionState: 'sending',
         interactionError: undefined,
       });
-      const stdinId = getActiveTabState().sessionMeta.stdinId;
-      if (stdinId) {
-        try {
-          const { bridge } = await import('../../lib/tauri-bridge');
-          await bridge.respondPermission(
-            stdinId,
-            permData.requestId,
-            true, // allow
-            undefined,
-            permData.toolUseId,
-            permData.input,
-          );
-        } catch (err) {
-          console.error('[TC:plan] Failed to respond to ExitPlanMode permission:', err);
-          if (planTabId) {
-            useChatStore.getState().updateMessage(planTabId, message.id, {
-              interactionState: 'failed',
-              interactionError: String(err),
-            });
-          }
-          setApproving(false);
-          return;
+      try {
+        const { bridge } = await import('../../lib/tauri-bridge');
+        await bridge.respondPermission(
+          liveStdinId,
+          permData.requestId,
+          true, // allow
+          undefined,
+          permData.toolUseId,
+          permData.input,
+        );
+      } catch (err) {
+        console.error('[TC:plan] Failed to respond to ExitPlanMode permission:', err);
+        if (planTabId) {
+          useChatStore.getState().updateMessage(planTabId, message.id, {
+            interactionState: 'failed',
+            interactionError: String(err),
+          });
         }
+        setApproving(false);
+        return;
       }
     }
 
     // Switch frontend to Code mode (CLI already exited plan mode after ExitPlanMode allow)
     if (useSettingsStore.getState().sessionMode === 'plan') {
       setSessionModeLocal('code');
+    }
+    if (planTabId) {
+      useChatStore.getState().setSessionMeta(planTabId, { snapshotMode: 'code' });
     }
 
     if (planTabId) {
