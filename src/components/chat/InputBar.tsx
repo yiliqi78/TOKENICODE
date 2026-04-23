@@ -699,11 +699,12 @@ export function InputBar() {
       return;
     }
 
-    // Prefix mode: prepend the command/skill name
+    // Prefix mode: prepend the command/skill name.
+    // clearPrefix() is deferred until after the interaction card blocking check
+    // so the visual chip survives if the submit is blocked and rawInput is restored.
     const prefix = useCommandStore.getState().activePrefix;
     if (prefix) {
       text = text ? `${prefix.name} ${text}` : prefix.name;
-      useCommandStore.getState().clearPrefix();
     }
 
     if (!text) return;
@@ -761,20 +762,14 @@ export function InputBar() {
       text = `${text}\n\n${t('input.attachedFiles')}\n${filePaths}`;
     }
 
-    setInputSync('');
-
-    // Snapshot attachments before clearFiles wipes them
-    const userMsgAttachments = files.length > 0
-      ? files.map((f) => ({ name: f.name, path: f.path, isImage: f.isImage, preview: f.preview }))
-      : undefined;
-
-    clearFiles();
-
     // Gate: queue follow-up messages while AI is actively processing (#142).
     // IMPORTANT: when queueing, do NOT addMessage to messages[] — ChatPanel
     // renders pendingUserMessages separately AFTER the partialText bubble so
     // the queued items visually appear behind the streaming reply.
     // The flush logic in useStreamProcessor will addMessage at send time.
+    //
+    // This check runs BEFORE clearFiles/setInputSync so that the blocking
+    // return path (unresolved interaction card) does not lose attachments.
     const currentTabState = getActiveTabState();
     const existingStdinId = currentTabState.sessionMeta.stdinId;
     const currentStatus = currentTabState.sessionStatus;
@@ -793,15 +788,33 @@ export function InputBar() {
       if (hasUnresolvedInteraction) {
         // Restore the text to inputDraft so the user notices the pending
         // interaction card and can answer it directly.
+        // No clearFiles/clearPrefix has run yet, so attachments and chip are intact.
         useChatStore.getState().setInputDraft(tabId, rawInput);
         return;
       }
+      // Queueing path: clear prefix, input and files, then enqueue.
+      if (prefix) useCommandStore.getState().clearPrefix();
+      setInputSync('');
+      clearFiles();
       useChatStore.getState().addPendingMessage(tabId, text, {
         enqueueConfigHash: spawnConfigHash(),
         enqueueStdinId: existingStdinId,
       });
       return;
     }
+
+    // Past all early-return checks — commit to sending. Clear prefix chip now.
+    if (prefix) useCommandStore.getState().clearPrefix();
+    setInputSync('');
+
+    // Snapshot attachments before clearFiles wipes them — full snapshot
+    // for restoration on failure, reduced snapshot for the user message.
+    const savedFiles = [...files];
+    const userMsgAttachments = files.length > 0
+      ? files.map((f) => ({ name: f.name, path: f.path, isImage: f.isImage, preview: f.preview }))
+      : undefined;
+
+    clearFiles();
 
     // Normal path: show user message immediately
     if (silentRestartRef.current) {
@@ -850,6 +863,9 @@ export function InputBar() {
           content: 'No working directory selected. Please select a project folder first.',
           timestamp: Date.now(),
         });
+        // Restore input and file attachments so user doesn't lose them
+        useChatStore.getState().setInputDraft(tabId, rawInput);
+        if (savedFiles.length > 0) setFiles(savedFiles);
         return;
       }
 
@@ -867,6 +883,9 @@ export function InputBar() {
           timestamp: Date.now(),
         });
         setSessionStatus(tabId, 'error');
+        // Restore input and file attachments so user doesn't lose them
+        useChatStore.getState().setInputDraft(tabId, rawInput);
+        if (savedFiles.length > 0) setFiles(savedFiles);
         return;
       }
 
@@ -1024,6 +1043,11 @@ export function InputBar() {
         // mode switch is visible even when called via rAF.
         const liveSessionMode = useSettingsStore.getState().sessionMode;
         const didSwitchModel = getActiveTabState().sessionMeta.modelSwitched || getActiveTabState().sessionMeta.providerSwitched;
+        // Phase 2 §2.1: capture the spawn-time config hash BEFORE the async
+        // spawn so it reflects the config that was actually used, not whatever
+        // the user might change while the spawn is in flight.
+        const preSpawnConfigHash = spawnConfigHash();
+
         console.log('[TOKENICODE:session] starting session', { cwd, stdinId: preGeneratedId, mode: liveSessionMode, provider: useProviderStore.getState().activeProviderId, modelSwitch: !!didSwitchModel, resumeSessionId: existingSessionId });
 
         // Use lifecycle module for unified spawn
@@ -1068,7 +1092,9 @@ export function InputBar() {
           spawnedModel: resolveModelForProvider(selectedModel),
           // Phase 2 §2.1: lock in the spawn-time config hash for later
           // mismatch detection in handleSubmit and the drain paths.
-          spawnConfigHash: spawnConfigHash(),
+          // Uses pre-computed value captured before async spawn to avoid
+          // race with user config changes during the spawn window.
+          spawnConfigHash: preSpawnConfigHash,
           modelSwitched: false,
           providerSwitched: false,
           modelSwitchPendingText: undefined,
@@ -1089,6 +1115,9 @@ export function InputBar() {
         content: `Error: ${err}`,
         timestamp: Date.now(),
       });
+      // PRD: restore user message and file attachments so nothing is lost on spawn failure.
+      useChatStore.getState().setInputDraft(tabId, rawInput);
+      if (savedFiles.length > 0) setFiles(savedFiles);
     }
   }, [hasActiveSession, workingDirectory, selectedModel, sessionMode, files, clearFiles]);
 

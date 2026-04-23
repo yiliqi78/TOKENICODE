@@ -607,7 +607,13 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             const bgHashMismatch = bgAllPending.some(
               (p) => p.enqueueConfigHash !== undefined && p.enqueueConfigHash !== bgCurrentHash,
             );
-            if (bgHashMismatch) {
+            // Also detect stdinId drift: if the process was restarted since
+            // enqueue, the stdinId will differ and the queued text should not
+            // be sent to the new process.
+            const bgStdinMismatch = bgAllPending.some(
+              (p) => p.enqueueStdinId !== undefined && p.enqueueStdinId !== bgFlushStdinId,
+            );
+            if (bgHashMismatch || bgStdinMismatch) {
               const bgDraft = store.getTab(tabId)?.inputDraft ?? '';
               const bgBackfill = bgAllPending.map((p) => p.text).join('\n\n');
               store.setInputDraft(tabId, bgDraft ? `${bgDraft}\n\n${bgBackfill}` : bgBackfill);
@@ -1677,6 +1683,11 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
                   phase: 'spawning', startTime: Date.now(), isMain: true,
                 });
 
+                // Phase 2 §2.1: capture spawn-time values BEFORE async spawn
+                // to avoid race with user config changes during the spawn window.
+                const preEnvFingerprint = envFingerprint();
+                const preSpawnConfigHash = spawnConfigHash();
+
                 // NEW-F fix: use owning tabId (retryTabId), not selectedSessionId
                 const spawnResult = await spawnSession({
                   tabId: retryTabId,
@@ -1706,9 +1717,9 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
 
                 setSessionMeta({
                   sessionId: spawnResult.sessionInfo.cli_session_id ?? undefined,
-                  envFingerprint: envFingerprint(),
+                  envFingerprint: preEnvFingerprint,
                   spawnedModel: model,
-                  spawnConfigHash: spawnConfigHash(),
+                  spawnConfigHash: preSpawnConfigHash,
                 });
               } catch (retryErr) {
                 console.error('[TOKENICODE] Provider-switch auto-retry failed:', retryErr);
@@ -1954,7 +1965,13 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             const hashMismatch = allPending.some(
               (p) => p.enqueueConfigHash !== undefined && p.enqueueConfigHash !== currentHash,
             );
-            if (hashMismatch) {
+            // Also detect stdinId drift: if the process was restarted since
+            // enqueue, the stdinId will differ and the queued text should not
+            // be sent to the new process.
+            const stdinMismatch = allPending.some(
+              (p) => p.enqueueStdinId !== undefined && p.enqueueStdinId !== flushStdinId,
+            );
+            if (hashMismatch || stdinMismatch) {
               const draft = useChatStore.getState().getTab(tabId)?.inputDraft ?? '';
               const backfill = allPending.map((p) => p.text).join('\n\n');
               useChatStore.getState().setInputDraft(tabId, draft ? `${draft}\n\n${backfill}` : backfill);

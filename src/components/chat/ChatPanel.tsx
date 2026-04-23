@@ -255,7 +255,7 @@ function ActivityIndicator({ activityStatus, sessionMeta }: {
   // Opus 4.7 ships with 1M context by default (no [1m] variant needed).
   const selectedModel = useSettingsStore((s) => s.selectedModel);
   const resolvedModel = resolveModelForProvider(selectedModel);
-  const is1MModel = resolvedModel.includes('[1m]') || selectedModel === 'claude-opus-4-7';
+  const is1MModel = resolvedModel.includes('[1m]') || selectedModel.endsWith('-1m') || selectedModel === 'claude-opus-4-7';
   const contextWindow = is1MModel ? 1_000_000 : 200_000;
   const inputTokens = sessionMeta.inputTokens || 0;
   const contextWarning = inputTokens > contextWindow * 0.6;
@@ -795,6 +795,12 @@ async function startDraftSession(folderPath: string) {
     // Ensure tab exists before writing sessionMeta
     useChatStore.getState().ensureTab(draftId);
 
+    // Phase 2 §2.1: capture spawn-time fingerprint and config hash BEFORE
+    // the async spawn so they reflect the config actually used, not whatever
+    // the user might change while the spawn is in flight.
+    const preEnvFingerprint = envFingerprint();
+    const preSpawnConfigHash = spawnConfigHash();
+
     // Use lifecycle module for unified spawn
     const spawnResult = await spawnSession({
       tabId: draftId,
@@ -837,14 +843,16 @@ async function startDraftSession(folderPath: string) {
       setRunning: false,
     });
 
-    // Write additional meta
+    // Write additional meta (uses pre-captured values to avoid race)
     useChatStore.getState().setSessionMeta(draftId, {
       sessionId: spawnResult.sessionInfo.cli_session_id ?? undefined,
-      envFingerprint: envFingerprint(),
+      envFingerprint: preEnvFingerprint,
       spawnedModel: model,
       // Phase 2 §2.1: lock in the pre-warm spawn config hash so the first
       // real user submit can detect drift correctly.
-      spawnConfigHash: spawnConfigHash(),
+      // Uses pre-computed value captured before async spawn to avoid
+      // race with user config changes during the spawn window.
+      spawnConfigHash: preSpawnConfigHash,
     });
   } catch {
     // Pre-warm failed — InputBar will spawn on first message instead

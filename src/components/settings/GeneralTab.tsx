@@ -308,7 +308,9 @@ export function GeneralTab() {
                   if (!activeProvider) return model.short;
                   const tier = TIER_MAP[model.id];
                   const mapping = activeProvider.modelMappings.find((mm) => mm.tier === tier);
-                  return mapping?.providerModel || model.short;
+                  return mapping?.providerModel
+                    ? `${mapping.providerModel} (${model.short})`
+                    : model.short;
                 })()}
               </button>
             ))}
