@@ -7716,29 +7716,67 @@ pub fn run() {
 #[cfg(test)]
 mod decode_tests {
     use super::decode_project_name;
+    use tempfile::TempDir;
 
-    #[test]
-    fn test_simple_path() {
-        let result = decode_project_name("-Users-tinyzhuang-Documents-FocusZone");
-        assert_eq!(result, "/Users/tinyzhuang/Documents/FocusZone");
+    /// Encode a Unix absolute path the way Claude CLI encodes project dirs:
+    /// `/` → `-`, `.` before a path component → empty part (so `/.foo` → `--foo`).
+    fn encode_path(path: &str) -> String {
+        // Replace leading `/` with `-`, then all remaining `/` with `-`.
+        // Dots at the start of a component become empty parts between dashes.
+        let mut encoded = String::new();
+        for ch in path.chars() {
+            if ch == '/' {
+                encoded.push('-');
+            } else {
+                encoded.push(ch);
+            }
+        }
+        encoded
     }
 
     #[test]
-    fn test_hyphenated_dir() {
-        // ppt-maker exists on disk as a dir with hyphens in name
-        let result = decode_project_name("-Users-tinyzhuang-Desktop-ppt-maker");
-        assert_eq!(result, "/Users/tinyzhuang/Desktop/ppt-maker");
+    fn test_simple_no_ambiguity() {
+        // When no filesystem probing is needed (all parts are unambiguous
+        // single-segment names), the decoder just replaces `-` with `/`.
+        // Use a path prefix that definitely does NOT exist so the decoder
+        // falls back to segment-per-dash.
+        let result = decode_project_name("-nonexistent9999-aaa-bbb-ccc");
+        assert_eq!(result, "/nonexistent9999/aaa/bbb/ccc");
     }
 
     #[test]
-    fn test_hidden_dir_double_dash() {
-        // FocusZone/.claude-worktrees/condescending-brown
-        // "/" → "-", "." → empty part making "--"
-        let result = decode_project_name(
-            "-Users-tinyzhuang-Documents-FocusZone--claude-worktrees-condescending-brown",
-        );
-        println!("Result: {}", result);
-        // Should contain .claude somewhere
+    fn test_hyphenated_dir_with_tempdir() {
+        // Create a real directory structure with a hyphenated leaf name so
+        // the filesystem probe can disambiguate.
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path().join("sub");
+        let hyphenated = base.join("ppt-maker");
+        std::fs::create_dir_all(&hyphenated).unwrap();
+
+        // Encode the path: e.g. /tmp/xxx/sub/ppt-maker
+        let full_path = hyphenated.to_string_lossy().to_string();
+        let encoded = encode_path(&full_path);
+
+        let result = decode_project_name(&encoded);
+        assert_eq!(result, full_path,
+            "Decoder should find the hyphenated dir on disk and keep the hyphen");
+    }
+
+    #[test]
+    fn test_hidden_dir_double_dash_with_tempdir() {
+        // Create .claude-worktrees/condescending-brown inside a temp dir
+        let tmp = TempDir::new().unwrap();
+        let hidden = tmp.path().join(".claude-worktrees").join("condescending-brown");
+        std::fs::create_dir_all(&hidden).unwrap();
+
+        let full_path = hidden.to_string_lossy().to_string();
+        let encoded = encode_path(&full_path);
+        // The `.` in `.claude-worktrees` encodes as an empty part → `--claude-worktrees`
+        let encoded = encoded.replacen("-.", "--", 1);
+
+        let result = decode_project_name(&encoded);
+        println!("Encoded: {}", encoded);
+        println!("Result:  {}", result);
         assert!(
             result.contains(".claude"),
             "Expected .claude in path, got: {}",
@@ -7747,20 +7785,27 @@ mod decode_tests {
     }
 
     #[test]
-    fn test_nested_subdir() {
-        let result = decode_project_name("-Users-tinyzhuang-Desktop-test-NiCode");
-        // test/NiCode or test-NiCode — depends on what exists on disk
-        println!("Result: {}", result);
-        assert!(result.starts_with("/Users/tinyzhuang/Desktop/test"));
+    fn test_space_in_dir_name_with_tempdir() {
+        // Create a dir with a space in its name
+        let tmp = TempDir::new().unwrap();
+        let spaced = tmp.path().join("jd 设计");
+        std::fs::create_dir_all(&spaced).unwrap();
+
+        let full_path = spaced.to_string_lossy().to_string();
+        // Claude CLI encodes spaces as dashes too (same as `/`)
+        let encoded = encode_path(&full_path).replace(' ', "-");
+
+        let result = decode_project_name(&encoded);
+        assert_eq!(result, full_path,
+            "Decoder should find the space-containing dir on disk");
     }
 
     #[test]
-    fn test_space_in_dir_name() {
-        // "jd 设计" exists at ~/Desktop/jd 设计
-        let result = decode_project_name("-Users-tinyzhuang-Desktop-jd-设计");
-        println!("Result: {}", result);
-        // Should decode to "/Users/tinyzhuang/Desktop/jd 设计"
-        assert_eq!(result, "/Users/tinyzhuang/Desktop/jd 设计");
+    fn test_no_false_positive_without_dir() {
+        // When the hyphenated path does NOT exist on disk, the decoder
+        // should fall back to treating each dash as a separator.
+        let result = decode_project_name("-nonexistent9999-sub-ppt-maker");
+        assert_eq!(result, "/nonexistent9999/sub/ppt/maker");
     }
 }
 

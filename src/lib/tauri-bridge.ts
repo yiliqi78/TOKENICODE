@@ -105,7 +105,8 @@ export interface CliStatus {
   installed: boolean;
   path: string | null;
   version: string | null;
-  version_compatible: boolean;
+  // NEW-D: removed `version_compatible` — the Rust CliStatus struct never
+  // serialized this field, so the frontend always received `undefined`.
   git_bash_missing: boolean;
 }
 
