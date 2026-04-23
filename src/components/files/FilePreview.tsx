@@ -1,5 +1,6 @@
 import { useMemo, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import DOMPurify from 'dompurify';
 import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
 import { python } from '@codemirror/lang-python';
@@ -386,19 +387,41 @@ export function FilePreview() {
             }}
           />
         ) : previewMode === 'preview' && isHtml && fileContent !== null && selectedFile ? (
-          /* HTML preview: inject <base> tag so relative CSS/JS/images resolve correctly */
-          <iframe
-            srcDoc={injectBaseTag(fileContent, selectedFile)}
-            sandbox="allow-same-origin allow-scripts"
-            className="w-full h-full bg-white border-0"
-            title={fileName}
-          />
+          /* HTML preview — v3 Phase 3 §3.4: sandbox without allow-scripts.
+             The combination `allow-same-origin + allow-scripts` defeats the
+             sandbox entirely (scripts can touch the host app's storage).
+             We drop allow-scripts so the preview is static-only; users who
+             need scripts can open the file in their browser via the button. */
+          <div className="w-full h-full flex flex-col bg-white">
+            <div className="flex items-center justify-between px-3 py-1.5
+              border-b border-border-subtle bg-bg-secondary text-xs text-text-muted">
+              <span>{t('filePreview.htmlStaticPreview') ?? 'Static HTML preview (scripts disabled)'}</span>
+              <button
+                onClick={() => bridge.openWithDefaultApp(selectedFile)}
+                className="px-2 py-0.5 rounded-md bg-accent/10 text-accent
+                  border border-accent/25 hover:bg-accent/20 transition-smooth"
+              >
+                {t('filePreview.openInBrowser') ?? 'Open in browser'}
+              </button>
+            </div>
+            <iframe
+              srcDoc={injectBaseTag(fileContent, selectedFile)}
+              sandbox="allow-same-origin"
+              className="flex-1 w-full bg-white border-0"
+              title={fileName}
+            />
+          </div>
         ) : previewMode === 'preview' && isSvg && fileContent !== null ? (
-          /* SVG preview: render inline */
+          /* SVG preview — v3 Phase 3 §3.4: sanitize via DOMPurify to strip
+             <script>, javascript: URLs, event handlers, and other XSS vectors. */
           <div className="flex items-center justify-center h-full p-4 overflow-auto">
             <div
               className="max-w-full max-h-full selectable"
-              dangerouslySetInnerHTML={{ __html: fileContent }}
+              dangerouslySetInnerHTML={{
+                __html: DOMPurify.sanitize(fileContent, {
+                  USE_PROFILES: { svg: true, svgFilters: true },
+                }),
+              }}
             />
           </div>
         ) : previewMode === 'preview' && isMarkdown && fileContent !== null ? (

@@ -1,6 +1,7 @@
 mod commands;
 pub mod env_manager;
 mod events;
+pub mod path_access;
 mod protocol;
 // windows_ps compiles on all platforms so its pure-logic tests run on
 // non-Windows CI; it is only *invoked* from `#[cfg(target_os = "windows")]`
@@ -11,6 +12,7 @@ use crate::events::emit_to_frontend;
 use commands::{
     BypassModeMap, ManagedProcess, ProcessManager, SessionInfo, StartSessionParams, StdinManager,
 };
+use crate::path_access::{PathAccessManager, PathCapability};
 // protocol module kept for ControlRequest (send_control_request) and tests
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -1032,12 +1034,18 @@ async fn test_provider_connection(
 }
 
 /// Resolve provider env vars and CLI args from a provider_id.
-/// Returns (extra_env, keys_to_remove, extra_args).
+/// Returns (extra_env, keys_to_remove, extra_args, is_native_anthropic).
+/// Phase 5 / C8 (v3 §4.3): the `is_native_anthropic` flag lets
+/// `start_claude_session` skip Anthropic-specific env injections
+/// (EFFORT_LEVEL / MAX_OUTPUT / SDK_FILE_CHECKPOINTING) and the
+/// `--include-partial-messages` CLI flag for third-party providers that
+/// don't understand them.
 fn resolve_provider_env(
     provider_id: Option<&str>,
-) -> Result<(HashMap<String, String>, Vec<String>, Vec<String>), String> {
+) -> Result<(HashMap<String, String>, Vec<String>, Vec<String>, bool), String> {
     let Some(pid) = provider_id else {
-        return Ok((HashMap::new(), vec![], vec![]));
+        // No provider → assume native Anthropic (Claude Desktop / CCswitch).
+        return Ok((HashMap::new(), vec![], vec![], true));
     };
 
     let providers_file = load_providers()?;
@@ -1144,7 +1152,7 @@ fn resolve_provider_env(
         vec![]
     };
 
-    Ok((env, keys_to_remove, extra_args))
+    Ok((env, keys_to_remove, extra_args, is_native_anthropic))
 }
 
 /// Find the JSONL file for a given session UUID by scanning ~/.claude/projects/*/.
@@ -1332,14 +1340,79 @@ fn strip_thinking_from_value(value: &mut serde_json::Value) -> Option<usize> {
     }
 }
 
+/// Phase 4 §5.4 (S10): write a per-session MCP config scratch file so the
+/// CLI's `--strict-mcp-config` doesn't strip the user's configured servers.
+///
+/// Reads `~/.claude.json`, extracts the `mcpServers` object, and writes
+/// `{"mcpServers": {...}}` into `~/.tokenicode/mcp-session-<stdin_id>.json`.
+/// Returns `None` when there are no servers to carry over (or on I/O error).
+fn build_mcp_scratch_config(stdin_id: &str) -> Option<std::path::PathBuf> {
+    let home = dirs::home_dir()?;
+    let claude_json = home.join(".claude.json");
+    let raw = std::fs::read_to_string(&claude_json).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+
+    // Tolerate the double-nested mcpServers.mcpServers shape the frontend
+    // already auto-fixes; prefer the outer layer when present.
+    let mut servers = value
+        .get("mcpServers")
+        .cloned()
+        .unwrap_or(serde_json::Value::Object(Default::default()));
+    if let Some(inner) = servers.get("mcpServers").cloned() {
+        if inner.is_object() {
+            servers = inner;
+        }
+    }
+
+    // No servers → skip --mcp-config entirely (CLI starts faster).
+    match &servers {
+        serde_json::Value::Object(m) if m.is_empty() => return None,
+        serde_json::Value::Object(_) => {}
+        _ => return None,
+    }
+
+    let dir = home.join(".tokenicode");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return None;
+    }
+    let path = dir.join(format!("mcp-session-{}.json", safe_stdin_for_path(stdin_id)));
+    let payload = serde_json::json!({ "mcpServers": servers });
+    std::fs::write(&path, serde_json::to_string_pretty(&payload).ok()?).ok()?;
+    Some(path)
+}
+
+fn safe_stdin_for_path(id: &str) -> String {
+    id.chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .collect()
+}
+
+/// Remove the per-session MCP scratch file written by `build_mcp_scratch_config`.
+/// Called after the CLI process exits so `~/.tokenicode/` doesn't accumulate
+/// stale files across sessions.
+fn cleanup_mcp_scratch_config(stdin_id: &str) {
+    if let Some(home) = dirs::home_dir() {
+        let path = home
+            .join(".tokenicode")
+            .join(format!("mcp-session-{}.json", safe_stdin_for_path(stdin_id)));
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
 #[tauri::command]
 async fn start_claude_session(
     app: AppHandle,
     state: State<'_, ProcessManager>,
     stdin_mgr: State<'_, StdinManager>,
     bypass_modes: State<'_, BypassModeMap>,
+    path_access: State<'_, PathAccessManager>,
     params: StartSessionParams,
 ) -> Result<SessionInfo, String> {
+    // Phase 3 §3.1: register the per-session cwd as a fixed path-access root
+    // so all file commands running in this working directory are allowed.
+    path_access
+        .register_cwd(std::path::Path::new(&params.cwd))
+        .await;
     let session_id = params
         .session_id
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
@@ -1362,8 +1435,27 @@ async fn start_claude_session(
         // Skip global MCP servers from ~/.claude.json to avoid slow cold start.
         // MCP servers (chrome-devtools, codex, gemini, pencil etc.) add 20-30s startup
         // overhead as each must initialize before the CLI accepts input.
+        // Phase 4 §5.4 (S10): pair with a per-session scratch config so the
+        // user's configured servers remain available (see below).
         "--strict-mcp-config".to_string(),
     ];
+
+    // Phase 4 §5.4 (S10): build a per-session MCP scratch config file.
+    // The CLI is spawned with --strict-mcp-config to exclude global MCP
+    // servers from ~/.claude.json (they'd slow cold start by 20-30 seconds).
+    // BUT users also need their explicitly-configured MCP servers available
+    // inside the session. Solution: write the mcpServers block from
+    // ~/.claude.json into a scratch file at ~/.tokenicode/mcp-session-<id>.json
+    // and pass it via --mcp-config. Cleaned up on process exit.
+    let mcp_scratch_path = build_mcp_scratch_config(&session_id);
+    if let Some(ref scratch) = mcp_scratch_path {
+        args.push("--mcp-config".to_string());
+        args.push(scratch.to_string_lossy().to_string());
+        eprintln!(
+            "[TOKENICODE] MCP scratch config for {}: {:?}",
+            session_id, scratch
+        );
+    }
 
     // Model switch: strip thinking blocks from the session JSONL before resuming.
     // When switching models, the old model's cryptographic thinking signatures in the
@@ -1434,15 +1526,29 @@ async fn start_claude_session(
     // Build an enriched PATH for the child process
     let enriched_path = build_enriched_path();
 
-    // Resolve provider environment variables from provider_id
-    let (mut resolved_env, inherited_keys_to_remove, provider_extra_args) =
+    // Resolve provider environment variables from provider_id.
+    // C8 (v3 §4.3): is_native_anthropic tells us whether to inject CLI-specific
+    // env vars + --include-partial-messages. Third-party providers (OpenRouter,
+    // Qwen/DeepSeek/MiMo via /anthropic proxies) reject unknown flags so we skip
+    // them there.
+    let (mut resolved_env, inherited_keys_to_remove, provider_extra_args, is_native_anthropic) =
         resolve_provider_env(params.provider_id.as_deref())?;
 
     // Append provider-specific CLI args (e.g. --setting-sources project,local)
     args.extend(provider_extra_args);
 
-    // Inject effort level env var for non-off thinking levels
-    if thinking_level != "off" {
+    // NEW-O: partial messages streaming is Anthropic-specific. Drop it for
+    // third-party providers that return HTTP 400 on unknown Anthropic flags.
+    if !is_native_anthropic {
+        if let Some(idx) = args.iter().position(|a| a == "--include-partial-messages") {
+            args.remove(idx);
+        }
+    }
+
+    // Inject effort level env var for non-off thinking levels.
+    // C8: EFFORT_LEVEL is Anthropic-specific — the third-party proxies we
+    // ship to interpret it differently (or error). Keep it native-only.
+    if thinking_level != "off" && is_native_anthropic {
         resolved_env.insert(
             "CLAUDE_CODE_EFFORT_LEVEL".to_string(),
             thinking_level.to_string(),
@@ -1450,19 +1556,26 @@ async fn start_claude_session(
     }
 
     // Raise the per-turn output token cap from the CLI default (32K) to 64K.
-    // This prevents "response exceeded the 32000 output token maximum" errors
-    // when generating large files (e.g. HTML presentations).
-    resolved_env
-        .entry("CLAUDE_CODE_MAX_OUTPUT_TOKENS".to_string())
-        .or_insert_with(|| "64000".to_string());
+    // NEW-N (v3 §4.3): CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 confuses some
+    // third-party providers (their underlying models cap lower and they
+    // reject the request with 400). Keep this Anthropic-native only; users
+    // on third-party providers can still override via provider extra_env.
+    if is_native_anthropic {
+        resolved_env
+            .entry("CLAUDE_CODE_MAX_OUTPUT_TOKENS".to_string())
+            .or_insert_with(|| "64000".to_string());
+    }
 
     // Enable CLI-managed file checkpoints for rewind functionality.
-    // With --replay-user-messages, user messages in stream output carry a uuid
-    // that identifies the checkpoint. The rewind_files command uses these UUIDs.
-    resolved_env.insert(
-        "CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING".to_string(),
-        "1".to_string(),
-    );
+    // C8: SDK file checkpointing is an Anthropic-specific CLI feature — it
+    // requires --replay-user-messages which third-party providers don't
+    // reliably support.
+    if is_native_anthropic {
+        resolved_env.insert(
+            "CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING".to_string(),
+            "1".to_string(),
+        );
+    }
 
     // For models with 1M context window (MiMo v2 Pro etc.), override the auto-compact
     // threshold so Claude Code doesn't compact prematurely. The CLI's internal model map
@@ -2094,6 +2207,9 @@ async fn start_claude_session(
         bypass_modes_clone
             .drop_if_current(&sid_clone, &bypass_flag_for_reader)
             .await;
+
+        // Phase 4 §5.4 (S10): remove the per-session MCP scratch config.
+        cleanup_mcp_scratch_config(&sid_clone);
 
         // Signal kill_session that the process has fully exited
         exit_notify_clone.notify_one();
@@ -3267,6 +3383,82 @@ async fn share_to_wechat(path: String, app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// NEW-Q (v3 §4.3): extract a semver triple from raw CLI version output.
+/// `claude --version` prints "2.1.92 (Claude Code)" today, but some builds
+/// prefix ANSI warnings, deprecation notices, or (on Windows) "Claude Code v"
+/// markers before the number. Earlier code used `split_whitespace().next()`
+/// which broke on any of those variants; this helper scans for the first
+/// `\d+.\d+.\d+` substring so the parse is stable across builds.
+fn extract_semver(raw: &str) -> Option<String> {
+    let bytes = raw.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i].is_ascii_digit() {
+            let start = i;
+            let mut dots = 0;
+            while i < bytes.len() && (bytes[i].is_ascii_digit() || bytes[i] == b'.') {
+                if bytes[i] == b'.' {
+                    dots += 1;
+                    if dots > 2 {
+                        break;
+                    }
+                }
+                i += 1;
+            }
+            let candidate = &raw[start..i];
+            // Require at least x.y.z (dots == 2) and digits on both sides of
+            // each dot. `2.1.92` passes; `2.1` and `2..` do not.
+            if dots == 2 {
+                let parts: Vec<&str> = candidate.split('.').collect();
+                if parts.len() == 3 && parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())) {
+                    return Some(candidate.to_string());
+                }
+            }
+        } else {
+            i += 1;
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod extract_semver_tests {
+    use super::extract_semver;
+
+    #[test]
+    fn simple_version() {
+        assert_eq!(extract_semver("2.1.92"), Some("2.1.92".into()));
+    }
+
+    #[test]
+    fn with_suffix() {
+        assert_eq!(extract_semver("2.1.92 (Claude Code)"), Some("2.1.92".into()));
+    }
+
+    #[test]
+    fn with_prefix() {
+        assert_eq!(extract_semver("Claude Code v2.1.92"), Some("2.1.92".into()));
+    }
+
+    #[test]
+    fn with_warning_prefix() {
+        assert_eq!(
+            extract_semver("(node:1) Warning: ...\nclaude 2.1.92"),
+            Some("2.1.92".into())
+        );
+    }
+
+    #[test]
+    fn rejects_two_part() {
+        assert_eq!(extract_semver("2.1"), None);
+    }
+
+    #[test]
+    fn empty() {
+        assert_eq!(extract_semver(""), None);
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct FileNode {
     name: String,
@@ -3275,8 +3467,52 @@ struct FileNode {
     children: Option<Vec<FileNode>>,
 }
 
+// ── Path access (Phase 3 §3.1) ───────────────────────────────────────────
+//
+// Frontend entry points for recording/clearing per-tab path grants. These
+// are called after the user has explicitly authorized a path via the native
+// file dialog, OS drag-drop, or a Markdown "authorize" button.
+
 #[tauri::command]
-async fn read_file_tree(path: String, depth: Option<u32>) -> Result<Vec<FileNode>, String> {
+async fn add_path_grant(
+    path_access: State<'_, PathAccessManager>,
+    tab_id: String,
+    path: String,
+) -> Result<(), String> {
+    path_access
+        .add_grant(&tab_id, std::path::Path::new(&path))
+        .await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn clear_path_grants(
+    path_access: State<'_, PathAccessManager>,
+    tab_id: String,
+) -> Result<(), String> {
+    path_access.clear_grants(&tab_id).await;
+    Ok(())
+}
+
+/// Decode a `~/.claude/projects/` directory name back to its source path.
+/// Used by the frontend to avoid the buggy `.replace('-', '/')` fallback
+/// that breaks on names containing hyphens (S16).
+#[tauri::command]
+async fn decode_project_dir(encoded: String) -> Result<String, String> {
+    Ok(decode_project_name(&encoded))
+}
+
+#[tauri::command]
+async fn read_file_tree(
+    path_access: State<'_, PathAccessManager>,
+    path: String,
+    depth: Option<u32>,
+) -> Result<Vec<FileNode>, String> {
+    // Register the browsed directory as a fixed root so file operations
+    // (preview, read) work even before the first CLI session is started.
+    path_access
+        .register_cwd(std::path::Path::new(&path))
+        .await;
     let max_depth = depth.unwrap_or(5);
     let root = std::path::Path::new(&path);
     if !root.exists() {
@@ -3357,13 +3593,20 @@ fn read_dir_recursive(dir: &std::path::Path, current_depth: u32, max_depth: u32)
 }
 
 #[tauri::command]
-async fn read_file_content(path: String) -> Result<String, String> {
+async fn read_file_content(
+    path_access: State<'_, PathAccessManager>,
+    path: String,
+    tab_id: Option<String>,
+) -> Result<String, String> {
+    let p = path_access
+        .validate(std::path::Path::new(&path), tab_id.as_deref(), PathCapability::Read)
+        .await?;
     // Limit to 1MB to prevent loading huge files
-    let metadata = std::fs::metadata(&path).map_err(|e| format!("Cannot read file: {}", e))?;
+    let metadata = std::fs::metadata(&p).map_err(|e| format!("Cannot read file: {}", e))?;
     if metadata.len() > 1_048_576 {
         return Err("File too large (>1MB)".to_string());
     }
-    std::fs::read_to_string(&path).map_err(|e| format!("Cannot read file: {}", e))
+    std::fs::read_to_string(&p).map_err(|e| format!("Cannot read file: {}", e))
 }
 
 /// Check if the app has file system access to a given directory.
@@ -3382,18 +3625,26 @@ async fn check_file_access(path: String) -> Result<bool, String> {
 /// Used for previewing images, PDFs, and other binary files in the webview.
 /// Limit: 50MB to prevent memory issues.
 #[tauri::command]
-async fn read_file_base64(path: String) -> Result<String, String> {
+async fn read_file_base64(
+    path_access: State<'_, PathAccessManager>,
+    path: String,
+    tab_id: Option<String>,
+) -> Result<String, String> {
     use base64::Engine as _;
 
-    let metadata = std::fs::metadata(&path).map_err(|e| format!("Cannot read file: {}", e))?;
+    let p = path_access
+        .validate(std::path::Path::new(&path), tab_id.as_deref(), PathCapability::Read)
+        .await?;
+
+    let metadata = std::fs::metadata(&p).map_err(|e| format!("Cannot read file: {}", e))?;
     if metadata.len() > 50_000_000 {
         return Err("File too large (>50MB)".to_string());
     }
 
-    let bytes = std::fs::read(&path).map_err(|e| format!("Cannot read file: {}", e))?;
+    let bytes = std::fs::read(&p).map_err(|e| format!("Cannot read file: {}", e))?;
 
     // Guess MIME type from extension
-    let ext = std::path::Path::new(&path)
+    let ext = p
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
@@ -3421,31 +3672,75 @@ async fn read_file_base64(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn write_file_content(path: String, content: String) -> Result<(), String> {
-    std::fs::write(&path, &content).map_err(|e| format!("Cannot write file: {}", e))
+async fn write_file_content(
+    path_access: State<'_, PathAccessManager>,
+    path: String,
+    content: String,
+    tab_id: Option<String>,
+) -> Result<(), String> {
+    let p = path_access
+        .validate(std::path::Path::new(&path), tab_id.as_deref(), PathCapability::Write)
+        .await?;
+    std::fs::write(&p, &content).map_err(|e| format!("Cannot write file: {}", e))
 }
 
 #[tauri::command]
-async fn copy_file(src: String, dest: String) -> Result<(), String> {
-    std::fs::copy(&src, &dest)
+async fn copy_file(
+    path_access: State<'_, PathAccessManager>,
+    src: String,
+    dest: String,
+    tab_id: Option<String>,
+) -> Result<(), String> {
+    let s = path_access
+        .validate(std::path::Path::new(&src), tab_id.as_deref(), PathCapability::Read)
+        .await?;
+    let d = path_access
+        .validate(std::path::Path::new(&dest), tab_id.as_deref(), PathCapability::Write)
+        .await?;
+    std::fs::copy(&s, &d)
         .map(|_| ())
         .map_err(|e| format!("Cannot copy file: {}", e))
 }
 
 #[tauri::command]
-async fn rename_file(src: String, dest: String) -> Result<(), String> {
-    std::fs::rename(&src, &dest).map_err(|e| format!("Cannot rename file: {}", e))
+async fn rename_file(
+    path_access: State<'_, PathAccessManager>,
+    src: String,
+    dest: String,
+    tab_id: Option<String>,
+) -> Result<(), String> {
+    let s = path_access
+        .validate(std::path::Path::new(&src), tab_id.as_deref(), PathCapability::Write)
+        .await?;
+    let d = path_access
+        .validate(std::path::Path::new(&dest), tab_id.as_deref(), PathCapability::Write)
+        .await?;
+    std::fs::rename(&s, &d).map_err(|e| format!("Cannot rename file: {}", e))
 }
 
 #[tauri::command]
-async fn delete_file(path: String) -> Result<(), String> {
+async fn delete_file(
+    path_access: State<'_, PathAccessManager>,
+    path: String,
+    tab_id: Option<String>,
+) -> Result<(), String> {
+    let p = path_access
+        .validate(std::path::Path::new(&path), tab_id.as_deref(), PathCapability::Delete)
+        .await?;
     // Move to system trash/recycle bin (recoverable) instead of permanent delete
-    trash::delete(&path).map_err(|e| format!("Cannot move to trash: {}", e))
+    trash::delete(&p).map_err(|e| format!("Cannot move to trash: {}", e))
 }
 
 #[tauri::command]
-async fn create_directory(path: String) -> Result<(), String> {
-    std::fs::create_dir_all(&path).map_err(|e| format!("Cannot create directory: {}", e))
+async fn create_directory(
+    path_access: State<'_, PathAccessManager>,
+    path: String,
+    tab_id: Option<String>,
+) -> Result<(), String> {
+    let p = path_access
+        .validate(std::path::Path::new(&path), tab_id.as_deref(), PathCapability::Write)
+        .await?;
+    std::fs::create_dir_all(&p).map_err(|e| format!("Cannot create directory: {}", e))
 }
 
 #[tauri::command]
@@ -3568,9 +3863,10 @@ async fn list_recent_projects() -> Result<Vec<Value>, String> {
         for entry in entries.flatten() {
             if entry.path().is_dir() {
                 let dir_name = entry.file_name().to_string_lossy().to_string();
-                let _decoded = decode_project_name(&dir_name);
-                // Get the actual path (not the shortened ~/ version)
-                let actual_path = dir_name.replace('-', "/");
+                // S16 (v3 §4.3): use the filesystem-aware decoder instead of
+                // `dir_name.replace('-', "/")` which silently mangles any
+                // project whose folder name contains a hyphen (e.g. ppt-maker).
+                let actual_path = decode_project_name(&dir_name);
 
                 // Find the most recent session file in this project
                 let mut latest: u64 = 0;
@@ -3716,9 +4012,16 @@ async fn unwatch_directory(state: State<'_, WatcherManager>, path: String) -> Re
 
 /// Get file size in bytes for a given path
 #[tauri::command]
-async fn get_file_size(path: String) -> Result<u64, String> {
+async fn get_file_size(
+    path_access: State<'_, PathAccessManager>,
+    path: String,
+    tab_id: Option<String>,
+) -> Result<u64, String> {
+    let p = path_access
+        .validate(std::path::Path::new(&path), tab_id.as_deref(), PathCapability::Read)
+        .await?;
     let metadata =
-        std::fs::metadata(&path).map_err(|e| format!("Cannot read file metadata: {}", e))?;
+        std::fs::metadata(&p).map_err(|e| format!("Cannot read file metadata: {}", e))?;
     Ok(metadata.len())
 }
 
@@ -4111,25 +4414,46 @@ async fn list_skills(cwd: Option<String>) -> Result<Vec<SkillInfo>, String> {
 
 /// Read a skill file and return its content
 #[tauri::command]
-async fn read_skill(path: String) -> Result<String, String> {
-    std::fs::read_to_string(&path).map_err(|e| format!("Cannot read skill file: {}", e))
+async fn read_skill(
+    path_access: State<'_, PathAccessManager>,
+    path: String,
+    tab_id: Option<String>,
+) -> Result<String, String> {
+    let p = path_access
+        .validate(std::path::Path::new(&path), tab_id.as_deref(), PathCapability::Read)
+        .await?;
+    std::fs::read_to_string(&p).map_err(|e| format!("Cannot read skill file: {}", e))
 }
 
 /// Write content to a skill file, creating parent directories if needed
 #[tauri::command]
-async fn write_skill(path: String, content: String) -> Result<(), String> {
-    let p = std::path::Path::new(&path);
+async fn write_skill(
+    path_access: State<'_, PathAccessManager>,
+    path: String,
+    content: String,
+    tab_id: Option<String>,
+) -> Result<(), String> {
+    let p = path_access
+        .validate(std::path::Path::new(&path), tab_id.as_deref(), PathCapability::Write)
+        .await?;
     if let Some(parent) = p.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create directories: {}", e))?;
     }
-    std::fs::write(&path, &content).map_err(|e| format!("Cannot write skill file: {}", e))
+    std::fs::write(&p, &content).map_err(|e| format!("Cannot write skill file: {}", e))
 }
 
 /// Delete a skill file; remove the parent directory if it becomes empty
 #[tauri::command]
-async fn delete_skill(path: String) -> Result<(), String> {
-    let p = std::path::Path::new(&path);
+async fn delete_skill(
+    path_access: State<'_, PathAccessManager>,
+    path: String,
+    tab_id: Option<String>,
+) -> Result<(), String> {
+    let p = path_access
+        .validate(std::path::Path::new(&path), tab_id.as_deref(), PathCapability::Delete)
+        .await?;
+    let p = p.as_path();
     std::fs::remove_file(p).map_err(|e| format!("Failed to delete skill file: {}", e))?;
 
     // If the parent directory is now empty, remove it too
@@ -4365,9 +4689,17 @@ async fn list_all_commands(cwd: Option<String>) -> Result<Vec<UnifiedCommand>, S
 /// Toggle a skill's enabled/disabled state by writing/removing
 /// `disable-model-invocation` in its YAML frontmatter.
 #[tauri::command]
-async fn toggle_skill_enabled(path: String, enabled: bool) -> Result<(), String> {
+async fn toggle_skill_enabled(
+    path_access: State<'_, PathAccessManager>,
+    path: String,
+    enabled: bool,
+    tab_id: Option<String>,
+) -> Result<(), String> {
+    let p = path_access
+        .validate(std::path::Path::new(&path), tab_id.as_deref(), PathCapability::Write)
+        .await?;
     let content =
-        std::fs::read_to_string(&path).map_err(|e| format!("Cannot read skill file: {}", e))?;
+        std::fs::read_to_string(&p).map_err(|e| format!("Cannot read skill file: {}", e))?;
     let new_content = if enabled {
         // Remove disable-model-invocation (or set to false)
         update_frontmatter_field(&content, "disable-model-invocation", None)
@@ -4375,7 +4707,7 @@ async fn toggle_skill_enabled(path: String, enabled: bool) -> Result<(), String>
         // Set disable-model-invocation: true
         update_frontmatter_field(&content, "disable-model-invocation", Some("true"))
     };
-    std::fs::write(&path, &new_content).map_err(|e| format!("Cannot write skill file: {}", e))
+    std::fs::write(&p, &new_content).map_err(|e| format!("Cannot write skill file: {}", e))
 }
 
 // --- Git / Shell helpers for Rewind code restore ---
@@ -4786,9 +5118,11 @@ async fn check_claude_cli() -> Result<CliStatus, String> {
                     if raw.is_empty() {
                         None
                     } else {
-                        // `claude --version` outputs "2.1.92 (Claude Code)" — extract just the semver
-                        let ver = raw.split_whitespace().next().unwrap_or(&raw).to_string();
-                        Some(ver)
+                        // NEW-Q: use a digit-scan parser so prefixed warnings
+                        // (node deprecation, ANSI leftovers, "Claude Code v")
+                        // don't cause us to drop the version entirely.
+                        extract_semver(&raw)
+                            .or_else(|| raw.split_whitespace().next().map(|s| s.to_string()))
                     }
                 }
                 Ok(_) => None,
@@ -4914,9 +5248,13 @@ async fn diagnose_cli() -> Result<Vec<commands::cli_resolver::CliCandidate>, Str
                 let raw = strip_ansi(&String::from_utf8_lossy(&output.stdout))
                     .trim()
                     .to_string();
-                let ver = raw.split_whitespace().next().unwrap_or(&raw).to_string();
-                if !ver.is_empty() {
-                    candidate.version = Some(ver);
+                // NEW-Q: robust semver parse (same as check_claude_cli)
+                if let Some(ver) = extract_semver(&raw)
+                    .or_else(|| raw.split_whitespace().next().map(|s| s.to_string()))
+                {
+                    if !ver.is_empty() {
+                        candidate.version = Some(ver);
+                    }
                 }
             }
             Ok(Ok(_)) => {
@@ -6998,7 +7336,7 @@ async fn generate_session_title(
 
     // Resolve model and env vars for provider
     let (provider_env, provider_keys_to_remove, model_name) = if let Some(ref pid) = provider_id {
-        let (env, keys, _args) = resolve_provider_env(Some(pid))?;
+        let (env, keys, _args, _is_native) = resolve_provider_env(Some(pid))?;
         // Find haiku tier mapping from provider
         let providers_file = load_providers()?;
         let provider = providers_file.providers.iter().find(|p| p.id == *pid);
@@ -7267,6 +7605,7 @@ pub fn run() {
         .manage(StdinManager::new())
         .manage(BypassModeMap::new())
         .manage(WatcherManager::default())
+        .manage(PathAccessManager::new())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
             // titleBarStyle: "Overlay" in tauri.conf.json handles macOS traffic lights
@@ -7312,6 +7651,9 @@ pub fn run() {
             list_sessions,
             search_sessions,
             load_session,
+            add_path_grant,
+            clear_path_grants,
+            decode_project_dir,
             read_file_tree,
             read_file_content,
             write_file_content,
@@ -7383,29 +7725,67 @@ pub fn run() {
 #[cfg(test)]
 mod decode_tests {
     use super::decode_project_name;
+    use tempfile::TempDir;
 
-    #[test]
-    fn test_simple_path() {
-        let result = decode_project_name("-Users-tinyzhuang-Documents-FocusZone");
-        assert_eq!(result, "/Users/tinyzhuang/Documents/FocusZone");
+    /// Encode a Unix absolute path the way Claude CLI encodes project dirs:
+    /// `/` → `-`, `.` before a path component → empty part (so `/.foo` → `--foo`).
+    fn encode_path(path: &str) -> String {
+        // Replace leading `/` with `-`, then all remaining `/` with `-`.
+        // Dots at the start of a component become empty parts between dashes.
+        let mut encoded = String::new();
+        for ch in path.chars() {
+            if ch == '/' {
+                encoded.push('-');
+            } else {
+                encoded.push(ch);
+            }
+        }
+        encoded
     }
 
     #[test]
-    fn test_hyphenated_dir() {
-        // ppt-maker exists on disk as a dir with hyphens in name
-        let result = decode_project_name("-Users-tinyzhuang-Desktop-ppt-maker");
-        assert_eq!(result, "/Users/tinyzhuang/Desktop/ppt-maker");
+    fn test_simple_no_ambiguity() {
+        // When no filesystem probing is needed (all parts are unambiguous
+        // single-segment names), the decoder just replaces `-` with `/`.
+        // Use a path prefix that definitely does NOT exist so the decoder
+        // falls back to segment-per-dash.
+        let result = decode_project_name("-nonexistent9999-aaa-bbb-ccc");
+        assert_eq!(result, "/nonexistent9999/aaa/bbb/ccc");
     }
 
     #[test]
-    fn test_hidden_dir_double_dash() {
-        // FocusZone/.claude-worktrees/condescending-brown
-        // "/" → "-", "." → empty part making "--"
-        let result = decode_project_name(
-            "-Users-tinyzhuang-Documents-FocusZone--claude-worktrees-condescending-brown",
-        );
-        println!("Result: {}", result);
-        // Should contain .claude somewhere
+    fn test_hyphenated_dir_with_tempdir() {
+        // Create a real directory structure with a hyphenated leaf name so
+        // the filesystem probe can disambiguate.
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path().join("sub");
+        let hyphenated = base.join("ppt-maker");
+        std::fs::create_dir_all(&hyphenated).unwrap();
+
+        // Encode the path: e.g. /tmp/xxx/sub/ppt-maker
+        let full_path = hyphenated.to_string_lossy().to_string();
+        let encoded = encode_path(&full_path);
+
+        let result = decode_project_name(&encoded);
+        assert_eq!(result, full_path,
+            "Decoder should find the hyphenated dir on disk and keep the hyphen");
+    }
+
+    #[test]
+    fn test_hidden_dir_double_dash_with_tempdir() {
+        // Create .claude-worktrees/condescending-brown inside a temp dir
+        let tmp = TempDir::new().unwrap();
+        let hidden = tmp.path().join(".claude-worktrees").join("condescending-brown");
+        std::fs::create_dir_all(&hidden).unwrap();
+
+        let full_path = hidden.to_string_lossy().to_string();
+        let encoded = encode_path(&full_path);
+        // The `.` in `.claude-worktrees` encodes as an empty part → `--claude-worktrees`
+        let encoded = encoded.replacen("-.", "--", 1);
+
+        let result = decode_project_name(&encoded);
+        println!("Encoded: {}", encoded);
+        println!("Result:  {}", result);
         assert!(
             result.contains(".claude"),
             "Expected .claude in path, got: {}",
@@ -7414,20 +7794,27 @@ mod decode_tests {
     }
 
     #[test]
-    fn test_nested_subdir() {
-        let result = decode_project_name("-Users-tinyzhuang-Desktop-test-NiCode");
-        // test/NiCode or test-NiCode — depends on what exists on disk
-        println!("Result: {}", result);
-        assert!(result.starts_with("/Users/tinyzhuang/Desktop/test"));
+    fn test_space_in_dir_name_with_tempdir() {
+        // Create a dir with a space in its name
+        let tmp = TempDir::new().unwrap();
+        let spaced = tmp.path().join("jd 设计");
+        std::fs::create_dir_all(&spaced).unwrap();
+
+        let full_path = spaced.to_string_lossy().to_string();
+        // Claude CLI encodes spaces as dashes too (same as `/`)
+        let encoded = encode_path(&full_path).replace(' ', "-");
+
+        let result = decode_project_name(&encoded);
+        assert_eq!(result, full_path,
+            "Decoder should find the space-containing dir on disk");
     }
 
     #[test]
-    fn test_space_in_dir_name() {
-        // "jd 设计" exists at ~/Desktop/jd 设计
-        let result = decode_project_name("-Users-tinyzhuang-Desktop-jd-设计");
-        println!("Result: {}", result);
-        // Should decode to "/Users/tinyzhuang/Desktop/jd 设计"
-        assert_eq!(result, "/Users/tinyzhuang/Desktop/jd 设计");
+    fn test_no_false_positive_without_dir() {
+        // When the hyphenated path does NOT exist on disk, the decoder
+        // should fall back to treating each dash as a separator.
+        let result = decode_project_name("-nonexistent9999-sub-ppt-maker");
+        assert_eq!(result, "/nonexistent9999/sub/ppt/maker");
     }
 }
 

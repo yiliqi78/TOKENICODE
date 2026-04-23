@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState, useCallback, useRef } from 'react';
 import { useProviderStore } from '../../stores/providerStore';
+import { useSessionStore } from '../../stores/sessionStore';
 import { bridge } from '../../lib/tauri-bridge';
 import { useT } from '../../lib/i18n';
 import { type PresetProvider } from '../../lib/provider-presets';
@@ -95,7 +96,13 @@ export function ProviderManager({ alwaysExpanded = false }: { alwaysExpanded?: b
     setImportStatus('idle');
 
     try {
-      const content = await bridge.readFileContent(filePath);
+      // Phase 3 §3.2: user chose this path via the native file dialog →
+      // authorize it so read_file_content is permitted.
+      const importTabId = useSessionStore.getState().selectedSessionId;
+      if (importTabId) {
+        await bridge.addPathGrant(importTabId, filePath).catch(() => {});
+      }
+      const content = await bridge.readFileContent(filePath, importTabId || undefined);
       const parsed = parseAndValidate(content);
       if (!parsed.ok) {
         setImportError(parsed.error);
@@ -170,7 +177,11 @@ export function ProviderManager({ alwaysExpanded = false }: { alwaysExpanded?: b
         filters: [{ name: 'JSON', extensions: ['json'] }],
       });
       if (!filePath) return;
-      await bridge.writeFileContent(filePath, json);
+      const exportTabId = useSessionStore.getState().selectedSessionId;
+      if (exportTabId) {
+        await bridge.addPathGrant(exportTabId, filePath).catch(() => {});
+      }
+      await bridge.writeFileContent(filePath, json, exportTabId || undefined);
     } catch (e) {
       console.error('Export failed:', e);
     }

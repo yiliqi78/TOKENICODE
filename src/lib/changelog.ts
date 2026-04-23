@@ -532,7 +532,6 @@ export const CHANGELOG: ChangelogEntry[] = [
         label: { zh: '修复', en: 'Fixed' },
         items: {
           zh: [
-            'macOS FD limit 崩溃 — 启动时抬高至 65536',
             'Markdown 渲染崩溃白屏 — MarkdownErrorBoundary 隔离',
             '切换模型后 SESSION_ALREADY_ACTIVE 报错',
             '后台 Agent Team 切换会话后静默终止',
@@ -546,7 +545,6 @@ export const CHANGELOG: ChangelogEntry[] = [
             'Agent Team 副代理不显示',
           ],
           en: [
-            'macOS FD limit crash — raise to 65536 at startup',
             'Markdown rendering crash — MarkdownErrorBoundary isolation',
             'SESSION_ALREADY_ACTIVE after model switch',
             'Background Agent Team silently terminated on tab switch',

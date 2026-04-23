@@ -23,18 +23,105 @@ function isLocalPath(src: string): boolean {
 
 function AsyncImage({ src, alt }: { src: string; alt?: string }) {
   const t = useT();
+  const workingDirectory = useSettingsStore((s) => s.workingDirectory);
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [error, setError] = useState(false);
+  // Phase 3 §3.3: external (non-project) paths need explicit user authorization
+  // before we load their bytes. Unauthorized paths render a placeholder with
+  // an "authorize" button that opens the native file dialog.
+  const filePath = useMemo(() => (src.startsWith('file://') ? src.slice(7) : src), [src]);
+  const inProject = useMemo(() => {
+    if (!workingDirectory) return false;
+    // Resolve '..' and '.' segments to prevent path traversal bypassing
+    // the project-containment check (e.g. /project/../outside.png would
+    // naively pass a startsWith('/project/') test).
+    const segments: string[] = [];
+    for (const seg of filePath.split('/')) {
+      if (seg === '..') { segments.pop(); }
+      else if (seg !== '.' && seg !== '') { segments.push(seg); }
+    }
+    const normalized = '/' + segments.join('/');
+    const base = workingDirectory.endsWith('/') ? workingDirectory : workingDirectory + '/';
+    return normalized === workingDirectory || normalized.startsWith(base);
+  }, [filePath, workingDirectory]);
+  const [authorized, setAuthorized] = useState(inProject);
 
+  // Note: we pass no tab_id here — path_access.validate() with tab_id=None
+  // falls back to checking fixed roots + any tab's grants, which is what we
+  // want for Markdown images (the rendering context isn't strictly per-tab).
   useEffect(() => {
-    const filePath = src.startsWith('file://') ? src.slice(7) : src;
-    bridge.readFileBase64(filePath).then(setDataUrl).catch(() => setError(true));
-  }, [src]);
+    if (!authorized) return;
+    let cancelled = false;
+    bridge
+      .readFileBase64(filePath)
+      .then((d) => { if (!cancelled) setDataUrl(d); })
+      .catch(() => { if (!cancelled) setError(true); });
+    return () => { cancelled = true; };
+  }, [filePath, authorized]);
+
+  const handleAuthorize = useCallback(async () => {
+    const { useSessionStore } = await import('../../stores/sessionStore');
+    const activeTabId = useSessionStore.getState().selectedSessionId;
+    try {
+      const { open: openDialog } = await import('@tauri-apps/plugin-dialog');
+      const selected = await openDialog({
+        title: t('msg.authorizeImage') ?? 'Authorize external image',
+        defaultPath: filePath,
+        multiple: false,
+      });
+      const chosen = Array.isArray(selected) ? selected[0] : selected;
+      if (!chosen || !activeTabId) return;
+      // Grant the original filePath (the one we will actually read), not the
+      // user-chosen path.  The file dialog serves as a user-intent confirmation
+      // step; the displayed path is already known.  If chosen differs from
+      // filePath we still grant filePath so the subsequent readFileBase64 works.
+      await bridge.addPathGrant(activeTabId, filePath);
+      if (chosen !== filePath) {
+        // Also grant the chosen path in case the user picked something else
+        await bridge.addPathGrant(activeTabId, chosen);
+      }
+      setAuthorized(true);
+    } catch (e) {
+      console.warn('[MarkdownRenderer] authorize failed:', e);
+    }
+  }, [filePath, t]);
 
   const handleClick = useCallback(() => {
-    const filePath = src.startsWith('file://') ? src.slice(7) : src;
     useLightboxStore.getState().openFile(filePath, alt);
-  }, [src, alt]);
+  }, [filePath, alt]);
+
+  if (!authorized) {
+    const fileName = filePath.split(/[\\/]/).pop() || filePath;
+    return (
+      <div className="my-3 rounded-xl overflow-hidden border border-border-subtle
+        inline-block max-w-full bg-bg-secondary">
+        <div className="flex items-center gap-3 px-4 py-3">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none"
+            stroke="currentColor" strokeWidth="1.5" className="flex-shrink-0 text-text-muted">
+            <rect x="2" y="3" width="16" height="14" rx="2" />
+            <circle cx="6.5" cy="7.5" r="1.5" />
+            <path d="M2 14l4-4 4 4 2-2 6 6" />
+          </svg>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs text-text-primary truncate">{fileName}</div>
+            <div className="text-[11px] text-text-muted truncate">{filePath}</div>
+          </div>
+          <button
+            onClick={handleAuthorize}
+            className="px-2 py-1 rounded-md text-[11px] font-medium bg-accent/10
+              text-accent border border-accent/25 hover:bg-accent/20
+              transition-smooth cursor-pointer flex-shrink-0"
+          >
+            {t('msg.authorize') ?? '授权'}
+          </button>
+        </div>
+        {alt && (
+          <div className="px-3 py-1.5 text-xs text-text-muted bg-bg-secondary
+            border-t border-border-subtle">{alt}</div>
+        )}
+      </div>
+    );
+  }
 
   if (error) {
     return (

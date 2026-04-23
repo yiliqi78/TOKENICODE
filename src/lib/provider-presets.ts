@@ -104,10 +104,12 @@ export const PROVIDER_PRESETS: PresetProvider[] = [
     name: 'OpenRouter',
     baseUrl: 'https://openrouter.ai/api',
     apiFormat: 'anthropic',
-    extra_env: {
-      ANTHROPIC_AUTH_TOKEN: '${API_KEY}',
-      ANTHROPIC_API_KEY: '',
-    },
+    // S15: earlier versions tried `ANTHROPIC_AUTH_TOKEN: '${API_KEY}'` but the
+    // `${API_KEY}` literal was never substituted, so the CLI sent an empty
+    // bearer token. resolve_provider_env (Rust) sets ANTHROPIC_API_KEY from
+    // the user's stored apiKey — OpenRouter accepts this on the
+    // /api/v1/anthropic endpoint, matching the native Anthropic auth flow.
+    extra_env: {},
     keyUrl: 'https://openrouter.ai/settings/keys',
     thinkingSupport: 'full',
   },

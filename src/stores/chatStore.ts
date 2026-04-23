@@ -76,6 +76,13 @@ export interface ChatMessage {
   subAgentDepth?: number;
   // CLI checkpoint UUID for file restoration (from --replay-user-messages)
   checkpointUuid?: string;
+  /** AskUserQuestion / permission owner — the (tabId, stdinId) that created this card.
+   *  Phase 4 §5.3 (S3): QuestionCard answers must flow to the spawning tab/stdin,
+   *  NOT getActiveTabState (which is wrong after the user switches tabs). */
+  owner?: {
+    tabId: string;
+    stdinId: string;
+  };
 }
 
 export interface SessionMeta {
@@ -708,7 +715,14 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     const restoredAt = Date.now();
     // #27/#30 safety net: if tab has zero messages but this is a persisted session
     // (has a disk path), treat as cache miss so the caller falls back to disk load.
-    if (tab.messages.length === 0 && !tab.isStreaming && !tab.partialText) {
+    // S9 (v3 §5.9 path 3): keep the tab when an unsent draft exists — discarding
+    // it would lose the user's in-progress message when they tab back.
+    if (
+      tab.messages.length === 0
+      && !tab.isStreaming
+      && !tab.partialText
+      && !tab.inputDraft
+    ) {
       const session = useSessionStore.getState().sessions.find((s) => s.id === tabId);
       if (session?.path) {
         const newTabs = new Map(get().tabs);

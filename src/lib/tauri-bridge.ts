@@ -105,7 +105,8 @@ export interface CliStatus {
   installed: boolean;
   path: string | null;
   version: string | null;
-  version_compatible: boolean;
+  // NEW-D: removed `version_compatible` — the Rust CliStatus struct never
+  // serialized this field, so the frontend always received `undefined`.
   git_bash_missing: boolean;
 }
 
@@ -252,23 +253,36 @@ export const bridge = {
   readFileTree: (path: string, depth?: number) =>
     invoke<FileNode[]>('read_file_tree', { path, depth }),
 
-  readFileContent: (path: string) =>
-    invoke<string>('read_file_content', { path }),
+  readFileContent: (path: string, tabId?: string) =>
+    invoke<string>('read_file_content', { path, tabId: tabId ?? null }),
 
-  writeFileContent: (path: string, content: string) =>
-    invoke<void>('write_file_content', { path, content }),
+  writeFileContent: (path: string, content: string, tabId?: string) =>
+    invoke<void>('write_file_content', { path, content, tabId: tabId ?? null }),
 
-  copyFile: (src: string, dest: string) =>
-    invoke<void>('copy_file', { src, dest }),
+  copyFile: (src: string, dest: string, tabId?: string) =>
+    invoke<void>('copy_file', { src, dest, tabId: tabId ?? null }),
 
-  renameFile: (src: string, dest: string) =>
-    invoke<void>('rename_file', { src, dest }),
+  renameFile: (src: string, dest: string, tabId?: string) =>
+    invoke<void>('rename_file', { src, dest, tabId: tabId ?? null }),
 
-  deleteFile: (path: string) =>
-    invoke<void>('delete_file', { path }),
+  deleteFile: (path: string, tabId?: string) =>
+    invoke<void>('delete_file', { path, tabId: tabId ?? null }),
 
-  createDirectory: (path: string) =>
-    invoke<void>('create_directory', { path }),
+  createDirectory: (path: string, tabId?: string) =>
+    invoke<void>('create_directory', { path, tabId: tabId ?? null }),
+
+  /** Add a path grant for the given tab (authorize external file access). */
+  addPathGrant: (tabId: string, path: string) =>
+    invoke<void>('add_path_grant', { tabId, path }),
+
+  /** Revoke all grants for the given tab (called on tab close / teardown). */
+  clearPathGrants: (tabId: string) =>
+    invoke<void>('clear_path_grants', { tabId }),
+
+  /** Decode a ~/.claude/projects/ directory name back to its source path.
+   *  Uses the filesystem-aware Rust decoder instead of naive `.replace('-', '/')`. */
+  decodeProjectDir: (encoded: string) =>
+    invoke<string>('decode_project_dir', { encoded }),
 
   getHomeDir: () =>
     invoke<string>('get_home_dir'),
@@ -291,11 +305,11 @@ export const bridge = {
   saveTempFile: (name: string, data: number[], cwd?: string) =>
     invoke<string>('save_temp_file', { name, data, cwd: cwd || null }),
 
-  getFileSize: (path: string) =>
-    invoke<number>('get_file_size', { path }),
+  getFileSize: (path: string, tabId?: string) =>
+    invoke<number>('get_file_size', { path, tabId: tabId ?? null }),
 
-  readFileBase64: (path: string) =>
-    invoke<string>('read_file_base64', { path }),
+  readFileBase64: (path: string, tabId?: string) =>
+    invoke<string>('read_file_base64', { path, tabId: tabId ?? null }),
 
   /** Check if app has file system access to a directory (macOS TCC detection) */
   checkFileAccess: (path: string) =>
@@ -309,17 +323,17 @@ export const bridge = {
   listSkills: (cwd?: string) =>
     invoke<SkillInfo[]>('list_skills', { cwd }),
 
-  readSkill: (path: string) =>
-    invoke<string>('read_skill', { path }),
+  readSkill: (path: string, tabId?: string) =>
+    invoke<string>('read_skill', { path, tabId: tabId ?? null }),
 
-  writeSkill: (path: string, content: string) =>
-    invoke<void>('write_skill', { path, content }),
+  writeSkill: (path: string, content: string, tabId?: string) =>
+    invoke<void>('write_skill', { path, content, tabId: tabId ?? null }),
 
-  deleteSkill: (path: string) =>
-    invoke<void>('delete_skill', { path }),
+  deleteSkill: (path: string, tabId?: string) =>
+    invoke<void>('delete_skill', { path, tabId: tabId ?? null }),
 
-  toggleSkillEnabled: (path: string, enabled: boolean) =>
-    invoke<void>('toggle_skill_enabled', { path, enabled }),
+  toggleSkillEnabled: (path: string, enabled: boolean, tabId?: string) =>
+    invoke<void>('toggle_skill_enabled', { path, enabled, tabId: tabId ?? null }),
 
   // Unified commands (commands + skills)
   listAllCommands: (cwd?: string) =>

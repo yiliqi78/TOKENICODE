@@ -1,6 +1,5 @@
-import { useState, useCallback } from 'react';
-import { type ChatMessage, useChatStore, getActiveTabState } from '../../stores/chatStore';
-import { useSessionStore } from '../../stores/sessionStore';
+import { useState, useCallback, useEffect } from 'react';
+import { type ChatMessage, useChatStore } from '../../stores/chatStore';
 import { bridge } from '../../lib/tauri-bridge';
 import { useT } from '../../lib/i18n';
 
@@ -89,20 +88,49 @@ export function QuestionCard({ message, floating }: Props) {
   const interactionState = message.interactionState ?? (isFullyResolved ? 'resolved' : 'pending');
   const isSending = interactionState === 'sending';
   const isFailed = interactionState === 'failed';
+  // Phase 4 §5.3 (S3): the card can only submit once the CLI's control_request
+  // has arrived with a requestId. Until then, buttons are disabled with a
+  // "loading" label. After 5s without a requestId, surface a "retry sync" hint
+  // — four-reviewer consensus rejected the legacy sendStdin 5s fallback because
+  // it pollutes the conversation without unblocking the CLI.
   const awaitingSdkPatch = !isFullyResolved && !message.permissionData?.requestId;
+  const [showRetryHint, setShowRetryHint] = useState(false);
+  useEffect(() => {
+    if (!awaitingSdkPatch) {
+      setShowRetryHint(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowRetryHint(true), 5_000);
+    return () => clearTimeout(timer);
+  }, [awaitingSdkPatch, message.permissionData?.requestId]);
+
+  /** Resolve the (tabId, stdinId) this card belongs to — prefers the owner stamp
+   *  set at creation time (Phase 4 §5.3), falls back to the current tab meta
+   *  only for backward compat with cards created before the owner field existed. */
+  const resolveOwner = useCallback((): { tabId: string; stdinId: string } | null => {
+    if (message.owner?.tabId && message.owner.stdinId) return { ...message.owner };
+    // Legacy fallback: search active tabs for a matching stdinId via the message
+    // being present in the tab; only safe if exactly one match.
+    const tabs = Array.from(useChatStore.getState().tabs.values());
+    const match = tabs.find((t) => t.messages.some((m) => m.id === message.id));
+    const stdinId = match?.sessionMeta.stdinId;
+    if (match && stdinId) return { tabId: match.tabId, stdinId };
+    return null;
+  }, [message.owner, message.id]);
 
   const handleConfirm = useCallback(async () => {
     if (isFullyResolved || isSending || awaitingSdkPatch) return;
+    const permData = message.permissionData;
+    if (!permData?.requestId) return;
+
     const answerText = getCurrentAnswer();
     setAnsweredMap((prev) => ({ ...prev, [currentIdx]: answerText }));
 
     const isLast = currentIdx >= questions.length - 1;
     if (isLast) {
-      const qTabId = useSessionStore.getState().selectedSessionId;
-      if (!qTabId) return;
+      const owner = resolveOwner();
+      if (!owner) return;
       const { setInteractionState, setSessionStatus, setActivityStatus } = useChatStore.getState();
-      const stdinId = getActiveTabState().sessionMeta.stdinId;
-      if (!stdinId) return;
       const answers: Record<string, string> = {};
       questions.forEach((q, qIdx) => {
         if (useOther[qIdx] && otherText[qIdx]?.trim()) {
@@ -117,52 +145,55 @@ export function QuestionCard({ message, floating }: Props) {
           }
         }
       });
-      setInteractionState(qTabId, message.id, 'sending');
+      setInteractionState(owner.tabId, message.id, 'sending');
       try {
-        // If this question arrived via SDK control_request (permissionData present),
-        // respond via respondPermission with answers in updatedInput.
-        // Otherwise use sendStdin (legacy streaming path).
-        const permData = message.permissionData;
-        if (permData?.requestId) {
-          const updatedInput = { ...message.toolInput, answers };
-          await bridge.respondPermission(stdinId, permData.requestId, true, undefined, permData.toolUseId, updatedInput);
-        } else {
-          await bridge.sendStdin(stdinId, JSON.stringify({ answers }));
-        }
-        setInteractionState(qTabId, message.id, 'resolved');
-        setSessionStatus(qTabId, 'running');
-        setActivityStatus(qTabId, { phase: 'thinking' });
+        // SDK control path only — the legacy sendStdin fallback was removed
+        // because that channel cannot resolve a control_request (v3 §5.3).
+        const updatedInput = { ...message.toolInput, answers };
+        await bridge.respondPermission(
+          owner.stdinId,
+          permData.requestId,
+          true,
+          undefined,
+          permData.toolUseId,
+          updatedInput,
+        );
+        setInteractionState(owner.tabId, message.id, 'resolved');
+        setSessionStatus(owner.tabId, 'running');
+        setActivityStatus(owner.tabId, { phase: 'thinking' });
       } catch (err) {
-        setInteractionState(qTabId, message.id, 'failed', String(err));
+        setInteractionState(owner.tabId, message.id, 'failed', String(err));
       }
     } else {
       setCurrentIdx(currentIdx + 1);
     }
-  }, [isFullyResolved, isSending, awaitingSdkPatch, currentIdx, questions, selectedMap, useOther, otherText, message.id, message.permissionData, message.toolInput, getCurrentAnswer]);
+  }, [isFullyResolved, isSending, awaitingSdkPatch, currentIdx, questions, selectedMap, useOther, otherText, message.id, message.permissionData, message.toolInput, getCurrentAnswer, resolveOwner]);
 
   const handleSkip = useCallback(async () => {
     if (isFullyResolved || isSending || awaitingSdkPatch) return;
-    const skipTabId = useSessionStore.getState().selectedSessionId;
-    if (!skipTabId) return;
+    const permData = message.permissionData;
+    if (!permData?.requestId) return;
+    const owner = resolveOwner();
+    if (!owner) return;
     const { setInteractionState, setSessionStatus, setActivityStatus } = useChatStore.getState();
-    const stdinId = getActiveTabState().sessionMeta.stdinId;
-    if (!stdinId) return;
-    setInteractionState(skipTabId, message.id, 'sending');
+    setInteractionState(owner.tabId, message.id, 'sending');
     try {
-      const permData = message.permissionData;
-      if (permData?.requestId) {
-        const updatedInput = { ...message.toolInput, answers: {} };
-        await bridge.respondPermission(stdinId, permData.requestId, true, undefined, permData.toolUseId, updatedInput);
-      } else {
-        await bridge.sendStdin(stdinId, JSON.stringify({ answers: {} }));
-      }
-      setInteractionState(skipTabId, message.id, 'resolved');
-      setSessionStatus(skipTabId, 'running');
-      setActivityStatus(skipTabId, { phase: 'thinking' });
+      const updatedInput = { ...message.toolInput, answers: {} };
+      await bridge.respondPermission(
+        owner.stdinId,
+        permData.requestId,
+        true,
+        undefined,
+        permData.toolUseId,
+        updatedInput,
+      );
+      setInteractionState(owner.tabId, message.id, 'resolved');
+      setSessionStatus(owner.tabId, 'running');
+      setActivityStatus(owner.tabId, { phase: 'thinking' });
     } catch (err) {
-      setInteractionState(skipTabId, message.id, 'failed', String(err));
+      setInteractionState(owner.tabId, message.id, 'failed', String(err));
     }
-  }, [isFullyResolved, isSending, awaitingSdkPatch, message.id]);
+  }, [isFullyResolved, isSending, awaitingSdkPatch, message.id, message.permissionData, message.toolInput, resolveOwner]);
 
   return (
     <div className={`${floating ? '' : 'ml-11'} animate-scale-in ${isFullyResolved ? 'opacity-80' : ''}`}>
@@ -315,6 +346,15 @@ export function QuestionCard({ message, floating }: Props) {
               <div className="mb-2 text-[11px] text-error bg-error/5 rounded-lg px-2.5 py-1.5
                 border border-error/20">
                 {message.interactionError}
+              </div>
+            )}
+
+            {/* Awaiting-sync hint (Phase 4 §5.3 S3) */}
+            {awaitingSdkPatch && showRetryHint && (
+              <div className="mb-2 text-[11px] text-warning bg-warning/5 rounded-lg px-2.5 py-1.5
+                border border-warning/20">
+                {t('msg.questionAwaitingSync')
+                  ?? '权限同步超时：正在等待 CLI 发送 control_request。若长时间未恢复，请打断后重试。'}
               </div>
             )}
 

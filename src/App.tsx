@@ -355,22 +355,22 @@ function App() {
         const restored = useChatStore.getState().restoreFromCache(previousSessionId);
         if (restored) {
           useAgentStore.getState().restoreFromCache(previousSessionId);
-          // Restore working directory
+          // Restore working directory — S16 (v3 §4.3): prefer the already-decoded
+          // `project` field (set by decode_project_name in Rust). Only fall back
+          // to the backend decoder when `project` is missing, and never do the
+          // naive `.replace(/-/g, '/')` that silently mangles hyphen names.
           const projectPath = prevSession.project || prevSession.projectDir;
           if (projectPath) {
-            // Resolve project path using same logic as ConversationList
-            let resolved = projectPath;
-            if (!projectPath.startsWith('/') && !/^[A-Za-z]:[/\\]/.test(projectPath)) {
-              if (projectPath.startsWith('~/')) {
-                resolved = projectPath; // will work with home dir expansion
-              } else if (/^[A-Za-z]-/.test(projectPath)) {
-                const drive = projectPath[0];
-                resolved = `${drive}:\\${projectPath.slice(2).replace(/-/g, '\\')}`;
-              } else {
-                resolved = projectPath.replace(/-/g, '/');
-              }
+            const useDirectly = projectPath.startsWith('/')
+              || /^[A-Za-z]:[/\\]/.test(projectPath)
+              || projectPath.startsWith('~/');
+            if (useDirectly) {
+              useSettingsStore.getState().setWorkingDirectory(projectPath);
+            } else {
+              bridge.decodeProjectDir(projectPath)
+                .then((decoded) => useSettingsStore.getState().setWorkingDirectory(decoded))
+                .catch(() => useSettingsStore.getState().setWorkingDirectory(projectPath));
             }
-            useSettingsStore.getState().setWorkingDirectory(resolved);
           }
         }
       }
