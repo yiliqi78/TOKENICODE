@@ -305,7 +305,7 @@ export const bridge = {
     invoke<string>('save_temp_file', { name, data, cwd: cwd || null }),
 
   getFileSize: (path: string, tabId?: string) =>
-    invoke<number>('get_file_size', { path, tab_id: tabId || null }),
+    invoke<number>('get_file_size', { path, tabId: tabId ?? null }),
 
   readFileBase64: (path: string, tabId?: string) =>
     invoke<string>('read_file_base64', { path, tabId: tabId ?? null }),
