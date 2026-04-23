@@ -5,7 +5,7 @@ import { useSessionStore, setOrphanDrainCallback } from '../stores/sessionStore'
 import { useAgentStore, resolveAgentId, getAgentDepth } from '../stores/agentStore';
 import { useFileStore } from '../stores/fileStore';
 import { bridge } from '../lib/tauri-bridge';
-import { envFingerprint, resolveModelForProvider, spawnConfigHash } from '../lib/api-provider';
+import { envFingerprint, resolveModelForProvider, spawnConfigHash, getAutoCompactThreshold } from '../lib/api-provider';
 import { useProviderStore } from '../stores/providerStore';
 import { t } from '../lib/i18n';
 import {
@@ -636,6 +636,8 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
                 console.error('[TC:bg] Failed to send pending messages:', err);
                 const bgDraft = store.getTab(tabId)?.inputDraft ?? '';
                 store.setInputDraft(tabId, bgDraft ? `${bgDraft}\n\n${bgCombined}` : bgCombined);
+                cleanupStdinRoute(bgFlushStdinId);
+                store.setSessionMeta(tabId, { stdinId: undefined });
                 store.setSessionStatus(tabId, 'error');
               });
             }
@@ -649,7 +651,8 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           const bgCompactTab = store.getTab(tabId);
           const bgResultInputTokens = msg.usage?.input_tokens || 0;
           const bgCompactStdinId = bgCompactTab?.sessionMeta.stdinId;
-          if (bgResultInputTokens > 160_000 && !hasAutoCompactFired(tabId) && bgCompactStdinId && msg.subtype === 'success') {
+          const bgCompactThreshold = getAutoCompactThreshold(bgCompactTab?.sessionMeta.spawnedModel);
+          if (bgResultInputTokens > bgCompactThreshold && !hasAutoCompactFired(tabId) && bgCompactStdinId && msg.subtype === 'success') {
             markAutoCompactFired(tabId);
             console.log('[TOKENICODE] Background tab auto-compact triggered:', tabId, 'inputTokens =', bgResultInputTokens);
             const bgCompactMsgId = generateMessageId();
@@ -1899,12 +1902,14 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           }
         }
 
-        // --- Auto-compact: when input tokens exceed 160K (80% of 200K context),
+        // --- Auto-compact: when input tokens exceed 80% of context window,
         // automatically send /compact to prevent context overflow on the next turn.
         // Fires at most once per session to avoid infinite loops.
+        // Threshold is model-aware: 160K for 200K models, 800K for 1M models.
         const resultInputTokens = msg.usage?.input_tokens || 0;
         const compactStdinId = useChatStore.getState().getTab(tabId)?.sessionMeta.stdinId;
-        if (resultInputTokens > 160_000 && !hasAutoCompactFired(tabId) && compactStdinId && msg.subtype === 'success') {
+        const fgCompactThreshold = getAutoCompactThreshold(useChatStore.getState().getTab(tabId)?.sessionMeta.spawnedModel);
+        if (resultInputTokens > fgCompactThreshold && !hasAutoCompactFired(tabId) && compactStdinId && msg.subtype === 'success') {
           markAutoCompactFired(tabId);
           console.log('[TOKENICODE] Auto-compact triggered: inputTokens =', resultInputTokens);
           const compactMsgId = generateMessageId();
@@ -2013,6 +2018,8 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
                 console.error('[TC] Failed to send pending messages:', err);
                 const draft = useChatStore.getState().getTab(tabId)?.inputDraft ?? '';
                 useChatStore.getState().setInputDraft(tabId, draft ? `${draft}\n\n${nextMsg}` : nextMsg);
+                cleanupStdinRoute(flushStdinId);
+                useChatStore.getState().setSessionMeta(tabId, { stdinId: undefined });
                 setSessionStatus('error');
               });
             }

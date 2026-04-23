@@ -5,15 +5,7 @@ import { useT } from '../../lib/i18n';
 import { AiAvatar } from '../shared/AiAvatar';
 import { UserAvatar } from '../shared/UserAvatar';
 import { AvatarCropModal } from './AvatarCropModal';
-
-const TIER_MAP: Record<string, string> = {
-  'claude-opus-4-7-1m': 'opus',
-  'claude-opus-4-7': 'opus',
-  'claude-opus-4-6-1m': 'opus',
-  'claude-opus-4-6': 'opus',
-  'claude-sonnet-4-6': 'sonnet',
-  'claude-haiku-4-5-20251001': 'haiku',
-};
+import { TIER_MAP } from '../../lib/api-provider';
 
 const COLOR_THEMES: { id: ColorTheme; labelKey: string; preview: string; previewDark: string }[] = [
   {

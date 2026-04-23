@@ -971,38 +971,38 @@ export function InputBar() {
             });
             stdinId = undefined;
           } else {
-          // Phase 2 §2.1/§2.2: catch-all config-drift check covering dimensions
-          // not caught by the envFingerprint / spawnedModel gates above —
-          // most importantly thinkingLevel (S4 fix). When the full
-          // spawnConfigHash differs, respawn with --resume (preserving
-          // conversation context) so the new process picks up the new env.
-          const catchAllHash = spawnConfigHash();
-          const sessionHash = getActiveTabState().sessionMeta.spawnConfigHash;
-          if (sessionHash !== undefined && catchAllHash !== sessionHash) {
-            console.warn('[TOKENICODE] spawnConfigHash changed (thinking/misc), respawning');
-            await teardownSession(stdinId, tabId, 'switch');
-            await waitForStdinCleared(tabId, stdinId);
-            // Unlike provider/model switch, thinking-level-only changes do NOT
-            // require stripping thinking blocks — signatures remain valid.
-            stdinId = undefined;
-          } else {
-          // ===== Send via stdin to existing persistent process (pre-warmed or follow-up) =====
-          try {
-            await bridge.sendStdin(stdinId, text);
-            sentViaStdin = true;
-            // Defensive: ensure spawnedModel is always recorded after first successful stdin send
-            if (!getActiveTabState().sessionMeta.spawnedModel) {
-              setSessionMeta(tabId, { spawnedModel: resolveModelForProvider(selectedModel) });
-            }
-          } catch (stdinErr) {
-            // stdin write failed (broken pipe — process already exited).
-            // Drop the stale stdin route via lifecycle helpers, then spawn fresh.
-            console.warn('[TOKENICODE] sendStdin failed, spawning new process:', stdinErr);
-            cleanupStdinRoute(stdinId);
-            setSessionMeta(tabId, { stdinId: undefined });
-            stdinId = undefined;
-          }
-          } // close spawnConfigHash-mismatch else
+            // Phase 2 §2.1/§2.2: catch-all config-drift check covering dimensions
+            // not caught by the envFingerprint / spawnedModel gates above —
+            // most importantly thinkingLevel (S4 fix). When the full
+            // spawnConfigHash differs, respawn with --resume (preserving
+            // conversation context) so the new process picks up the new env.
+            const catchAllHash = spawnConfigHash();
+            const sessionHash = getActiveTabState().sessionMeta.spawnConfigHash;
+            if (sessionHash !== undefined && catchAllHash !== sessionHash) {
+              console.warn('[TOKENICODE] spawnConfigHash changed (thinking/misc), respawning');
+              await teardownSession(stdinId, tabId, 'switch');
+              await waitForStdinCleared(tabId, stdinId);
+              // Unlike provider/model switch, thinking-level-only changes do NOT
+              // require stripping thinking blocks — signatures remain valid.
+              stdinId = undefined;
+            } else {
+              // ===== Send via stdin to existing persistent process (pre-warmed or follow-up) =====
+              try {
+                await bridge.sendStdin(stdinId, text);
+                sentViaStdin = true;
+                // Defensive: ensure spawnedModel is always recorded after first successful stdin send
+                if (!getActiveTabState().sessionMeta.spawnedModel) {
+                  setSessionMeta(tabId, { spawnedModel: resolveModelForProvider(selectedModel) });
+                }
+              } catch (stdinErr) {
+                // stdin write failed (broken pipe — process already exited).
+                // Drop the stale stdin route via lifecycle helpers, then spawn fresh.
+                console.warn('[TOKENICODE] sendStdin failed, spawning new process:', stdinErr);
+                cleanupStdinRoute(stdinId);
+                setSessionMeta(tabId, { stdinId: undefined });
+                stdinId = undefined;
+              }
+            } // close spawnConfigHash-mismatch else
           } // close spawnedModel-mismatch else
         } // close envFingerprint-mismatch else
       } // close if(stdinId) outer gate
@@ -1047,6 +1047,7 @@ export function InputBar() {
         // spawn so it reflects the config that was actually used, not whatever
         // the user might change while the spawn is in flight.
         const preSpawnConfigHash = spawnConfigHash();
+        const preEnvFingerprint = envFingerprint();
 
         console.log('[TOKENICODE:session] starting session', { cwd, stdinId: preGeneratedId, mode: liveSessionMode, provider: useProviderStore.getState().activeProviderId, modelSwitch: !!didSwitchModel, resumeSessionId: existingSessionId });
 
@@ -1088,7 +1089,7 @@ export function InputBar() {
         // Write additional meta (envFingerprint, spawnedModel, clear switch flags)
         setSessionMeta(tabId, {
           sessionId: spawnResult.sessionInfo.cli_session_id ?? undefined,
-          envFingerprint: envFingerprint(),
+          envFingerprint: preEnvFingerprint,
           spawnedModel: resolveModelForProvider(selectedModel),
           // Phase 2 §2.1: lock in the spawn-time config hash for later
           // mismatch detection in handleSubmit and the drain paths.

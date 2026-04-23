@@ -2,6 +2,45 @@ import { useProviderStore } from '../stores/providerStore';
 import { useSettingsStore, type ModelId } from '../stores/settingsStore';
 
 /**
+ * Canonical tier mapping from official ModelId to provider tier key.
+ * Defined once here and imported by ModelSelector, GeneralTab, etc.
+ */
+export const TIER_MAP: Record<string, 'opus' | 'sonnet' | 'haiku'> = {
+  'claude-opus-4-7-1m': 'opus',
+  'claude-opus-4-7': 'opus',
+  'claude-opus-4-6-1m': 'opus',
+  'claude-opus-4-6': 'opus',
+  'claude-sonnet-4-6': 'sonnet',
+  'claude-haiku-4-5-20251001': 'haiku',
+};
+
+/** Set of 1M context model IDs.
+ *  Includes both raw UI IDs (with `-1m` suffix) and resolved CLI IDs
+ *  (without suffix) since sessionMeta.spawnedModel stores the resolved form. */
+const ONE_MILLION_MODELS = new Set<string>([
+  'claude-opus-4-7-1m',
+  'claude-opus-4-7',      // Opus 4.7 ships with 1M context by default
+  'claude-opus-4-6-1m',
+]);
+
+/**
+ * Check whether the given model ID (or the currently selected model) uses
+ * the 1M context window variant.
+ */
+export function is1MModel(modelId?: string): boolean {
+  const id = modelId ?? useSettingsStore.getState().selectedModel;
+  return ONE_MILLION_MODELS.has(id);
+}
+
+/**
+ * Return the auto-compact token threshold for the given model.
+ * 80% of context window: 160K for 200K models, 800K for 1M models.
+ */
+export function getAutoCompactThreshold(modelId?: string): number {
+  return is1MModel(modelId) ? 800_000 : 160_000;
+}
+
+/**
  * Result of model resolution — either a mapped model name or an error.
  */
 export type ModelResolution =
@@ -24,16 +63,8 @@ export function resolveModelOrError(selectedModel: string): ModelResolution {
     return { ok: true, model: directMapping.providerModel };
   }
 
-  // 2. Fall back to tier mapping
-  const tierMap: Record<string, 'opus' | 'sonnet' | 'haiku'> = {
-    'claude-opus-4-7-1m': 'opus',
-    'claude-opus-4-7': 'opus',
-    'claude-opus-4-6-1m': 'opus',
-    'claude-opus-4-6': 'opus',
-    'claude-sonnet-4-6': 'sonnet',
-    'claude-haiku-4-5-20251001': 'haiku',
-  };
-  const tier = tierMap[selectedModel];
+  // 2. Fall back to tier mapping (uses canonical TIER_MAP)
+  const tier = TIER_MAP[selectedModel];
   if (!tier) return { ok: true, model: selectedModel };
 
   const mapping = provider.modelMappings.find(
@@ -45,14 +76,13 @@ export function resolveModelOrError(selectedModel: string): ModelResolution {
   return { ok: true, model: mapping.providerModel };
 }
 
-/**
- * Resolve the UI-selected model ID to the provider's actual model name.
- * When a provider is active, looks up the model mapping for the selected tier.
- * Returns the original model ID if no mapping is configured (silent fallback).
- */
 /** Map internal model IDs to CLI-expected format.
- *  Opus 4.7 ships with 1M context by default, so no [1m] suffix is needed. */
-const CLI_MODEL_MAP: Partial<Record<ModelId, string>> = {};
+ *  The CLI does not recognize the `-1m` suffix — it's a UI-only variant that
+ *  selects a higher context window. Strip it before passing to the CLI. */
+const CLI_MODEL_MAP: Partial<Record<ModelId, string>> = {
+  'claude-opus-4-7-1m': 'claude-opus-4-7',
+  'claude-opus-4-6-1m': 'claude-opus-4-6',
+};
 
 export function resolveModelForProvider(selectedModel: string): string {
   const r = resolveModelOrError(selectedModel);
