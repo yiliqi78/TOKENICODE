@@ -4,6 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { isTreeDragActive } from '../lib/drag-state';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useFileStore } from '../stores/fileStore';
+import { useSessionStore } from '../stores/sessionStore';
 
 // --- Types ---
 
@@ -253,6 +254,18 @@ export function useFileAttachments() {
         const key = [...paths].sort().join('|');
         if (now - lastDropRef.current.time < 500 && key === lastDropRef.current.key) return;
         lastDropRef.current = { time: now, key };
+
+        // Phase 3 §3.2: user dropped files in = user-initiated authorization.
+        // Register each dropped path as a path grant for the active tab so
+        // subsequent reads (thumbnail preview, size lookup) are allowed.
+        {
+          const activeTabId = useSessionStore.getState().selectedSessionId;
+          if (activeTabId) {
+            for (const p of paths) {
+              bridge.addPathGrant(activeTabId, p).catch(() => { /* best-effort */ });
+            }
+          }
+        }
 
         if (wasOverTree) {
           // Drop onto file tree → copy files into project

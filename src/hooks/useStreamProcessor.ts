@@ -43,6 +43,26 @@ export function formatErrorForUser(raw: string): string {
   return `${friendly}\n\n<details>\n<summary>${t('error.showDetails')}</summary>\n\n\`\`\`\n${raw}\n\`\`\`\n\n</details>`;
 }
 
+/** S18 (v3 §4.3): allowlist of CLI-internal placeholder result strings that
+ *  must not leak into the user-visible conversation. The CLI emits these as
+ *  default values for certain non-success result frames (e.g. when the model
+ *  is told to reply with `No response requested.` after a tool-only turn).
+ *  They are meaningful to the CLI's internal state machine but pure noise
+ *  for the end user. */
+const CLI_INTERNAL_PLACEHOLDERS: readonly string[] = [
+  'No response requested.',
+  'No response requested',
+  '(no content)',
+  'No content',
+];
+
+function isCliPlaceholder(text: string | undefined | null): boolean {
+  if (!text) return false;
+  const trimmed = text.trim();
+  if (!trimmed) return true;
+  return CLI_INTERNAL_PLACEHOLDERS.some((p) => trimmed === p);
+}
+
 // --- Streaming text buffer ---
 // Ownership of the rAF buffer, orphan queue, and completion guard lives in
 // StreamController (src/stream/StreamController.ts). This module is now a
@@ -261,6 +281,8 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           const questionId = msg.tool_use_id || 'ask_question_current';
           const existing = bgTab?.messages.find((m) => m.id === questionId && m.type === 'question')
             || bgTab?.messages.find((m) => m.type === 'question' && !m.resolved && m.toolName === 'AskUserQuestion');
+          const ownerStdinId = (msg.__stdinId as string | undefined)
+            ?? bgTab?.sessionMeta.stdinId;
           if (existing) {
             store.updateMessage(tabId, existing.id, {
               permissionData: {
@@ -270,6 +292,8 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
                 toolUseId: msg.tool_use_id,
               },
               toolInput: msg.input,
+              owner: existing.owner
+                ?? (ownerStdinId ? { tabId, stdinId: ownerStdinId } : undefined),
             });
             return;
           }
@@ -287,6 +311,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               input: msg.input,
               toolUseId: msg.tool_use_id,
             },
+            owner: ownerStdinId ? { tabId, stdinId: ownerStdinId } : undefined,
           });
           store.setActivityStatus(tabId, { phase: 'awaiting' });
           return;
@@ -428,6 +453,8 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               );
               if (bgExisting) break;
 
+              const bgOwnerStdinId = (msg.__stdinId as string | undefined)
+                ?? bgSnap?.sessionMeta.stdinId;
               store.addMessage(tabId, {
                 id: bgQuestionId,
                 role: 'assistant', type: 'question',
@@ -435,6 +462,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
                 toolInput: block.input,
                 questions: Array.isArray(questions) ? questions : [],
                 resolved: false, timestamp: Date.now(),
+                owner: bgOwnerStdinId ? { tabId, stdinId: bgOwnerStdinId } : undefined,
               });
             } else if (block.name === 'TodoWrite' && block.input?.todos) {
               store.addMessage(tabId, {
@@ -573,7 +601,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             lastProgressAt: undefined,
           });
         }
-        if (typeof msg.result === 'string' && msg.result) {
+        if (typeof msg.result === 'string' && msg.result && !isCliPlaceholder(msg.result)) {
           // Only add if not already delivered via 'assistant' event
           const bgTab = store.getTab(tabId);
           const bgIsDuplicate = bgTab?.messages.some(
@@ -916,6 +944,8 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           // Patch permissionData so QuestionCard uses respondPermission (SDK path)
           // instead of sendStdin (legacy path). Always update — even if permissionData
           // exists — because a new control_request supersedes a stale one.
+          const existingOwnerStdin = (msg.__stdinId as string | undefined)
+            ?? chatStore.getTab(tabId)?.sessionMeta.stdinId;
           chatStore.updateMessage(tabId, existing.id, {
             permissionData: {
               requestId: msg.request_id,
@@ -924,10 +954,16 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               toolUseId: msg.tool_use_id,
             },
             toolInput: msg.input,
+            owner: existing.owner
+              ?? (existingOwnerStdin ? { tabId, stdinId: existingOwnerStdin } : undefined),
           });
           return;
         }
         const questions = msg.input?.questions;
+        // Phase 4 §5.3 (S3): stamp the owning tab/stdin so the card's answer
+        // handler can use the spawning context instead of getActiveTabState().
+        const ownerStdinId = (msg.__stdinId as string | undefined)
+          ?? chatStore.getTab(tabId)?.sessionMeta.stdinId;
         chatStore.addMessage(tabId, {
           id: questionId,
           role: 'assistant',
@@ -945,6 +981,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             input: msg.input,
             toolUseId: msg.tool_use_id,
           },
+          owner: ownerStdinId ? { tabId, stdinId: ownerStdinId } : undefined,
         });
         chatStore.setActivityStatus(tabId, { phase: 'awaiting' });
         return;
@@ -1340,6 +1377,8 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               }
 
               const questions = block.input?.questions;
+              const fgOwnerStdinId = (msg.__stdinId as string | undefined)
+                ?? useChatStore.getState().getTab(tabId)?.sessionMeta.stdinId;
               addMessage({
                 id: questionId,
                 role: 'assistant',
@@ -1351,6 +1390,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
                 resolved: false,
                 subAgentDepth: agentDepth,
                 timestamp: Date.now(),
+                owner: fgOwnerStdinId ? { tabId, stdinId: fgOwnerStdinId } : undefined,
               });
               // Mark as awaiting user input (consistent with ExitPlanMode)
               setActivityStatus({ phase: 'awaiting' });
@@ -1821,7 +1861,9 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         // Only add result text if it wasn't already delivered via an
         // 'assistant' event (which is the normal case for stream-json output)
         // AND there's no pending command card (which already displays the output).
-        if (resultDisplayText && !pendingCmdMsgId) {
+        // S18: CLI-internal placeholders (e.g. "No response requested.") must
+        // not surface to the user.
+        if (resultDisplayText && !pendingCmdMsgId && !isCliPlaceholder(resultDisplayText)) {
           const currentMessages = (useChatStore.getState().getTab(tabId)?.messages ?? []);
           const isDuplicate = currentMessages.some(
             (m) => m.role === 'assistant' && m.type === 'text'
@@ -1842,6 +1884,39 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         setSessionStatus(
           msg.subtype === 'success' ? 'completed' : 'error'
         );
+
+        // S11 (v3 §4.2): surface a visible error when the turn failed mid-way
+        // (e.g. network drop, 500 from provider). Previously this was gated
+        // behind `!hasAssistantReply`, so errors that arrived after partial
+        // output were silently swallowed. Now we always annotate on failure,
+        // with a de-dup guard so the retry/Stop paths don't double-post.
+        if (msg.subtype !== 'success') {
+          const errorText = [msg.error, msg.result, msg.content]
+            .filter(Boolean)
+            .map(String)
+            .join(' ')
+            .trim();
+          const isUserStop = /user[_ ]abort|interrupt|abort/i.test(errorText)
+            || msg.subtype === 'user_abort'
+            || fgWasStopping;
+          const msgs = useChatStore.getState().getTab(tabId)?.messages ?? [];
+          const lastMsg = msgs[msgs.length - 1];
+          const duplicate = lastMsg?.role === 'system'
+            && (lastMsg.content === errorText || lastMsg.commandType === 'error');
+          if (!duplicate) {
+            addMessage({
+              id: generateMessageId(),
+              role: 'system',
+              type: 'text',
+              content: isUserStop
+                ? (t('error.userStopped') ?? '已手动停止')
+                : formatErrorForUser(errorText || (t('error.turnFailed') ?? 'AI 响应异常中断')),
+              commandType: 'error',
+              timestamp: Date.now(),
+            });
+          }
+        }
+
         {
           // Correct cumulative totals for any drift between streaming
           // accumulation and the authoritative result values.
