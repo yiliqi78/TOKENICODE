@@ -47,8 +47,10 @@ package-lock.json
 # Obsidian
 .obsidian/
 
-# Local development workflow (Trellis + Claude Code)
+# Local development workflow (Trellis + Claude Code + Codex)
 .trellis/
 .claude/
+.codex/
+.agents/
 AGENTS.md
 .test/

@@ -115,7 +115,7 @@ pub fn is_native_binary(path: &Path) -> bool {
                     | [0xFE, 0xED, 0xFA, 0xCF]  // Mach-O 64-bit BE
                     | [0xFE, 0xED, 0xFA, 0xCE]  // Mach-O 32-bit BE
                     | [0xCA, 0xFE, 0xBA, 0xBE]  // Universal/fat binary
-                    | [0x7F, 0x45, 0x4C, 0x46]   // ELF
+                    | [0x7F, 0x45, 0x4C, 0x46] // ELF
                 );
             }
         }
@@ -163,9 +163,12 @@ pub fn is_valid_executable(path: &Path) -> bool {
                 // Native binary
                 if matches!(
                     magic,
-                    [0xCF, 0xFA, 0xED, 0xFE] | [0xCE, 0xFA, 0xED, 0xFE]
-                    | [0xFE, 0xED, 0xFA, 0xCF] | [0xFE, 0xED, 0xFA, 0xCE]
-                    | [0xCA, 0xFE, 0xBA, 0xBE] | [0x7F, 0x45, 0x4C, 0x46]
+                    [0xCF, 0xFA, 0xED, 0xFE]
+                        | [0xCE, 0xFA, 0xED, 0xFE]
+                        | [0xFE, 0xED, 0xFA, 0xCF]
+                        | [0xFE, 0xED, 0xFA, 0xCE]
+                        | [0xCA, 0xFE, 0xBA, 0xBE]
+                        | [0x7F, 0x45, 0x4C, 0x46]
                 ) {
                     return true;
                 }
@@ -305,7 +308,10 @@ fn cmd_with_timeout(cmd: &str, args: &[&str], timeout_secs: u64) -> String {
                 if std::time::Instant::now() > deadline {
                     let _ = child.kill();
                     let _ = child.wait();
-                    eprintln!("[cli_resolver] cmd_with_timeout: '{}' timed out ({}s)", cmd, timeout_secs);
+                    eprintln!(
+                        "[cli_resolver] cmd_with_timeout: '{}' timed out ({}s)",
+                        cmd, timeout_secs
+                    );
                     return String::new();
                 }
                 std::thread::sleep(std::time::Duration::from_millis(20));
@@ -524,10 +530,7 @@ fn collect_tiered_dirs() -> Vec<TieredDir> {
                         .collect();
                     version_dirs.sort_by(|a, b| {
                         let parse_ver = |p: &Path| -> (u32, u32, u32) {
-                            let name = p
-                                .file_name()
-                                .unwrap_or_default()
-                                .to_string_lossy();
+                            let name = p.file_name().unwrap_or_default().to_string_lossy();
                             let s = name.strip_prefix('v').unwrap_or(&name);
                             let parts: Vec<u32> =
                                 s.split('.').filter_map(|x| x.parse().ok()).collect();
@@ -834,17 +837,17 @@ pub fn cleanup(targets: &[String]) -> CleanupResult {
                         removed.push(claude_pkg.to_string_lossy().to_string());
                     }
                     Err(e) => {
-                        eprintln!(
-                            "[cli_resolver] failed to remove npm package: {}",
-                            e
-                        );
+                        eprintln!("[cli_resolver] failed to remove npm package: {}", e);
                     }
                 }
             }
             // Windows: npm_global_dir is flat, no lib/node_modules
             #[cfg(target_os = "windows")]
             {
-                let claude_pkg_win = npm_dir.join("node_modules").join("@anthropic-ai").join("claude-code");
+                let claude_pkg_win = npm_dir
+                    .join("node_modules")
+                    .join("@anthropic-ai")
+                    .join("claude-code");
                 if claude_pkg_win.exists() {
                     let _ = std::fs::remove_dir_all(&claude_pkg_win);
                 }
@@ -865,7 +868,10 @@ fn classify_path(path: &str) -> CliSource {
     if let Some(npm_bin) = crate::get_npm_global_bin() {
         app_local_prefixes.push(npm_bin.to_string_lossy().to_string());
     }
-    if app_local_prefixes.iter().any(|p| path.starts_with(p.as_str())) {
+    if app_local_prefixes
+        .iter()
+        .any(|p| path.starts_with(p.as_str()))
+    {
         return CliSource::AppLocal;
     }
 
@@ -897,7 +903,10 @@ pub fn find_binary() -> Option<String> {
         if is_native_binary(p) || is_valid_executable(p) {
             return Some(pinned);
         }
-        eprintln!("[cli_resolver] pinned CLI '{}' is no longer valid, falling back", pinned);
+        eprintln!(
+            "[cli_resolver] pinned CLI '{}' is no longer valid, falling back",
+            pinned
+        );
     }
     resolve().map(|(path, _)| path)
 }
@@ -930,14 +939,13 @@ pub fn get_pinned_cli() -> Option<String> {
 pub fn pin_cli(path: &str) -> Result<(), String> {
     let pin_path = pin_file_path().ok_or("Cannot determine home directory")?;
     if let Some(parent) = pin_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create dir: {}", e))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create dir: {}", e))?;
     }
-    let pin = CliPin { path: path.to_string() };
-    let json = serde_json::to_string_pretty(&pin)
-        .map_err(|e| format!("JSON error: {}", e))?;
-    std::fs::write(&pin_path, json)
-        .map_err(|e| format!("Failed to write pin file: {}", e))?;
+    let pin = CliPin {
+        path: path.to_string(),
+    };
+    let json = serde_json::to_string_pretty(&pin).map_err(|e| format!("JSON error: {}", e))?;
+    std::fs::write(&pin_path, json).map_err(|e| format!("Failed to write pin file: {}", e))?;
     eprintln!("[cli_resolver] pinned CLI: {}", path);
     Ok(())
 }
@@ -1124,7 +1132,10 @@ pub fn delete_cli(path: &str) -> Result<String, String> {
     let source = classify_path(path);
 
     if source == CliSource::Official {
-        return Err("Cannot delete Official Anthropic installation. Uninstall via Claude Desktop.".to_string());
+        return Err(
+            "Cannot delete Official Anthropic installation. Uninstall via Claude Desktop."
+                .to_string(),
+        );
     }
 
     let p = Path::new(path);
@@ -1132,8 +1143,7 @@ pub fn delete_cli(path: &str) -> Result<String, String> {
         return Err(format!("File not found: {}", path));
     }
 
-    std::fs::remove_file(p)
-        .map_err(|e| format!("Delete failed: {}", e))?;
+    std::fs::remove_file(p).map_err(|e| format!("Delete failed: {}", e))?;
 
     // If pinned CLI was deleted, unpin it
     if let Some(pinned) = get_pinned_cli() {
@@ -1171,7 +1181,9 @@ mod tests {
             CliSource::Official
         );
         assert_eq!(
-            classify_path("/Users/test/Library/Application Support/Claude/claude-code/1.0.0/claude"),
+            classify_path(
+                "/Users/test/Library/Application Support/Claude/claude-code/1.0.0/claude"
+            ),
             CliSource::Official
         );
     }
@@ -1215,7 +1227,13 @@ mod tests {
     #[test]
     fn test_cleanup_refuses_version_manager() {
         let tmp = TempDir::new().unwrap();
-        let nvm_dir = tmp.path().join(".nvm").join("versions").join("node").join("v22").join("bin");
+        let nvm_dir = tmp
+            .path()
+            .join(".nvm")
+            .join("versions")
+            .join("node")
+            .join("v22")
+            .join("bin");
         fs::create_dir_all(&nvm_dir).unwrap();
         let fake_cli = nvm_dir.join("claude");
         fs::write(&fake_cli, b"fake").unwrap();

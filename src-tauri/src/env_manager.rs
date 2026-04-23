@@ -185,7 +185,11 @@ mod tests {
     fn env_remove_list_has_no_duplicates() {
         let mut seen = std::collections::HashSet::new();
         for key in ENV_REMOVE_LIST {
-            assert!(seen.insert(*key), "duplicate entry in ENV_REMOVE_LIST: {}", key);
+            assert!(
+                seen.insert(*key),
+                "duplicate entry in ENV_REMOVE_LIST: {}",
+                key
+            );
         }
     }
 
@@ -206,7 +210,10 @@ mod tests {
             .with_path("/usr/local/bin:/usr/bin".to_string())
             .with_extra(extra.clone())
             .with_extra_remove(vec!["FOO".to_string()]);
-        assert_eq!(cfg.enriched_path.as_deref(), Some("/usr/local/bin:/usr/bin"));
+        assert_eq!(
+            cfg.enriched_path.as_deref(),
+            Some("/usr/local/bin:/usr/bin")
+        );
         assert_eq!(cfg.extra, extra);
         assert_eq!(cfg.extra_remove, vec!["FOO".to_string()]);
     }

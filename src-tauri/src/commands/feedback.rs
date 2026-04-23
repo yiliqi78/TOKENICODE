@@ -200,7 +200,11 @@ fn build_card(
 
     let mut meta_lines: Vec<String> = vec![
         format!("**版本**: {}", metadata.app_version),
-        format!("**系统**: {} {}", std::env::consts::OS, std::env::consts::ARCH),
+        format!(
+            "**系统**: {} {}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        ),
     ];
     if let Some(locale) = &metadata.locale {
         meta_lines.push(format!("**语言**: {}", locale));
@@ -304,9 +308,7 @@ pub async fn submit_feedback(
     metadata: FeedbackMetadata,
 ) -> Result<(), String> {
     if !is_configured() {
-        return Err(
-            "反馈功能未配置。请联系开发者或等待下一个版本。".to_string(),
-        );
+        return Err("反馈功能未配置。请联系开发者或等待下一个版本。".to_string());
     }
 
     let trimmed = description.trim();

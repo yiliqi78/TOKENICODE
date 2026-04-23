@@ -181,6 +181,12 @@ const messages: Record<Locale, Record<string, string>> = {
     'error.tokenLimit': '📏 对话太长了，请新建一个任务继续。',
     'error.genericFallback': '出了点问题，请稍后重试。',
     'error.cliExitedSilently': 'CLI 意外退出且无输出，请检查 CLI 是否已正确安装（设置 → CLI），以及 API 服务商是否已配置。',
+    'error.userStopped': '已手动停止',
+    'error.turnFailed': 'AI 响应异常中断',
+
+    // FilePreview
+    'filePreview.htmlStaticPreview': '静态 HTML 预览（脚本已禁用）',
+    'filePreview.openInBrowser': '在浏览器打开',
 
     // CommandPalette
     'cmd.newChat': '新任务',
@@ -278,6 +284,9 @@ const messages: Record<Locale, Record<string, string>> = {
     'msg.questionOther': '其他',
     'msg.questionOtherPlaceholder': '输入自定义回答...',
     'msg.questionLoading': '正在加载...',
+    'msg.questionAwaitingSync': '权限同步超时：正在等待 CLI 发送 control_request。若长时间未恢复，请打断后重试。',
+    'msg.authorizeImage': '授权外部图片',
+    'msg.authorize': '授权',
     'msg.planReview': '审查 Claude 的计划',
     'msg.planApprove': '批准计划并开始执行',
     'msg.planModify': '告诉 Claude 如何修改',
@@ -894,6 +903,12 @@ const messages: Record<Locale, Record<string, string>> = {
     'error.tokenLimit': '📏 Conversation is too long. Please start a new task to continue.',
     'error.genericFallback': 'Something went wrong. Please try again later.',
     'error.cliExitedSilently': 'CLI process exited unexpectedly without output. Please check that Claude CLI is installed correctly (Settings → CLI) and that your API provider is configured.',
+    'error.userStopped': 'Manually stopped',
+    'error.turnFailed': 'AI response interrupted unexpectedly',
+
+    // FilePreview
+    'filePreview.htmlStaticPreview': 'Static HTML preview (scripts disabled)',
+    'filePreview.openInBrowser': 'Open in browser',
 
     // CommandPalette
     'cmd.newChat': 'New Task',
@@ -991,6 +1006,9 @@ const messages: Record<Locale, Record<string, string>> = {
     'msg.questionOther': 'Other',
     'msg.questionOtherPlaceholder': 'Enter custom answer...',
     'msg.questionLoading': 'Loading...',
+    'msg.questionAwaitingSync': 'Permission sync timeout: waiting for CLI control_request. If this persists, interrupt and retry.',
+    'msg.authorizeImage': 'Authorize external image',
+    'msg.authorize': 'Authorize',
     'msg.planReview': 'Review Claude\'s plan',
     'msg.planApprove': 'Approve plan and start coding',
     'msg.planModify': 'Tell Claude what to change',

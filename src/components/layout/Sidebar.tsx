@@ -102,7 +102,7 @@ export function Sidebar() {
       </button>
 
       {/* Current Session — compressed single-line card */}
-      {sessionMeta.sessionId && (
+      {(sessionMeta.stdinId || sessionMeta.sessionId) && (
         <div className="px-3 py-2 rounded-xl bg-bg-secondary border border-border-subtle mb-3
           flex items-center gap-2">
           <span className={`w-2 h-2 rounded-full flex-shrink-0 transition-smooth
