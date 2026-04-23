@@ -3,6 +3,7 @@ import { useChatStore, generateMessageId, type ChatMessage } from '../stores/cha
 import { useSettingsStore, mapSessionModeToPermissionMode, getEffectiveMode } from '../stores/settingsStore';
 import { useSessionStore, setOrphanDrainCallback } from '../stores/sessionStore';
 import { useAgentStore, resolveAgentId, getAgentDepth } from '../stores/agentStore';
+import { useCommandStore } from '../stores/commandStore';
 import { useFileStore } from '../stores/fileStore';
 import { bridge } from '../lib/tauri-bridge';
 import { envFingerprint, resolveModelForProvider, spawnConfigHash, getAutoCompactThreshold } from '../lib/api-provider';
@@ -203,6 +204,10 @@ function buildThinkingSnapshot(msgUuid: string | undefined, content: any[]) {
   };
 }
 
+function buildCommittedThinkingId(msgUuid: string | undefined) {
+  return msgUuid ? `${msgUuid}__thinking_committed` : undefined;
+}
+
 function resolveThinkingPersistence(
   msgUuid: string | undefined,
   content: any[],
@@ -225,10 +230,131 @@ function shouldMaterializeThinkingSnapshot(content: any[], hasTextBlock: boolean
   );
 }
 
+function clearLivePartialThinking(tabId: string) {
+  const store = useChatStore.getState();
+  const tab = store.getTab(tabId);
+  if (!tab?.partialThinking) return;
+  const nextTabs = new Map(store.tabs);
+  nextTabs.set(tabId, { ...tab, partialThinking: '' });
+  useChatStore.setState({ tabs: nextTabs, sessionCache: nextTabs });
+}
+
+function finalizeBackgroundAssistantStreamingState(params: {
+  tabId: string;
+  hasTextBlock: boolean;
+  shouldMaterializeThinking: boolean;
+  thinkingPersistence: { id: string; content: string } | null;
+}) {
+  const { tabId, hasTextBlock, shouldMaterializeThinking, thinkingPersistence } = params;
+  useChatStore.setState((state) => {
+    const latestTab = state.tabs.get(tabId);
+    if (!latestTab) return {};
+
+    if (hasTextBlock) {
+      const nextTabs = new Map(state.tabs);
+      nextTabs.set(tabId, {
+        ...latestTab,
+        partialText: '',
+        partialThinking: '',
+        isStreaming: false,
+      });
+      return { tabs: nextTabs, sessionCache: nextTabs };
+    }
+
+    if (latestTab.partialThinking && shouldMaterializeThinking && thinkingPersistence) {
+      const nextTabs = new Map(state.tabs);
+      nextTabs.set(tabId, { ...latestTab, partialThinking: '' });
+      return { tabs: nextTabs, sessionCache: nextTabs };
+    }
+
+    return {};
+  });
+}
+
+function commitThinkingBeforeAssistantText(params: {
+  tabId: string;
+  msgUuid: string | undefined;
+  thinkingPersistence: { id: string; content: string } | null;
+  timestamp: number;
+  subAgentDepth?: number;
+}) {
+  const {
+    tabId,
+    msgUuid,
+    thinkingPersistence,
+    timestamp,
+    subAgentDepth,
+  } = params;
+  if (!thinkingPersistence) return false;
+
+  const store = useChatStore.getState();
+  const tab = store.getTab(tabId);
+  if (!tab) return false;
+
+  const committedId = buildCommittedThinkingId(msgUuid) ?? thinkingPersistence.id;
+  const legacyId = msgUuid ? `${msgUuid}_thinking` : undefined;
+  const existingThinking = tab.messages.find((message) =>
+    message.type === 'thinking'
+      && (message.id === committedId || message.id === legacyId),
+  );
+
+  if (existingThinking) {
+    if (
+      existingThinking.content !== thinkingPersistence.content
+      || existingThinking.subAgentDepth !== subAgentDepth
+    ) {
+      store.updateMessage(tabId, existingThinking.id, {
+        content: thinkingPersistence.content,
+        ...(subAgentDepth !== undefined ? { subAgentDepth } : {}),
+      });
+    }
+    clearLivePartialThinking(tabId);
+    return true;
+  }
+
+  store.addMessage(tabId, {
+    id: committedId,
+    role: 'assistant',
+    type: 'thinking',
+    content: thinkingPersistence.content,
+    ...(subAgentDepth !== undefined ? { subAgentDepth } : {}),
+    timestamp,
+  });
+  clearLivePartialThinking(tabId);
+  return true;
+}
+
+function resolveToolResultTargetMessageId(
+  messages: ChatMessage[],
+  toolUseId: string | undefined,
+  toolName: string | undefined,
+) {
+  if (toolUseId) {
+    const directTarget = messages.find((message) => message.id === toolUseId);
+    if (directTarget) return directTarget.id;
+  }
+  if (!toolName) return undefined;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (
+      message.role === 'assistant'
+      && message.toolName === toolName
+      && message.type !== 'tool_result'
+      && !message.toolCompleted
+    ) {
+      return message.id;
+    }
+  }
+  return undefined;
+}
+
 export const __streamThinkingTesting = {
   buildThinkingSnapshot,
+  buildCommittedThinkingId,
   resolveThinkingPersistence,
   shouldMaterializeThinkingSnapshot,
+  commitThinkingBeforeAssistantText,
+  finalizeBackgroundAssistantStreamingState,
 };
 
 // --- File tree auto-refresh on file-mutating tool completions ---
@@ -515,21 +641,25 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           content,
           bgTab?.partialThinking,
         );
-        if (bgTab) {
-          const newTabs = new Map(store.tabs);
-          if (bgHasTextBlock) {
-            newTabs.set(tabId, { ...bgTab, partialText: '', partialThinking: '', isStreaming: false });
-          } else if (bgTab.partialThinking && bgShouldMaterializeThinking && bgThinkingPersistence) {
-            newTabs.set(tabId, { ...bgTab, partialThinking: '' });
-          }
-          useChatStore.setState({ tabs: newTabs, sessionCache: newTabs });
-        }
+        let bgThinkingMessageEmitted = bgHasTextBlock
+          ? commitThinkingBeforeAssistantText({
+            tabId,
+            msgUuid: msg.uuid,
+            thinkingPersistence: bgThinkingPersistence,
+            timestamp: Date.now(),
+          })
+          : false;
+        finalizeBackgroundAssistantStreamingState({
+          tabId,
+          hasTextBlock: bgHasTextBlock,
+          shouldMaterializeThinking: bgShouldMaterializeThinking,
+          thinkingPersistence: bgThinkingPersistence,
+        });
         // Skip text blocks when AskUserQuestion is present — the
         // interactive question UI makes them redundant.
         const bgHasAskUserQuestion = content.some(
           (b: any) => b.type === 'tool_use' && b.name === 'AskUserQuestion',
         );
-        let bgThinkingMessageEmitted = false;
         for (let blockIdx = 0; blockIdx < content.length; blockIdx++) {
           const block = content[blockIdx];
           if (block.type === 'text') {
@@ -624,8 +754,9 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               });
             }
           } else if (block.type === 'thinking') {
+            if (bgThinkingMessageEmitted) continue;
             store.setActivityStatus(tabId, { phase: 'thinking' });
-            if (bgShouldMaterializeThinking && bgThinkingPersistence && !bgThinkingMessageEmitted) {
+            if (bgShouldMaterializeThinking && bgThinkingPersistence) {
               store.addMessage(tabId, {
                 id: bgThinkingPersistence.id,
                 role: 'assistant',
@@ -657,8 +788,16 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               const resultText = Array.isArray(block.content)
                 ? block.content.map((b: any) => typeof b.text === 'string' ? b.text : typeof b.content === 'string' ? b.content : '').join('')
                 : typeof block.content === 'string' ? block.content : '';
-              if (block.tool_use_id && resultText) {
-                store.updateMessage(tabId, block.tool_use_id, { toolResultContent: resultText });
+              const targetId = resolveToolResultTargetMessageId(
+                store.getTab(tabId)?.messages ?? [],
+                block.tool_use_id,
+                undefined,
+              );
+              if (targetId) {
+                store.updateMessage(tabId, targetId, {
+                  toolCompleted: true,
+                  ...(resultText ? { toolResultContent: resultText } : {}),
+                });
               }
             }
           }
@@ -669,11 +808,19 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         const resultContent = Array.isArray(msg.content)
           ? msg.content.map((b: any) => typeof b.text === 'string' ? b.text : typeof b.content === 'string' ? b.content : '').join('')
           : typeof msg.content === 'string' ? msg.content : msg.output || '';
-        if (msg.tool_use_id) {
+        const targetId = resolveToolResultTargetMessageId(
+          store.getTab(tabId)?.messages ?? [],
+          msg.tool_use_id,
+          msg.tool_name,
+        );
+        if (targetId) {
           // Backfill AskUserQuestion type/questions in background tab
           const bgTab = store.getTab(tabId);
-          const parentMsg = bgTab?.messages.find((m) => m.id === msg.tool_use_id);
-          const bgUpdates: Partial<ChatMessage> = { toolResultContent: resultContent };
+          const parentMsg = bgTab?.messages.find((m) => m.id === targetId);
+          const bgUpdates: Partial<ChatMessage> = {
+            toolCompleted: true,
+            ...(resultContent ? { toolResultContent: resultContent } : {}),
+          };
           if (parentMsg?.toolName === 'AskUserQuestion') {
             if (parentMsg.type !== 'question') {
               bgUpdates.type = 'question';
@@ -686,9 +833,9 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               }
             }
           }
-          store.updateMessage(tabId, msg.tool_use_id, bgUpdates);
+          store.updateMessage(tabId, targetId, bgUpdates);
           // Auto-refresh file tree when file-mutating tools complete
-          _maybeRefreshFileTree(tabId, msg.tool_use_id, msg.tool_name);
+          _maybeRefreshFileTree(tabId, targetId, msg.tool_name);
         }
         break;
       }
@@ -767,10 +914,10 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               (p) => p.enqueueStdinId !== undefined && p.enqueueStdinId !== bgFlushStdinId,
             );
             if (bgHashMismatch || bgStdinMismatch) {
-              const bgDraft = store.getTab(tabId)?.inputDraft ?? '';
-              const bgBackfill = bgAllPending.map((p) => p.text).join('\n\n');
-              store.setInputDraft(tabId, bgDraft ? `${bgDraft}\n\n${bgBackfill}` : bgBackfill);
-              store.clearPendingMessages(tabId);
+              store.restorePendingQueueToDraft(tabId);
+              if (useSessionStore.getState().selectedSessionId === tabId) {
+                setInputSync(store.getTab(tabId)?.inputDraft ?? '');
+              }
               console.warn('[TC:bg] Config changed mid-queue — pending messages restored to draft');
             } else {
               const bgCombined = bgAllPending.map((p) => p.text).join('\n\n');
@@ -903,9 +1050,6 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
       }
       case 'process_exit': {
         const bgStdinId = msg.__stdinId;
-        const bgSwitchQueuedText = store.getTab(tabId)?.sessionMeta.teardownReason === 'switch'
-          ? (store.getTab(tabId)?.pendingUserMessages ?? []).map((p) => p.text).join('\n\n').trim()
-          : '';
 
         // Ownership guard for background exit
         if (bgStdinId) {
@@ -923,10 +1067,6 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             pendingReadyMessage: undefined,
           });
           handleProcessExitFinalize(bgStdinId);
-          if (bgSwitchQueuedText && useSessionStore.getState().selectedSessionId === tabId) {
-            setInputSync(bgSwitchQueuedText);
-            requestAnimationFrame(() => handleSubmitRef.current());
-          }
         } else {
           // Fallback: no stdinId on message
           store.setSessionStatus(tabId, 'idle');
@@ -1438,6 +1578,15 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           content,
           currentTab?.partialThinking,
         );
+        const committedThinkingBeforeText = hasTextBlock
+          ? commitThinkingBeforeAssistantText({
+            tabId,
+            msgUuid: msg.uuid,
+            thinkingPersistence,
+            timestamp: Date.now(),
+            subAgentDepth: agentDepth,
+          })
+          : false;
 
         if (hasTextBlock) {
           // Full clear — the text block supersedes streaming partial text
@@ -1475,7 +1624,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         const hasAskUserQuestion = content.some(
           (b: any) => b.type === 'tool_use' && b.name === 'AskUserQuestion',
         );
-        let thinkingMessageEmitted = false;
+        let thinkingMessageEmitted = committedThinkingBeforeText;
 
         for (let blockIdx = 0; blockIdx < content.length; blockIdx++) {
           const block = content[blockIdx];
@@ -1647,8 +1796,9 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             // DON'T override activityStatus here: if text is currently streaming,
             // the phase should remain 'writing'. The streaming events (thinking_delta,
             // text_delta) are the source of truth for activity phase.
+            if (thinkingMessageEmitted) continue;
             agentActions.updatePhase(agentId, 'thinking');
-            if (shouldMaterializeThinking && thinkingPersistence && !thinkingMessageEmitted) {
+            if (shouldMaterializeThinking && thinkingPersistence) {
               addMessage({
                 id: thinkingPersistence.id,
                 role: 'assistant',
@@ -1710,13 +1860,16 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
                 : typeof block.content === 'string'
                   ? block.content
                   : '';
-              const tuId = block.tool_use_id;
-              if (tuId && resultText) {
-                const msgs = useChatStore.getState().getTab(tabId)?.messages ?? [];
-                const parent = msgs.find((m) => m.id === tuId);
-                if (parent) {
-                  useChatStore.getState().updateMessage(tabId, tuId, { toolResultContent: resultText });
-                }
+              const targetId = resolveToolResultTargetMessageId(
+                useChatStore.getState().getTab(tabId)?.messages ?? [],
+                block.tool_use_id,
+                undefined,
+              );
+              if (targetId) {
+                useChatStore.getState().updateMessage(tabId, targetId, {
+                  toolCompleted: true,
+                  ...(resultText ? { toolResultContent: resultText } : {}),
+                });
               }
             }
           }
@@ -1731,12 +1884,16 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             : '';
           if (Array.isArray(userContent)) {
             for (const block of userContent) {
-              if (block.tool_use_id && resultText) {
-                const msgs = useChatStore.getState().getTab(tabId)?.messages ?? [];
-                const parent = msgs.find((m) => m.id === block.tool_use_id);
-                if (parent) {
-                  useChatStore.getState().updateMessage(tabId, block.tool_use_id, { toolResultContent: resultText });
-                }
+              const targetId = resolveToolResultTargetMessageId(
+                useChatStore.getState().getTab(tabId)?.messages ?? [],
+                block.tool_use_id,
+                undefined,
+              );
+              if (targetId) {
+                useChatStore.getState().updateMessage(tabId, targetId, {
+                  toolCompleted: true,
+                  ...(resultText ? { toolResultContent: resultText } : {}),
+                });
               }
             }
           }
@@ -1754,12 +1911,20 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         const toolUseId = msg.tool_use_id;
         // Auto-refresh file tree when file-mutating tools complete
         _maybeRefreshFileTree(tabId, toolUseId, msg.tool_name);
+        const targetId = resolveToolResultTargetMessageId(
+          useChatStore.getState().getTab(tabId)?.messages ?? [],
+          toolUseId,
+          msg.tool_name,
+        );
 
-        if (toolUseId) {
+        if (targetId) {
           const currentMessages = useChatStore.getState().getTab(tabId)?.messages ?? [];
-          const parentMsg = currentMessages.find((m) => m.id === toolUseId);
+          const parentMsg = currentMessages.find((m) => m.id === targetId);
           if (parentMsg) {
-            const updates: Partial<ChatMessage> = { toolResultContent: resultContent };
+            const updates: Partial<ChatMessage> = {
+              toolCompleted: true,
+              ...(resultContent ? { toolResultContent: resultContent } : {}),
+            };
 
             // Backfill: if parent is AskUserQuestion created with empty questions
             // (due to streaming), or was mis-typed as tool_use, fix it now.
@@ -1778,7 +1943,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               }
             }
 
-            useChatStore.getState().updateMessage(tabId, toolUseId, updates);
+            useChatStore.getState().updateMessage(tabId, targetId, updates);
             break;
           }
         }
@@ -2237,26 +2402,23 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               (p) => p.enqueueStdinId !== undefined && p.enqueueStdinId !== flushStdinId,
             );
             if (hashMismatch || stdinMismatch) {
-              const backfill = allPending.map((p) => p.text).join('\n\n');
-              const activeTabId = useSessionStore.getState().selectedSessionId;
-              // Mid-reply config drift on the current foreground tab should keep
-              // momentum: move the queued text onto the new config path and send
-              // it automatically, instead of unexpectedly bouncing it back into
-              // the composer. Background tabs still restore to draft.
-              const autoResendWithCurrentConfig = activeTabId === tabId;
-              if (autoResendWithCurrentConfig) {
-                setInputSync(backfill);
-                requestAnimationFrame(() => {
-                  useChatStore.getState().clearPendingMessages(tabId);
-                  handleSubmitRef.current();
-                });
-                console.warn('[TC] Config changed mid-queue — queued message auto-resending with current config');
-              } else {
-                useChatStore.getState().clearPendingMessages(tabId);
-                const draft = useChatStore.getState().getTab(tabId)?.inputDraft ?? '';
-                useChatStore.getState().setInputDraft(tabId, draft ? `${draft}\n\n${backfill}` : backfill);
-                console.warn('[TC] Config changed mid-queue — pending messages restored to draft');
+              const draftBeforeRestore = useChatStore.getState().getTab(tabId)?.inputDraft ?? '';
+              const attachmentsBeforeRestore = useChatStore.getState().getTab(tabId)?.pendingAttachments ?? [];
+              const prefixBeforeRestore = useCommandStore.getState().activePrefix;
+              useChatStore.getState().restorePendingQueueToDraft(tabId);
+              const restoredDraft = useChatStore.getState().getTab(tabId)?.inputDraft ?? '';
+              if (useSessionStore.getState().selectedSessionId === tabId) {
+                setInputSync(restoredDraft);
+                if (
+                  draftBeforeRestore.trim().length === 0
+                  && attachmentsBeforeRestore.length === 0
+                  && !prefixBeforeRestore
+                  && restoredDraft.trim().length > 0
+                ) {
+                  requestAnimationFrame(() => handleSubmitRef.current());
+                }
               }
+              console.warn('[TC] Config changed mid-queue — pending messages retried under current config');
             } else {
               const nextMsg = allPending.map((p) => p.text).join('\n\n');
               useChatStore.getState().clearPendingMessages(tabId);
@@ -2350,9 +2512,6 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         // If the session was running and no assistant messages were received,
         // the process failed at startup. Show the last stderr error.
         const exitTabData = useChatStore.getState().getTab(tabId);
-        const queuedTextOnSwitch = exitTabData?.sessionMeta.teardownReason === 'switch'
-          ? (exitTabData?.pendingUserMessages ?? []).map((p) => p.text).join('\n\n').trim()
-          : '';
         const exitStatus = exitTabData?.sessionStatus;
         if (exitStatus === 'running') {
           const exitMsgs = exitTabData?.messages ?? [];
@@ -2394,10 +2553,6 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             pendingReadyMessage: undefined,
           });
           handleProcessExitFinalize(exitingStdinId);
-          if (queuedTextOnSwitch && useSessionStore.getState().selectedSessionId === tabId) {
-            setInputSync(queuedTextOnSwitch);
-            requestAnimationFrame(() => handleSubmitRef.current());
-          }
         } else {
           // Fallback: no stdinId on message, clear manually
           clearPartial();

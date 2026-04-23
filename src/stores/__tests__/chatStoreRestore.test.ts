@@ -182,6 +182,74 @@ describe('chatStore · B11 — stale-running demotion on restoreFromCache', () =
     expect(useChatStore.getState().getTab('attachments-only')).toBeDefined();
   });
 
+  it('thinking-only tabs survive restoreFromCache empty-tab checks', () => {
+    const store = useChatStore.getState();
+    store.ensureTab('thinking-only');
+    useChatStore.setState((state) => {
+      const tabs = new Map(state.tabs);
+      const tab = tabs.get('thinking-only');
+      if (!tab) return {};
+      tabs.set('thinking-only', {
+        ...tab,
+        partialThinking: 'draft thinking',
+        isStreaming: false,
+      });
+      return { tabs, sessionCache: tabs };
+    });
+    (useSessionStore as any).__mock.sessions = [{ id: 'thinking-only', path: '/tmp/thinking-only.jsonl' }];
+
+    const ok = store.restoreFromCache('thinking-only');
+
+    expect(ok).toBe(true);
+    expect(useChatStore.getState().getTab('thinking-only')).toBeDefined();
+  });
+
+  it('late thinking deltas do not regress the activity phase after visible text starts', () => {
+    const store = useChatStore.getState();
+    store.ensureTab('phase-lock');
+
+    store.updatePartialMessage('phase-lock', 'hello');
+    expect(useChatStore.getState().getTab('phase-lock')?.activityStatus.phase).toBe('writing');
+
+    store.updatePartialThinking('phase-lock', 'late reasoning');
+    expect(useChatStore.getState().getTab('phase-lock')?.activityStatus.phase).toBe('writing');
+  });
+
+  it('late thinking deltas do not regress the activity phase after partial text is cleared', () => {
+    const store = useChatStore.getState();
+    store.ensureTab('phase-lock-cleared');
+    store.updatePartialMessage('phase-lock-cleared', 'hello');
+
+    useChatStore.setState((state) => {
+      const tabs = new Map(state.tabs);
+      const tab = tabs.get('phase-lock-cleared');
+      if (!tab) return {};
+      tabs.set('phase-lock-cleared', {
+        ...tab,
+        partialText: '',
+        activityStatus: { phase: 'writing' },
+      });
+      return { tabs, sessionCache: tabs };
+    });
+
+    store.updatePartialThinking('phase-lock-cleared', 'late reasoning');
+    expect(useChatStore.getState().getTab('phase-lock-cleared')?.activityStatus.phase).toBe('writing');
+  });
+
+  it('restorePendingQueueToDraft merges queued text into the current draft and clears the queue', () => {
+    const store = useChatStore.getState();
+    store.ensureTab('queue-restore');
+    store.setInputDraft('queue-restore', 'existing draft');
+    store.addPendingMessage('queue-restore', 'queued one');
+    store.addPendingMessage('queue-restore', 'queued two');
+
+    store.restorePendingQueueToDraft('queue-restore');
+
+    const tab = useChatStore.getState().getTab('queue-restore');
+    expect(tab?.inputDraft).toBe('existing draft\n\nqueued one\n\nqueued two');
+    expect(tab?.pendingUserMessages).toEqual([]);
+  });
+
   it('saveToCache flushes the live composer snapshot before tab switch', () => {
     const store = useChatStore.getState();
     store.ensureTab('tab-a');

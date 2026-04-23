@@ -669,6 +669,7 @@ export const ToolUseMsg = memo(function ToolUseMsg({ message }: Props) {
     ? message.toolResultContent
     : message.toolResultContent ? JSON.stringify(message.toolResultContent) : '';
   const hasResult = resultContent.length > 0;
+  const isCompleted = message.toolCompleted || hasResult;
 
   // Render the expanded detail section
   /** Render a side-by-side diff view for Edit tool old_string → new_string */
@@ -842,11 +843,8 @@ export const ToolUseMsg = memo(function ToolUseMsg({ message }: Props) {
         <ToolIcon name={toolName} />
         <span className="text-xs font-medium text-text-muted">{label}</span>
         {renderPreview()}
-        {/* In-progress indicator: typing dots — three dots with staggered
-            animation-delay create the illusion of light moving across them.
-            The tool transitions out of this state when toolResultContent
-            arrives via the tool_result stream event. */}
-        {!hasResult && (
+        {/* In-progress indicator: typing dots — result text is optional, completion is explicit. */}
+        {!isCompleted && (
           <span
             className="inline-flex items-center gap-[3px] ml-1.5 flex-shrink-0"
             title={t('msg.toolRunning')}
@@ -860,7 +858,7 @@ export const ToolUseMsg = memo(function ToolUseMsg({ message }: Props) {
           </span>
         )}
         {/* Show a small result indicator when collapsed with result */}
-        {!expanded && hasResult && (
+        {!expanded && isCompleted && (
           <svg width="10" height="10" viewBox="0 0 12 12" fill="none"
             stroke="currentColor" strokeWidth="1.5" className="text-success flex-shrink-0 ml-0.5">
             <path d="M2.5 6l2.5 2.5 4.5-4.5" />

@@ -55,27 +55,75 @@ export function parseSessionMessages(rawMessages: any[]): LoadedSession {
   // Collect tool_use_id → index mapping for binding tool results
   const toolUseIdToIndex = new Map<string, number>();
 
+  const extractToolResultText = (payload: any): string => {
+    if (typeof payload === 'string') return payload;
+    if (Array.isArray(payload)) {
+      return payload.map((item: any) => item?.text || item?.content || '').join('');
+    }
+    if (!payload || typeof payload !== 'object') return '';
+    if (typeof payload.stdout === 'string') return payload.stdout;
+    if (typeof payload.output === 'string') return payload.output;
+    if (typeof payload.text === 'string') return payload.text;
+    if (typeof payload.content === 'string') return payload.content;
+    if (Array.isArray(payload.content)) {
+      return payload.content.map((item: any) => item?.text || item?.content || '').join('');
+    }
+    if (payload.content && typeof payload.content === 'object' && 'text' in payload.content) {
+      return String(payload.content.text ?? '');
+    }
+    return '';
+  };
+
+  const bindToolResult = (toolUseId: string | undefined, resultText: string) => {
+    if (!toolUseId) return;
+    const idx = toolUseIdToIndex.get(toolUseId);
+    if (idx === undefined || !messages[idx]) return;
+    messages[idx] = {
+      ...messages[idx],
+      toolCompleted: true,
+      ...(resultText ? { toolResultContent: resultText } : {}),
+    };
+  };
+
   for (const msg of rawMessages) {
     // Skip system-injected meta messages
     if (msg.isMeta) continue;
 
+    const hasTopLevelToolUseResult = Object.prototype.hasOwnProperty.call(msg, 'tool_use_result')
+      || Object.prototype.hasOwnProperty.call(msg, 'toolUseResult');
+    const hasTopLevelToolResult = Object.prototype.hasOwnProperty.call(msg, 'tool_result')
+      || Object.prototype.hasOwnProperty.call(msg, 'toolResult');
+
     // Handle tool_result messages: attach result to parent tool_use card
-    if (msg.toolUseResult || msg.type === 'tool_result') {
-      const blocks = Array.isArray(msg.message?.content) ? msg.message.content : [];
+    if (hasTopLevelToolUseResult || hasTopLevelToolResult || msg.type === 'tool_result') {
+      const blocks = Array.isArray(msg.message?.content)
+        ? msg.message.content
+        : Array.isArray(msg.content)
+          ? msg.content
+          : [];
+      const topLevelToolUseResult = hasTopLevelToolUseResult
+        ? (msg.tool_use_result ?? msg.toolUseResult)
+        : undefined;
+      const topLevelToolResult = hasTopLevelToolResult
+        ? (msg.tool_result ?? msg.toolResult)
+        : undefined;
+      const topLevelResultText = extractToolResultText(
+        hasTopLevelToolUseResult ? topLevelToolUseResult : topLevelToolResult,
+      );
       for (const b of blocks) {
-        if (b?.type === 'tool_result' && b.tool_use_id) {
-          const resultText = typeof b.content === 'string'
-            ? b.content
-            : Array.isArray(b.content)
-              ? b.content.map((c: any) => c.text || c.content || '').join('')
-              : '';
-          if (resultText) {
-            const idx = toolUseIdToIndex.get(b.tool_use_id);
-            if (idx !== undefined && messages[idx]) {
-              messages[idx] = { ...messages[idx], toolResultContent: resultText };
-            }
-          }
+        if (b?.tool_use_id && (b?.type === 'tool_result' || hasTopLevelToolUseResult || hasTopLevelToolResult)) {
+          bindToolResult(
+            b.tool_use_id,
+            (hasTopLevelToolUseResult || hasTopLevelToolResult)
+              ? topLevelResultText
+              : extractToolResultText(b.content ?? b.output),
+          );
         }
+      }
+      if (msg.type === 'tool_result') {
+        bindToolResult(msg.tool_use_id, extractToolResultText(msg.content ?? msg.output));
+      } else if (hasTopLevelToolUseResult || hasTopLevelToolResult) {
+        bindToolResult(msg.tool_use_id ?? msg.toolUseId, topLevelResultText);
       }
       continue;
     }
@@ -191,10 +239,14 @@ export function parseSessionMessages(rawMessages: any[]): LoadedSession {
               : typeof block.content === 'string'
                 ? block.content
                 : block.output || '';
-            if (block.tool_use_id && resultText) {
+            if (block.tool_use_id) {
               const idx = toolUseIdToIndex.get(block.tool_use_id);
               if (idx !== undefined && messages[idx]) {
-                messages[idx] = { ...messages[idx], toolResultContent: resultText };
+                messages[idx] = {
+                  ...messages[idx],
+                  toolCompleted: true,
+                  ...(resultText ? { toolResultContent: resultText } : {}),
+                };
               }
             }
           } else if (block.type === 'thinking') {

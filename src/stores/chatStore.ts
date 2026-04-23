@@ -48,6 +48,7 @@ export interface ChatMessage {
   toolInput?: any;
   toolResult?: string;
   toolResultContent?: string;      // tool result content merged from tool_result stream events
+  toolCompleted?: boolean;         // tool finished even if it produced no visible result text
   isPartial?: boolean;
   timestamp: number;
   // Interactive message fields
@@ -291,6 +292,7 @@ interface ChatState {
   shiftPendingMessage: (tabId: string) => PendingUserMessage | undefined;
   flushPendingMessages: (tabId: string) => PendingUserMessage[];
   clearPendingMessages: (tabId: string) => void;
+  restorePendingQueueToDraft: (tabId: string) => void;
   rewindToTurn: (tabId: string, startMsgIdx: number) => void;
   setInteractionState: (tabId: string, msgId: string, state: InteractionState, error?: string) => void;
   getActiveInteraction: (tabId: string) => ChatMessage | undefined;
@@ -490,7 +492,14 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         ...tab,
         partialThinking: tab.partialThinking + text,
         isStreaming: true,
-        activityStatus: { phase: 'thinking' as ActivityPhase },
+        activityStatus:
+          tab.activityStatus.phase === 'tool'
+            || tab.activityStatus.phase === 'awaiting'
+            || tab.activityStatus.phase === 'writing'
+            ? tab.activityStatus
+            : tab.partialText.length > 0
+              ? { phase: 'writing' as ActivityPhase }
+              : { phase: 'thinking' as ActivityPhase },
       }));
       return result ?? {};
     }),
@@ -639,6 +648,25 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       return result ?? {};
     }),
 
+  restorePendingQueueToDraft: (tabId) =>
+    set((state) => {
+      const tab = state.tabs.get(tabId);
+      if (!tab || tab.pendingUserMessages.length === 0) return {};
+      const restoredText = tab.pendingUserMessages
+        .map((item) => item.text)
+        .filter((item) => item.trim().length > 0)
+        .join('\n\n');
+      const nextDraft = [tab.inputDraft, restoredText]
+        .filter((item) => item.trim().length > 0)
+        .join('\n\n');
+      const result = updateTab(state.tabs, tabId, (currentTab) => ({
+        ...currentTab,
+        inputDraft: nextDraft,
+        pendingUserMessages: [],
+      }));
+      return result ?? {};
+    }),
+
   rewindToTurn: (tabId, startMsgIdx) =>
     set((state) => {
       const result = updateTab(state.tabs, tabId, (tab) => {
@@ -772,13 +800,17 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     // (has a disk path), treat as cache miss so the caller falls back to disk load.
     // S9 (v3 §5.9 path 3): keep the tab when an unsent draft exists — discarding
     // it would lose the user's in-progress message when they tab back.
+    const hasHistory = tab.messages.length > 0;
+    const hasPartials = tab.isStreaming || Boolean(tab.partialText || tab.partialThinking);
+    const hasDraft = tab.inputDraft.trim().length > 0;
+    const hasPendingAttachments = tab.pendingAttachments.length > 0;
+    const hasPendingMessages = tab.pendingUserMessages.length > 0;
     if (
-      tab.messages.length === 0
-      && !tab.isStreaming
-      && !tab.partialText
-      && !tab.inputDraft
-      && tab.pendingAttachments.length === 0
-      && tab.pendingUserMessages.length === 0
+      !hasHistory
+      && !hasPartials
+      && !hasDraft
+      && !hasPendingAttachments
+      && !hasPendingMessages
     ) {
       const session = useSessionStore.getState().sessions.find((s) => s.id === tabId);
       if (session?.path) {

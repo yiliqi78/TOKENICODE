@@ -611,10 +611,16 @@ export function ChatPanel() {
                 </div>
               );
             })}
-            {/* Streaming thinking — collapsible like ThinkingMsg but with pulse cursor */}
-            {isStreaming && partialThinking && (
+            {/* Streaming thinking — auto-collapse as soon as assistant text becomes visible. */}
+            {isStreaming && partialThinking && (() => {
+              const hasVisiblePartialText = partialText.trim().length > 0;
+              return (
               <div className="ml-11 mt-1">
-                <details open className="group">
+                <details
+                  key={hasVisiblePartialText ? 'collapsed' : 'open'}
+                  {...(!hasVisiblePartialText ? { open: true } : {})}
+                  className="group"
+                >
                   <summary className="flex items-center gap-1.5 py-1
                     cursor-pointer text-[11px] text-text-tertiary list-none select-none">
                     <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
@@ -633,7 +639,8 @@ export function ChatPanel() {
                   </pre>
                 </details>
               </div>
-            )}
+              );
+            })()}
             {isStreaming && partialText && (() => {
               // Hide streaming text while an unresolved question is pending —
               // the CLI may keep sending text_delta events for the next turn's

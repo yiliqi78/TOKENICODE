@@ -16,6 +16,12 @@ describe('thinking snapshot coalescing', () => {
     });
   });
 
+  it('uses a dedicated id namespace for committed historical thinking', () => {
+    expect(__streamThinkingTesting.buildCommittedThinkingId('msg-123')).toBe(
+      'msg-123__thinking_committed',
+    );
+  });
+
   it('skips empty thinking-only payloads', () => {
     const snapshot = __streamThinkingTesting.buildThinkingSnapshot('msg-456', [
       { type: 'thinking', thinking: '' },

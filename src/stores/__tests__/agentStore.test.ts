@@ -125,4 +125,22 @@ describe('agentStore', () => {
       expect(useAgentStore.getState().agents.size).toBe(0);
     });
   });
+
+  describe('phase monotonicity', () => {
+    it('does not regress an agent from writing back to thinking', () => {
+      const s = useAgentStore.getState();
+      s.upsertAgent({
+        id: 'writer',
+        parentId: null,
+        description: 'main',
+        phase: 'writing',
+        startTime: 1,
+        isMain: true,
+      });
+
+      useAgentStore.getState().updatePhase('writer', 'thinking');
+
+      expect(useAgentStore.getState().agents.get('writer')?.phase).toBe('writing');
+    });
+  });
 });

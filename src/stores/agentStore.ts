@@ -50,6 +50,9 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     const next = new Map(get().agents);
     const agent = next.get(id);
     if (agent && agent.phase !== 'completed' && agent.phase !== 'error') {
+      if (agent.phase === 'writing' && phase === 'thinking') {
+        return;
+      }
       next.set(id, { ...agent, phase, currentTool });
       set({ agents: next });
     }

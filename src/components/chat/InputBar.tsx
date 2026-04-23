@@ -226,12 +226,15 @@ export function InputBar() {
   }, [selectedSessionId, setInputDraftStore]);
 
   // Restore input text from store when session switches (restoreFromCache → inputDraft change)
-  const prevInputDraftRef = useRef(inputDraft);
+  const prevEditorSyncRef = useRef<{ tabId: string | null; inputDraft: string } | null>(null);
   useEffect(() => {
-    if (prevInputDraftRef.current !== inputDraft) {
+    const previous = prevEditorSyncRef.current;
+    const tabChanged = previous?.tabId !== selectedSessionId;
+    const draftChanged = previous?.inputDraft !== inputDraft;
+    if (tabChanged || draftChanged) {
       // Never call setText during IME composition — it destroys the composing state
-      if (textareaRef.current?.isComposing()) {
-        prevInputDraftRef.current = inputDraft;
+      if (!tabChanged && textareaRef.current?.isComposing()) {
+        prevEditorSyncRef.current = { tabId: selectedSessionId, inputDraft };
         return;
       }
       // Only sync editor if its content actually differs (avoid cursor reset on user typing)
@@ -240,8 +243,8 @@ export function InputBar() {
         textareaRef.current?.setText(inputDraft);
       }
     }
-    prevInputDraftRef.current = inputDraft;
-  }, [inputDraft]);
+    prevEditorSyncRef.current = { tabId: selectedSessionId, inputDraft };
+  }, [inputDraft, selectedSessionId]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sessionStatus = useActiveTab((t) => t.sessionStatus);
   const activityPhase = useActiveTab((t) => t.activityStatus.phase);
@@ -252,7 +255,6 @@ export function InputBar() {
   const workingDirectory = useSettingsStore((s) => s.workingDirectory);
   const selectedModel = useSettingsStore((s) => s.selectedModel);
   const sessionMode = useSettingsStore((s) => s.sessionMode);
-
   const handlePlanApprove = useCallback(async () => {
     const tabId = useSessionStore.getState().selectedSessionId;
     if (!tabId) return;
@@ -1024,21 +1026,6 @@ export function InputBar() {
           // If the resume fails due to thinking signature mismatch, the
           // stream error handler will auto-retry without resume.
           setSessionMeta(tabId, { envFingerprint: undefined, providerSwitched: true, providerSwitchPendingText: text });
-          // Clean thinking blocks from history to avoid signature mismatch on resume.
-          // Provider change likely routes to a different backend that can't verify
-          // the old model's thinking signatures.
-          useChatStore.setState((state) => {
-            const tab = state.tabs.get(tabId);
-            if (!tab) return {};
-            const cleanedMessages = tab.messages.filter(m => m.type !== 'thinking');
-            const hadPartialThinking = !!tab.partialThinking;
-            if (cleanedMessages.length === tab.messages.length && !hadPartialThinking) return {};
-            const newTabs = new Map(state.tabs);
-            // B4: also pre-strip in-flight partialThinking — leaving it would resurface
-            // an old-model thinking fragment after resume kicks off, surprising the user.
-            newTabs.set(tabId, { ...tab, messages: cleanedMessages, partialThinking: '' });
-            return { tabs: newTabs, sessionCache: newTabs };
-          });
           stdinId = undefined;
           stdinReady = false;
         } else {
@@ -1056,20 +1043,6 @@ export function InputBar() {
             // System message already inserted by ModelSelector — no duplicate here.
             // Keep cliResumeId so we attempt resume (preserving context).
             setSessionMeta(tabId, { spawnedModel: undefined, modelSwitched: true, modelSwitchPendingText: text });
-            // Clean thinking blocks from history to avoid signature mismatch on resume.
-            // Thinking signatures are model-specific; resuming with a different model
-            // causes the API to reject the request (400).
-            useChatStore.setState((state) => {
-              const tab = state.tabs.get(tabId);
-              if (!tab) return {};
-              const cleanedMessages = tab.messages.filter(m => m.type !== 'thinking');
-              const hadPartialThinking = !!tab.partialThinking;
-              if (cleanedMessages.length === tab.messages.length && !hadPartialThinking) return {};
-              const newTabs = new Map(state.tabs);
-              // B4: also pre-strip in-flight partialThinking — see same rationale above.
-              newTabs.set(tabId, { ...tab, messages: cleanedMessages, partialThinking: '' });
-              return { tabs: newTabs, sessionCache: newTabs };
-            });
             stdinId = undefined;
             stdinReady = false;
           } else {

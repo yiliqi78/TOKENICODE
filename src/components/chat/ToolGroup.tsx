@@ -31,7 +31,7 @@ export function ToolGroup({ messages }: Props) {
 
   // Auto-collapse when all tools have results
   const allHaveResults = useMemo(
-    () => messages.every((m) => m.toolResultContent && m.toolResultContent.length > 0),
+    () => messages.every((m) => m.toolCompleted || (m.toolResultContent && m.toolResultContent.length > 0)),
     [messages],
   );
 
