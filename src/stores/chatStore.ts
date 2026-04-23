@@ -95,6 +95,15 @@ export interface SessionMeta {
   sessionId?: string;
   /** The desk-generated ID used as key in Rust StdinManager for sending follow-up messages */
   stdinId?: string;
+  /** True only after system:init confirms the stdin process finished startup and
+   *  can safely accept follow-up sendStdin writes (including pre-warm reuse). */
+  stdinReady?: boolean;
+  /** User text captured while a pre-warmed stdin exists but has not emitted
+   *  system:init yet. Flushed exactly once when that same stdin becomes ready. */
+  pendingReadyMessage?: {
+    stdinId: string;
+    text: string;
+  };
   /** Snapshot of the working directory at session spawn time — used by Rewind and
    *  other features that need the original cwd rather than the current global value */
   cwdSnapshot?: string;
@@ -147,6 +156,19 @@ export interface SessionMeta {
   modelSwitched?: boolean;
   /** The user message text to re-send if model-switch auto-retry triggers. */
   modelSwitchPendingText?: string;
+  /** Explicit teardown intent for the current shutdown path.
+   *  Used to distinguish user Stop from switch/delete/rewind finalization. */
+  teardownReason?: 'stop' | 'rewind' | 'plan-approve' | 'delete' | 'switch';
+  /** The latest user turn has been rendered locally but the model has not yet
+   *  emitted any stream event acknowledging it. Used so Stop can retract and
+   *  merge that turn back into the next draft instead of leaving a ghost bubble. */
+  pendingTurnMessageId?: string;
+  pendingTurnInput?: string;
+  pendingTurnAttachments?: FileAttachment[];
+  /** Partial assistant正文 that was visible when the user clicked Stop.
+   *  Claude CLI resume does not always include interrupted assistant output,
+   *  so the next user turn may need this text injected once for continuity. */
+  interruptedAssistantText?: string;
   /** Rate limit info from CLI rate_limit_event (latest per rateLimitType) */
   rateLimits?: Record<string, {
     rateLimitType: string;
@@ -244,6 +266,7 @@ interface ChatState {
 
   // --- Tab-level operations (all take tabId) ---
   addMessage: (tabId: string, message: ChatMessage) => void;
+  removeMessage: (tabId: string, id: string) => void;
   updateMessage: (tabId: string, id: string, updates: Partial<ChatMessage>) => void;
   updatePartialMessage: (tabId: string, text: string) => void;
   updatePartialThinking: (tabId: string, text: string) => void;
@@ -340,6 +363,21 @@ function createTab(tabId: string): TabSession {
   return { ...EMPTY_TAB, tabId, lastAccessedAt: Date.now() };
 }
 
+interface ComposerSnapshot {
+  inputDraft?: string;
+  pendingAttachments?: FileAttachment[];
+}
+
+let liveComposerSnapshotProvider: ((tabId: string) => ComposerSnapshot | null) | null = null;
+
+/** InputBar registers a live snapshot getter so saveToCache can flush the
+ *  currently mounted editor before ChatPanel remounts on tab switch. */
+export function registerLiveComposerSnapshotProvider(
+  provider: ((tabId: string) => ComposerSnapshot | null) | null,
+): void {
+  liveComposerSnapshotProvider = provider;
+}
+
 /** Maximum number of tabs kept in memory. LRU eviction applies to idle tabs. */
 const MAX_CACHE = 8;
 
@@ -412,6 +450,15 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         // explicitly by clearPartial() in the result/process_exit handlers and
         // in the assistant message handler when a text block supersedes streaming.
       });
+      return result ?? {};
+    }),
+
+  removeMessage: (tabId, id) =>
+    set((state) => {
+      const result = updateTab(state.tabs, tabId, (tab) => ({
+        ...tab,
+        messages: tab.messages.filter((m) => m.id !== id),
+      }));
       return result ?? {};
     }),
 
@@ -676,6 +723,9 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           if (entry.isStreaming) return false; // protect streaming tabs
           if (isSessionBusy(entry.sessionStatus)) return false;
           if (hasLiveStdinBinding(id, entry.sessionMeta.stdinId)) return false;
+          if (entry.inputDraft.trim().length > 0) return false;
+          if (entry.pendingAttachments.length > 0) return false;
+          if (entry.pendingUserMessages.length > 0) return false;
           return true;
         })
         .sort(([, a], [, b]) => a.lastAccessedAt - b.lastAccessedAt); // oldest first
@@ -703,10 +753,15 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   // ------------------------------------------------------------------
 
   saveToCache: (tabId) => {
-    // In v2, data already lives in tabs. This is effectively a no-op.
-    // However, we still ensure the tab exists (some call sites save before switching
-    // and may not have called ensureTab yet).
     get().ensureTab(tabId);
+    const liveSnapshot = liveComposerSnapshotProvider?.(tabId);
+    if (!liveSnapshot) return;
+    if (liveSnapshot.inputDraft !== undefined) {
+      get().setInputDraft(tabId, liveSnapshot.inputDraft);
+    }
+    if (liveSnapshot.pendingAttachments !== undefined) {
+      get().setPendingAttachments(tabId, liveSnapshot.pendingAttachments);
+    }
   },
 
   restoreFromCache: (tabId) => {
@@ -722,6 +777,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       && !tab.isStreaming
       && !tab.partialText
       && !tab.inputDraft
+      && tab.pendingAttachments.length === 0
+      && tab.pendingUserMessages.length === 0
     ) {
       const session = useSessionStore.getState().sessions.find((s) => s.id === tabId);
       if (session?.path) {
@@ -739,7 +796,12 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         set((state) => {
           const result = updateTab(state.tabs, tabId, (t) => ({
             ...t,
-            sessionMeta: { ...t.sessionMeta, stdinId: undefined },
+            sessionMeta: {
+              ...t.sessionMeta,
+              stdinId: undefined,
+              stdinReady: false,
+              pendingReadyMessage: undefined,
+            },
           }));
           return result ?? {};
         });

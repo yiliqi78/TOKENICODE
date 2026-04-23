@@ -26,7 +26,7 @@ vi.mock('../sessionStore', () => {
   };
 });
 
-import { useChatStore } from '../chatStore';
+import { registerLiveComposerSnapshotProvider, useChatStore } from '../chatStore';
 import { useSessionStore } from '../sessionStore';
 
 function msg(id: string, overrides: any = {}) {
@@ -43,6 +43,7 @@ function msg(id: string, overrides: any = {}) {
 describe('chatStore · B11 — stale-running demotion on restoreFromCache', () => {
   beforeEach(() => {
     useChatStore.setState({ tabs: new Map(), sessionCache: new Map() });
+    registerLiveComposerSnapshotProvider(null);
     const mock = (useSessionStore as any).__mock;
     mock.selectedSessionId = null;
     mock.sessions = [];
@@ -142,6 +143,66 @@ describe('chatStore · B11 — stale-running demotion on restoreFromCache', () =
 
     expect(useChatStore.getState().getTab('prewarm')).toBeDefined();
     expect(useChatStore.getState().getTab('old-1')).toBeUndefined();
+  });
+
+  it('idle tab with a non-empty draft is protected from LRU eviction', () => {
+    const store = useChatStore.getState();
+    const ids = ['draft-keep', 'old-1', 'old-2', 'old-3', 'old-4', 'old-5', 'old-6', 'old-7'];
+    for (const id of ids) {
+      store.ensureTab(id);
+      store.addMessage(id, msg(`m-${id}`));
+    }
+    store.setInputDraft('draft-keep', 'unsent draft');
+    useChatStore.setState((state) => {
+      const tabs = new Map(state.tabs);
+      ids.forEach((id, idx) => {
+        const tab = tabs.get(id);
+        if (!tab) return;
+        tabs.set(id, { ...tab, lastAccessedAt: idx + 1 });
+      });
+      return { tabs, sessionCache: tabs };
+    });
+
+    store.ensureTab('incoming');
+
+    expect(useChatStore.getState().getTab('draft-keep')).toBeDefined();
+    expect(useChatStore.getState().getTab('old-1')).toBeUndefined();
+  });
+
+  it('attachment-only tabs restore instead of being treated as empty cache misses', () => {
+    const store = useChatStore.getState();
+    store.ensureTab('attachments-only');
+    store.setPendingAttachments('attachments-only', [
+      { id: 'file-1', name: 'a.png', path: '/tmp/a.png', size: 1, type: 'image/png', isImage: true },
+    ]);
+
+    const ok = store.restoreFromCache('attachments-only');
+
+    expect(ok).toBe(true);
+    expect(useChatStore.getState().getTab('attachments-only')).toBeDefined();
+  });
+
+  it('saveToCache flushes the live composer snapshot before tab switch', () => {
+    const store = useChatStore.getState();
+    store.ensureTab('tab-a');
+    registerLiveComposerSnapshotProvider((tabId) => (
+      tabId === 'tab-a'
+        ? {
+            inputDraft: 'live editor text',
+            pendingAttachments: [
+              { id: 'file-1', name: 'draft.png', path: '/tmp/draft.png', size: 1, type: 'image/png', isImage: true },
+            ],
+          }
+        : null
+    ));
+
+    store.saveToCache('tab-a');
+
+    const tab = useChatStore.getState().getTab('tab-a');
+    expect(tab?.inputDraft).toBe('live editor text');
+    expect(tab?.pendingAttachments).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: '/tmp/draft.png' })]),
+    );
   });
 
   it('cached "idle" is never upgraded or touched', () => {

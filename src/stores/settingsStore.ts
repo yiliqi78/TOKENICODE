@@ -8,10 +8,10 @@ export type Theme = 'light' | 'dark' | 'system';
 export type ColorTheme = 'black' | 'blue' | 'orange' | 'green';
 export type SecondaryPanelTab = 'files' | 'skills';
 export type ModelId =
-  | 'claude-opus-4-7-1m'
   | 'claude-opus-4-7'
-  | 'claude-opus-4-6-1m'
+  | 'claude-opus-4-7-1m' // legacy alias, kept for persisted settings compatibility
   | 'claude-opus-4-6'
+  | 'claude-opus-4-6-1m'
   | 'claude-sonnet-4-6'
   | 'claude-haiku-4-5-20251001';
 export type SessionMode = 'code' | 'ask' | 'plan' | 'bypass';
@@ -32,13 +32,12 @@ export type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'max';
 
 // --- Model options (display mapping) ---
 
-// UI display rule (Phase 2 §5.1): only 1M context variants carry the (1M) suffix.
-// Regular models show plain tier names.
+// UI display rule: 4.7 is shown once because it ships with 1M context by default.
+// 4.6 keeps a separate 1M variant so users can choose the larger window.
 export const MODEL_OPTIONS: { id: ModelId; label: string; short: string }[] = [
-  { id: 'claude-opus-4-7-1m', label: 'Opus 4.7 (1M)', short: 'Opus 4.7 (1M)' },
   { id: 'claude-opus-4-7', label: 'Opus 4.7', short: 'Opus 4.7' },
-  { id: 'claude-opus-4-6-1m', label: 'Opus 4.6 (1M)', short: 'Opus 4.6 (1M)' },
   { id: 'claude-opus-4-6', label: 'Opus 4.6', short: 'Opus 4.6' },
+  { id: 'claude-opus-4-6-1m', label: 'Opus 4.6 (1M)', short: 'Opus 4.6 (1M)' },
   { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', short: 'Sonnet 4.6' },
   { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', short: 'Haiku 4.5' },
 ];

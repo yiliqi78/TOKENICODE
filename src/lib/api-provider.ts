@@ -9,27 +9,25 @@ export const TIER_MAP: Record<string, 'opus' | 'sonnet' | 'haiku'> = {
   'claude-opus-4-7-1m': 'opus',
   'claude-opus-4-7': 'opus',
   'claude-opus-4-6-1m': 'opus',
+  'claude-opus-4-6[1m]': 'opus',
   'claude-opus-4-6': 'opus',
   'claude-sonnet-4-6': 'sonnet',
   'claude-haiku-4-5-20251001': 'haiku',
 };
 
-/** Set of 1M context model IDs.
- *  Includes both raw UI IDs (with `-1m` suffix) and resolved CLI IDs
- *  (without suffix) since sessionMeta.spawnedModel stores the resolved form. */
-const ONE_MILLION_MODELS = new Set<string>([
-  'claude-opus-4-7-1m',
-  'claude-opus-4-7',      // Opus 4.7 ships with 1M context by default
-  'claude-opus-4-6-1m',
-]);
-
 /**
  * Check whether the given model ID (or the currently selected model) uses
  * the 1M context window variant.
+ *
+ * Canonical Opus 4.7 is 1M by default. Explicit variants can advertise 1M
+ * either via a `-1m` suffix (legacy UI ids) or a `[1m]` marker (provider ids).
  */
 export function is1MModel(modelId?: string): boolean {
   const id = modelId ?? useSettingsStore.getState().selectedModel;
-  return ONE_MILLION_MODELS.has(id);
+  const lower = id.toLowerCase();
+  return lower === 'claude-opus-4-7'
+    || lower.endsWith('-1m')
+    || lower.includes('[1m]');
 }
 
 /**
@@ -76,12 +74,16 @@ export function resolveModelOrError(selectedModel: string): ModelResolution {
   return { ok: true, model: mapping.providerModel };
 }
 
-/** Map internal model IDs to CLI-expected format.
- *  The CLI does not recognize the `-1m` suffix — it's a UI-only variant that
- *  selects a higher context window. Strip it before passing to the CLI. */
+/**
+ * Map internal model IDs to CLI-expected format.
+ *
+ * Canonical 4.7 stays plain because it ships with 1M context by default.
+ * Legacy 4.7-1m selections normalize to the canonical 4.7 id, while explicit
+ * 4.6 1M variants stay intact so the CLI can request the larger window.
+ */
 const CLI_MODEL_MAP: Partial<Record<ModelId, string>> = {
   'claude-opus-4-7-1m': 'claude-opus-4-7',
-  'claude-opus-4-6-1m': 'claude-opus-4-6',
+  'claude-opus-4-6-1m': 'claude-opus-4-6[1m]',
 };
 
 export function resolveModelForProvider(selectedModel: string): string {

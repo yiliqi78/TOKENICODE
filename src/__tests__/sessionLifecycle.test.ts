@@ -60,6 +60,8 @@ const mockUpdateMessage = vi.fn();
 const mockSetInputDraft = vi.fn();
 const mockClearPendingMessages = vi.fn();
 const mockSetActivityStatus = vi.fn();
+const mockRemoveMessage = vi.fn();
+const mockSetPendingAttachments = vi.fn();
 
 vi.mock('../stores/chatStore', () => ({
   useChatStore: {
@@ -72,6 +74,8 @@ vi.mock('../stores/chatStore', () => ({
       setInputDraft: mockSetInputDraft,
       clearPendingMessages: mockClearPendingMessages,
       setActivityStatus: mockSetActivityStatus,
+      removeMessage: mockRemoveMessage,
+      setPendingAttachments: mockSetPendingAttachments,
     }),
   },
   generateInterruptedId: (kind: string) => `interrupted_${kind}_${Date.now()}`,
@@ -471,6 +475,46 @@ describe('handleProcessExitFinalize', () => {
         resolved: true,
         interactionState: 'failed',
       }),
+    );
+  });
+
+  it('explicit stop retracts the unacknowledged turn back into the draft', () => {
+    mockGetTabForStdin.mockReturnValue('tab-1');
+    mockGetTab.mockReturnValue({
+      tabId: 'tab-1',
+      messages: [
+        { id: 'user-1', role: 'user', type: 'text', content: 'A' },
+      ],
+      partialText: 'partial assistant reply',
+      partialThinking: '',
+      pendingUserMessages: [{ text: 'queued follow-up' }],
+      inputDraft: 'existing draft',
+      pendingAttachments: [],
+      sessionMeta: {
+        stdinId: 'desk_123',
+        teardownReason: 'stop',
+        pendingTurnMessageId: 'user-1',
+        pendingTurnInput: 'message A',
+        pendingTurnAttachments: [{ id: 'file-1', name: 'a.png', path: '/tmp/a.png', size: 1, type: 'image/png', isImage: true }],
+      },
+      sessionStatus: 'stopping',
+    });
+
+    handleProcessExitFinalize('desk_123');
+
+    expect(mockRemoveMessage).toHaveBeenCalledWith('tab-1', 'user-1');
+    expect(mockSetPendingAttachments).toHaveBeenCalledWith(
+      'tab-1',
+      expect.arrayContaining([expect.objectContaining({ path: '/tmp/a.png' })]),
+    );
+    expect(mockSetInputDraft).toHaveBeenCalledWith(
+      'tab-1',
+      'message A\n\nexisting draft\n\nqueued follow-up',
+    );
+    expect(mockClearPendingMessages).toHaveBeenCalledWith('tab-1');
+    expect(mockSetSessionMeta).toHaveBeenCalledWith(
+      'tab-1',
+      expect.objectContaining({ interruptedAssistantText: 'partial assistant reply' }),
     );
   });
 });

@@ -208,6 +208,24 @@ describe('StreamController · §4.3.1', () => {
   });
 
   describe('scheduling', () => {
+    it('default_fallback_interval_stays_responsive', () => {
+      expect(DEFAULT_CONFIG.intervalMs).toBeLessThanOrEqual(100);
+    });
+
+    it('first_thinking_delta_flushes_immediately_before_raf', () => {
+      const { ctrl, scheduler, thinkingCalls } = makeHarness({ s1: 't1' });
+      ctrl.appendThinking('s1', 'a');
+      expect(thinkingCalls).toEqual([['t1', 'a']]);
+      expect(scheduler.pendingRaf()).toBe(0);
+
+      ctrl.appendThinking('s1', 'b');
+      expect(thinkingCalls).toEqual([['t1', 'a']]);
+      expect(scheduler.pendingRaf()).toBe(1);
+
+      scheduler.flushRaf();
+      expect(thinkingCalls).toEqual([['t1', 'a'], ['t1', 'b']]);
+    });
+
     it('rAF_coalesces_rapid_appends_into_single_flush', () => {
       const { ctrl, scheduler, textCalls } = makeHarness({ s1: 't1' });
       ctrl.appendText('s1', 'a');

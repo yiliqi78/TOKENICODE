@@ -1,5 +1,5 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { useChatStore, useActiveTab, getActiveTabState, generateMessageId, isSessionBusy } from '../../stores/chatStore';
+import { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
+import { useChatStore, useActiveTab, getActiveTabState, generateMessageId, isSessionBusy, registerLiveComposerSnapshotProvider } from '../../stores/chatStore';
 import { useSettingsStore, MODEL_OPTIONS, mapSessionModeToPermissionMode, setSessionModeLocal, type ThinkingLevel } from '../../stores/settingsStore';
 import { bridge, type UnifiedCommand } from '../../lib/tauri-bridge';
 import { ModelSelector } from './ModelSelector';
@@ -24,6 +24,7 @@ import { PermissionCard } from './PermissionCard';
 import { QuestionCard } from './QuestionCard';
 import { TiptapEditor, type TiptapEditorHandle } from './TiptapEditor';
 import { spawnSession, teardownSession, cleanupStdinRoute, waitForStdinCleared } from '../../lib/sessionLifecycle';
+import type { FileAttachment } from '../../hooks/useFileAttachments';
 // drag-state import removed — tree drag handled by ChatPanel
 
 /** Thinking effort level configuration data */
@@ -34,6 +35,20 @@ const THINK_LEVELS: { id: ThinkingLevel; labelKey: string }[] = [
   { id: 'high', labelKey: 'think.high' },
   { id: 'max', labelKey: 'think.max' },
 ];
+
+function buildInterruptedContinuationPrompt(interruptedAssistantText: string, nextUserText: string): string {
+  const cleanInterrupted = interruptedAssistantText.trim();
+  const cleanNext = nextUserText.trim();
+  if (!cleanInterrupted) return cleanNext;
+  return [
+    '系统注记：你上一条回复在用户手动停止前，已经输出了下面这段未完成正文。',
+    '请把它视为本会话里你刚刚已经写出的内容，在此基础上继续，不要声称之前没有写过这些内容。',
+    '已输出正文：',
+    cleanInterrupted,
+    '用户接下来的消息是基于这段已输出内容的后续指令：',
+    cleanNext,
+  ].join('\n\n');
+}
 
 /** Thinking effort level selector dropdown for the toolbar */
 function ThinkLevelSelector({ disabled = false }: { disabled?: boolean }) {
@@ -168,13 +183,14 @@ export function InputBar() {
   // Local alias for the store-backed draft
   const input = inputDraft;
   const setInput = useCallback((text: string) => {
-    const tid = useSessionStore.getState().selectedSessionId;
-    if (tid) {
-      useChatStore.getState().ensureTab(tid);
-      setInputDraftStore(tid, text);
+    if (selectedSessionId) {
+      useChatStore.getState().ensureTab(selectedSessionId);
+      setInputDraftStore(selectedSessionId, text);
     }
-  }, [setInputDraftStore]);
+  }, [selectedSessionId, setInputDraftStore]);
   const textareaRef = useRef<TiptapEditorHandle>(null);
+  const latestFilesRef = useRef<FileAttachment[]>([]);
+  const previousSessionIdRef = useRef<string | null>(selectedSessionId);
   /** Sync both the Zustand store and the tiptap editor.
    *  Use this for all programmatic input changes (clear, set, etc.).
    *  The editor's onUpdate callback uses setInput directly to avoid circular updates. */
@@ -182,6 +198,32 @@ export function InputBar() {
     setInput(text);
     textareaRef.current?.setText(text);
   }, [setInput]);
+  const captureLiveDraftSnapshot = useCallback((tabId: string) => {
+    if (!selectedSessionId || tabId !== selectedSessionId) return null;
+    return {
+      inputDraft: textareaRef.current?.getText() ?? inputDraft,
+      pendingAttachments: latestFilesRef.current,
+    };
+  }, [inputDraft, selectedSessionId]);
+
+  useEffect(() => {
+    registerLiveComposerSnapshotProvider(captureLiveDraftSnapshot);
+    return () => registerLiveComposerSnapshotProvider(null);
+  }, [captureLiveDraftSnapshot]);
+
+  // When the selected tab changes, snapshot the current editor content back to
+  // the tab we are leaving before the next restore effect repaints the editor.
+  useEffect(() => {
+    const previousSessionId = previousSessionIdRef.current;
+    if (previousSessionId && previousSessionId !== selectedSessionId) {
+      const currentText = textareaRef.current?.getText();
+      if (currentText !== undefined) {
+        setInputDraftStore(previousSessionId, currentText);
+      }
+      useChatStore.getState().setPendingAttachments(previousSessionId, latestFilesRef.current);
+    }
+    previousSessionIdRef.current = selectedSessionId;
+  }, [selectedSessionId, setInputDraftStore]);
 
   // Restore input text from store when session switches (restoreFromCache → inputDraft change)
   const prevInputDraftRef = useRef(inputDraft);
@@ -206,6 +248,7 @@ export function InputBar() {
   const addMessage = useChatStore((s) => s.addMessage);
   const setSessionStatus = useChatStore((s) => s.setSessionStatus);
   const setSessionMeta = useChatStore((s) => s.setSessionMeta);
+  const setActivityStatus = useChatStore((s) => s.setActivityStatus);
   const workingDirectory = useSettingsStore((s) => s.workingDirectory);
   const selectedModel = useSettingsStore((s) => s.selectedModel);
   const sessionMode = useSettingsStore((s) => s.sessionMode);
@@ -271,6 +314,10 @@ export function InputBar() {
   });
 
   const { files, setFiles, isProcessing, addFiles, removeFile, clearFiles } = useFileAttachments();
+
+  useLayoutEffect(() => {
+    latestFilesRef.current = files;
+  }, [files]);
 
   // Sync files → store.pendingAttachments so tab switch can persist them
   const setPendingAttachmentsStore = useChatStore((s) => s.setPendingAttachments);
@@ -364,6 +411,13 @@ export function InputBar() {
   const isRunning = isSessionBusy(sessionStatus);
   const isStopping = sessionStatus === 'stopping';
   const isAwaiting = isRunning && activityPhase === 'awaiting';
+  const inputPlaceholder = activePrefix
+    ? t('input.prefixPlaceholder')
+    : isStopping
+      ? t('input.stoppingPlaceholder')
+      : isRunning
+        ? t('input.followUp')
+        : t('input.placeholder');
 
   // Whether this is a follow-up (session already has a CLI session ID)
   const hasActiveSession = sessionStatus !== 'idle';
@@ -773,6 +827,10 @@ export function InputBar() {
     const currentTabState = getActiveTabState();
     const existingStdinId = currentTabState.sessionMeta.stdinId;
     const currentStatus = currentTabState.sessionStatus;
+    const interruptedAssistantText = currentTabState.sessionMeta.interruptedAssistantText?.trim() || '';
+    if (interruptedAssistantText) {
+      text = buildInterruptedContinuationPrompt(interruptedAssistantText, text);
+    }
 
     // Phase 2 §6: hard-block queueing while an interaction card (AskUserQuestion,
     // PlanReview, Permission) is unresolved — the queued text is almost always
@@ -817,29 +875,30 @@ export function InputBar() {
     clearFiles();
 
     // Normal path: show user message immediately
+    let pendingTurnMeta: { pendingTurnMessageId?: string; pendingTurnInput?: string; pendingTurnAttachments?: FileAttachment[] };
     if (silentRestartRef.current) {
       silentRestartRef.current = false;
+      pendingTurnMeta = {
+        pendingTurnMessageId: undefined,
+        pendingTurnInput: undefined,
+        pendingTurnAttachments: undefined,
+      };
     } else {
+      const pendingTurnMessageId = generateMessageId();
       addMessage(tabId, {
-        id: generateMessageId(),
+        id: pendingTurnMessageId,
         role: 'user',
         type: 'text',
         content: rawInput.trim(),
         timestamp: Date.now(),
         attachments: userMsgAttachments,
       });
+      pendingTurnMeta = {
+        pendingTurnMessageId,
+        pendingTurnInput: rawInput.trim(),
+        pendingTurnAttachments: savedFiles,
+      };
     }
-
-    const turnStartedAt = Date.now();
-    setSessionStatus(tabId, 'running');
-    setSessionMeta(tabId, {
-      turnStartTime: turnStartedAt,
-      lastProgressAt: turnStartedAt,
-      inputTokens: 0,
-      outputTokens: 0,
-    });
-    useChatStore.getState().setActivityStatus(tabId, { phase: 'thinking' });
-    lastStderrRef.current = ''; // Clear stale stderr before new turn
 
     // Initialize agent tracking — clear previous turn's agents (they may be from a
     // different project/session) and create a fresh main agent for this turn.
@@ -865,6 +924,11 @@ export function InputBar() {
         });
         // Restore input and file attachments so user doesn't lose them
         useChatStore.getState().setInputDraft(tabId, rawInput);
+        useChatStore.getState().setSessionMeta(tabId, {
+          pendingTurnMessageId: undefined,
+          pendingTurnInput: undefined,
+          pendingTurnAttachments: undefined,
+        });
         if (savedFiles.length > 0) setFiles(savedFiles);
         return;
       }
@@ -885,14 +949,50 @@ export function InputBar() {
         setSessionStatus(tabId, 'error');
         // Restore input and file attachments so user doesn't lose them
         useChatStore.getState().setInputDraft(tabId, rawInput);
+        useChatStore.getState().setSessionMeta(tabId, {
+          pendingTurnMessageId: undefined,
+          pendingTurnInput: undefined,
+          pendingTurnAttachments: undefined,
+        });
         if (savedFiles.length > 0) setFiles(savedFiles);
         return;
       }
+
+      const markTurnPending = () => {
+        setSessionStatus(tabId, 'running');
+        setSessionMeta(tabId, {
+          turnStartTime: undefined,
+          lastProgressAt: undefined,
+          inputTokens: 0,
+          outputTokens: 0,
+          teardownReason: undefined,
+          pendingReadyMessage: undefined,
+          ...pendingTurnMeta,
+        });
+        setActivityStatus(tabId, { phase: 'idle' });
+      };
+
+      const markTurnThinking = () => {
+        const turnStartedAt = Date.now();
+        setSessionStatus(tabId, 'running');
+        setSessionMeta(tabId, {
+          turnStartTime: turnStartedAt,
+          lastProgressAt: turnStartedAt,
+          inputTokens: 0,
+          outputTokens: 0,
+          pendingReadyMessage: undefined,
+        });
+        setActivityStatus(tabId, { phase: 'thinking' });
+      };
+
+      markTurnPending();
+      lastStderrRef.current = ''; // Clear stale stderr before new turn/startup wait
 
       // Use stdinId (desk-generated) for stdin communication, not CLI's own sessionId.
       // stdinId exists when: (a) a pre-warmed process is waiting, or (b) follow-up in active session.
       const submitTabState = getActiveTabState();
       let stdinId = submitTabState.sessionMeta.stdinId;
+      let stdinReady = submitTabState.sessionMeta.stdinReady === true;
       let sentViaStdin = false;
 
       // Phase 2 §2.1/§2.2: unified config-mismatch check. If ANY of
@@ -940,6 +1040,7 @@ export function InputBar() {
             return { tabs: newTabs, sessionCache: newTabs };
           });
           stdinId = undefined;
+          stdinReady = false;
         } else {
           // Check if model changed since this process was spawned.
           // If so, kill the stale process and fall through to spawn a new one with --resume.
@@ -970,6 +1071,7 @@ export function InputBar() {
               return { tabs: newTabs, sessionCache: newTabs };
             });
             stdinId = undefined;
+            stdinReady = false;
           } else {
             // Phase 2 §2.1/§2.2: catch-all config-drift check covering dimensions
             // not caught by the envFingerprint / spawnedModel gates above —
@@ -985,9 +1087,18 @@ export function InputBar() {
               // Unlike provider/model switch, thinking-level-only changes do NOT
               // require stripping thinking blocks — signatures remain valid.
               stdinId = undefined;
+              stdinReady = false;
             } else {
               // ===== Send via stdin to existing persistent process (pre-warmed or follow-up) =====
+              if (!stdinReady) {
+                setSessionMeta(tabId, {
+                  pendingReadyMessage: { stdinId, text },
+                });
+                console.log('[TOKENICODE] pre-warm process not ready yet — holding first message until system:init');
+                return;
+              }
               try {
+                markTurnThinking();
                 await bridge.sendStdin(stdinId, text);
                 sentViaStdin = true;
                 // Defensive: ensure spawnedModel is always recorded after first successful stdin send
@@ -999,8 +1110,14 @@ export function InputBar() {
                 // Drop the stale stdin route via lifecycle helpers, then spawn fresh.
                 console.warn('[TOKENICODE] sendStdin failed, spawning new process:', stdinErr);
                 cleanupStdinRoute(stdinId);
-                setSessionMeta(tabId, { stdinId: undefined });
+                setSessionMeta(tabId, {
+                  stdinId: undefined,
+                  stdinReady: false,
+                  pendingReadyMessage: undefined,
+                });
+                setActivityStatus(tabId, { phase: 'idle' });
                 stdinId = undefined;
+                stdinReady = false;
               }
             } // close spawnConfigHash-mismatch else
           } // close spawnedModel-mismatch else
@@ -1020,8 +1137,10 @@ export function InputBar() {
         const hadRealExchange = tabMessages.some(
           m => m.role === 'assistant' && (m.type === 'text' || m.type === 'tool_use'),
         );
+        const fallbackResumeId = getActiveTabState().sessionMeta.sessionId;
         const existingSessionId = hadRealExchange
-          ? (useSessionStore.getState().sessions.find((s) => s.id === tabId)?.cliResumeId ?? undefined)
+          ? (useSessionStore.getState().sessions.find((s) => s.id === tabId)?.cliResumeId
+            ?? (fallbackResumeId && !fallbackResumeId.startsWith('desk_') ? fallbackResumeId : undefined))
           : undefined;
 
         // Clean up old stdinId listener if any (via lifecycle module)
@@ -1048,6 +1167,10 @@ export function InputBar() {
         // the user might change while the spawn is in flight.
         const preSpawnConfigHash = spawnConfigHash();
         const preEnvFingerprint = envFingerprint();
+        setSessionMeta(tabId, {
+          stdinReady: false,
+          pendingReadyMessage: undefined,
+        });
 
         console.log('[TOKENICODE:session] starting session', { cwd, stdinId: preGeneratedId, mode: liveSessionMode, provider: useProviderStore.getState().activeProviderId, modelSwitch: !!didSwitchModel, resumeSessionId: existingSessionId });
 
@@ -1091,6 +1214,8 @@ export function InputBar() {
           sessionId: spawnResult.sessionInfo.cli_session_id ?? undefined,
           envFingerprint: preEnvFingerprint,
           spawnedModel: resolveModelForProvider(selectedModel),
+          stdinReady: false,
+          pendingReadyMessage: undefined,
           // Phase 2 §2.1: lock in the spawn-time config hash for later
           // mismatch detection in handleSubmit and the drain paths.
           // Uses pre-computed value captured before async spawn to avoid
@@ -1118,6 +1243,11 @@ export function InputBar() {
       });
       // PRD: restore user message and file attachments so nothing is lost on spawn failure.
       useChatStore.getState().setInputDraft(tabId, rawInput);
+      useChatStore.getState().setSessionMeta(tabId, {
+        pendingTurnMessageId: undefined,
+        pendingTurnInput: undefined,
+        pendingTurnAttachments: undefined,
+      });
       if (savedFiles.length > 0) setFiles(savedFiles);
     }
   }, [hasActiveSession, workingDirectory, selectedModel, sessionMode, files, clearFiles]);
@@ -1424,17 +1554,21 @@ export function InputBar() {
               }}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
-              placeholder={activePrefix
-                ? t('input.prefixPlaceholder')
-                : isRunning
-                  ? t('input.followUp')
-                  : t('input.placeholder')}
+              placeholder={inputPlaceholder}
               className="flex-1 bg-transparent text-sm text-text-primary
                 placeholder:text-text-tertiary resize-none outline-none
                 leading-normal overflow-y-auto min-w-0 py-0.5"
             />
           </div>
           {/* Shortcut hint — visible when input area is not focused and input is empty */}
+          {isStopping && (
+            <span className="flex-shrink-0 self-center inline-flex items-center gap-1.5
+              px-2 py-1 rounded-full border text-[10px] font-medium whitespace-nowrap
+              border-border-subtle bg-bg-secondary/70 text-text-muted">
+              <span className="w-2.5 h-2.5 rounded-full border-2 border-warning/30 border-t-warning animate-spin text-warning" />
+              {t('input.stopping')}
+            </span>
+          )}
           {!input && !activePrefix && !isRunning && (
             <span className="flex-shrink-0 text-[10px] text-text-tertiary/50
               group-focus-within/input:hidden select-none whitespace-nowrap
@@ -1455,16 +1589,23 @@ export function InputBar() {
                 // handler preserves partial text/thinking as interrupted messages.
                 await teardownSession(sid, stopTabId, 'stop');
               }}
+              disabled={isStopping}
               className="flex-shrink-0 self-end w-8 h-8 rounded-[10px]
+                flex items-center justify-center transition-smooth
+                disabled:cursor-not-allowed
+                disabled:bg-warning/10 disabled:text-warning
                 bg-red-500/15 text-red-500
-                flex items-center justify-center
-                hover:bg-red-500/25 transition-smooth"
-              title={t('input.stop')}
+                hover:bg-red-500/25"
+              title={isStopping ? t('input.stopping') : t('input.stop')}
             >
-              <svg width="14" height="14" viewBox="0 0 16 16"
-                fill="currentColor">
-                <rect x="3" y="3" width="10" height="10" rx="2" />
-              </svg>
+              {isStopping ? (
+                <span className="w-3.5 h-3.5 rounded-full border-2 border-warning/30 border-t-warning animate-spin" />
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 16 16"
+                  fill="currentColor">
+                  <rect x="3" y="3" width="10" height="10" rx="2" />
+                </svg>
+              )}
             </button>
           )}
           <button

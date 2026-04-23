@@ -4,6 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { isTreeDragActive } from '../lib/drag-state';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useFileStore } from '../stores/fileStore';
+import { useChatStore } from '../stores/chatStore';
 import { useSessionStore } from '../stores/sessionStore';
 
 // --- Types ---
@@ -98,8 +99,18 @@ async function readFileAsBytes(file: File): Promise<Uint8Array> {
 export function useFileAttachments() {
   const [files, setFiles] = useState<FileAttachment[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const setFilesForTab = useCallback((tabId: string | null, nextFiles: FileAttachment[]) => {
+    if (tabId) {
+      useChatStore.getState().ensureTab(tabId);
+      useChatStore.getState().setPendingAttachments(tabId, nextFiles);
+    }
+    if (useSessionStore.getState().selectedSessionId === tabId) {
+      setFiles(nextFiles);
+    }
+  }, []);
 
-  const addFiles = useCallback(async (fileList: FileList | File[]) => {
+  const addFiles = useCallback(async (fileList: FileList | File[], ownerTabId?: string | null) => {
+    const targetTabId = ownerTabId ?? useSessionStore.getState().selectedSessionId;
     setIsProcessing(true);
     try {
       const newFiles: FileAttachment[] = [];
@@ -134,15 +145,19 @@ export function useFileAttachments() {
       }
 
       if (newFiles.length > 0) {
-        setFiles((prev) => [...prev, ...newFiles]);
+        const existing = targetTabId
+          ? (useChatStore.getState().getTab(targetTabId)?.pendingAttachments ?? [])
+          : files;
+        setFilesForTab(targetTabId ?? null, [...existing, ...newFiles]);
       }
     } finally {
       setIsProcessing(false);
     }
-  }, []);
+  }, [files, setFilesForTab]);
 
   /** Add files by their OS file paths (for Tauri native drag-drop) */
-  const addFilePaths = useCallback(async (paths: string[]) => {
+  const addFilePaths = useCallback(async (paths: string[], ownerTabId?: string | null) => {
+    const targetTabId = ownerTabId ?? useSessionStore.getState().selectedSessionId;
     setIsProcessing(true);
     try {
       const newFiles: FileAttachment[] = [];
@@ -206,12 +221,15 @@ export function useFileAttachments() {
         }
       }
       if (newFiles.length > 0) {
-        setFiles((prev) => [...prev, ...newFiles]);
+        const existing = targetTabId
+          ? (useChatStore.getState().getTab(targetTabId)?.pendingAttachments ?? [])
+          : files;
+        setFilesForTab(targetTabId ?? null, [...existing, ...newFiles]);
       }
     } finally {
       setIsProcessing(false);
     }
-  }, []);
+  }, [files, setFilesForTab]);
 
   // Listen for Tauri native drag-drop events (OS file drag into window)
   // Debounce guard: Tauri may fire onDragDropEvent multiple times per drop
@@ -254,15 +272,15 @@ export function useFileAttachments() {
         const key = [...paths].sort().join('|');
         if (now - lastDropRef.current.time < 500 && key === lastDropRef.current.key) return;
         lastDropRef.current = { time: now, key };
+        const ownerTabId = useSessionStore.getState().selectedSessionId;
 
         // Phase 3 §3.2: user dropped files in = user-initiated authorization.
         // Register each dropped path as a path grant for the active tab so
         // subsequent reads (thumbnail preview, size lookup) are allowed.
         // Grants MUST be awaited before any file operation that depends on them.
         (async () => {
-          const activeTabId = useSessionStore.getState().selectedSessionId;
-          if (activeTabId) {
-            await Promise.all(paths.map((p) => bridge.addPathGrant(activeTabId, p).catch(() => { /* best-effort */ })));
+          if (ownerTabId) {
+            await Promise.all(paths.map((p) => bridge.addPathGrant(ownerTabId, p).catch(() => { /* best-effort */ })));
           }
 
           if (wasOverTree) {
@@ -298,7 +316,7 @@ export function useFileAttachments() {
 
             // Images → attachment system (addFilePaths generates thumbnails)
             if (imagePaths.length > 0) {
-              addFilePaths(imagePaths);
+              addFilePaths(imagePaths, ownerTabId);
             }
 
             // Non-images → inline file chips
@@ -313,12 +331,15 @@ export function useFileAttachments() {
   }, []);
 
   const removeFile = useCallback((id: string) => {
-    setFiles((prev) => prev.filter((f) => f.id !== id));
-  }, []);
+    const tabId = useSessionStore.getState().selectedSessionId;
+    const existing = tabId ? (useChatStore.getState().getTab(tabId)?.pendingAttachments ?? []) : files;
+    setFilesForTab(tabId, existing.filter((f) => f.id !== id));
+  }, [files, setFilesForTab]);
 
   const clearFiles = useCallback(() => {
-    setFiles([]);
-  }, []);
+    const tabId = useSessionStore.getState().selectedSessionId;
+    setFilesForTab(tabId, []);
+  }, [setFilesForTab]);
 
   return { files, setFiles, isProcessing, addFiles, addFilePaths, removeFile, clearFiles };
 }

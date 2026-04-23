@@ -96,6 +96,14 @@ function editorToPlainText(editor: ReturnType<typeof useEditor>): string {
   return parts.join('\n');
 }
 
+function liveDomToPlainText(root: HTMLElement | null): string {
+  if (!root) return '';
+  return (root.innerText || root.textContent || '')
+    .replace(/\u200b/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trimEnd();
+}
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
@@ -218,6 +226,9 @@ export const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
 
     useImperativeHandle(ref, () => ({
       getText() {
+        if (composingRef.current) {
+          return liveDomToPlainText(wrapperRef.current);
+        }
         return editorToPlainText(editor);
       },
       setText(text: string) {

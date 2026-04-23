@@ -23,6 +23,7 @@ const messages: Record<Locale, Record<string, string>> = {
     // ChatPanel
     'chat.showSidebar': '展开侧栏',
     'chat.running': '运行中',
+    'chat.startingAgent': '正在启动 Agent，请稍后...',
     'chat.turns': '轮',
     'chat.toggleFiles': '切换文件面板',
     'chat.scrollToBottom': '滚动到底部',
@@ -239,6 +240,9 @@ const messages: Record<Locale, Record<string, string>> = {
     // File upload
     'input.processingFiles': '处理中...',
     'input.stop': '终止',
+    'input.stopping': '正在停止…',
+    'input.startingPlaceholder': '正在启动 Agent，请稍后...',
+    'input.stoppingPlaceholder': '正在等待当前任务停止…',
     'input.awaitingInteraction': '等待交互响应',
 
     // Rewind
@@ -294,6 +298,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'msg.planLabel': '计划',
     'chat.awaiting': '等待输入...',
     'chat.queued': '排队中',
+    'chat.stopping': '正在停止…',
     'chat.reconnecting': '连接不太稳定，正在重新连接…',
     'chat.tokenWarning': '上下文即将满载，建议 /compact',
     'chat.autoCompacting': '上下文接近上限，自动压缩中...',
@@ -745,6 +750,7 @@ const messages: Record<Locale, Record<string, string>> = {
     // ChatPanel
     'chat.showSidebar': 'Show sidebar',
     'chat.running': 'Running',
+    'chat.startingAgent': 'Starting Agent, please wait...',
     'chat.turns': 'turns',
     'chat.toggleFiles': 'Toggle file panel',
     'chat.scrollToBottom': 'Scroll to bottom',
@@ -961,6 +967,9 @@ const messages: Record<Locale, Record<string, string>> = {
     // File upload
     'input.processingFiles': 'Processing...',
     'input.stop': 'Stop',
+    'input.stopping': 'Stopping…',
+    'input.startingPlaceholder': 'Starting Agent, please wait...',
+    'input.stoppingPlaceholder': 'Waiting for the current run to stop…',
     'input.awaitingInteraction': 'Awaiting interaction response',
 
     // Rewind
@@ -1016,6 +1025,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'msg.planLabel': 'Plan',
     'chat.awaiting': 'Awaiting input...',
     'chat.queued': 'Queued',
+    'chat.stopping': 'Stopping…',
     'chat.reconnecting': 'Connection unstable, reconnecting…',
     'chat.tokenWarning': 'Context nearly full — try /compact',
     'chat.autoCompacting': 'Context near limit, auto-compacting...',

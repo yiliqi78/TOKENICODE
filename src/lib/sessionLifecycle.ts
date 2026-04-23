@@ -302,6 +302,7 @@ export async function teardownSession(
   tabId: string,
   reason: TeardownReason,
 ): Promise<void> {
+  useChatStore.getState().setSessionMeta(tabId, { teardownReason: reason });
   // Set stopping state
   useChatStore.getState().setSessionStatus(tabId, 'stopping');
 
@@ -433,10 +434,27 @@ export function handleProcessExitFinalize(stdinId: string, isTimeout = false): v
 
     // 4. Backfill pending messages to inputDraft
     const pending = tab.pendingUserMessages ?? [];
+    const pendingTurnInput = tab.sessionMeta.pendingTurnInput?.trim();
+    const pendingTurnAttachments = tab.sessionMeta.pendingTurnAttachments ?? [];
+    const isExplicitStop = tab.sessionMeta.teardownReason === 'stop';
+    const interruptedAssistantText = isExplicitStop && pText.trim().length > 0 ? pText : undefined;
+    const combinedDraftParts = [
+      isExplicitStop ? pendingTurnInput : '',
+      tab.inputDraft ?? '',
+      pending.length > 0 ? pending.map((p) => p.text).join('\n\n') : '',
+    ].filter((part) => typeof part === 'string' && part.trim().length > 0);
+    if (combinedDraftParts.length > 0) {
+      store.setInputDraft(tabId, combinedDraftParts.join('\n\n'));
+    }
+    if (isExplicitStop && pendingTurnInput) {
+      if (tab.sessionMeta.pendingTurnMessageId) {
+        store.removeMessage(tabId, tab.sessionMeta.pendingTurnMessageId);
+      }
+      if (pendingTurnAttachments.length > 0) {
+        store.setPendingAttachments(tabId, pendingTurnAttachments);
+      }
+    }
     if (pending.length > 0) {
-      const draft = tab.inputDraft ?? '';
-      const pendingText = pending.map((p) => p.text).join('\n\n');
-      store.setInputDraft(tabId, draft ? `${draft}\n\n${pendingText}` : pendingText);
       store.clearPendingMessages(tabId);
     }
 
@@ -454,6 +472,11 @@ export function handleProcessExitFinalize(stdinId: string, isTimeout = false): v
     store.setSessionMeta(tabId, {
       stdinId: undefined,
       lastProgressAt: undefined,
+      teardownReason: undefined,
+      pendingTurnMessageId: undefined,
+      pendingTurnInput: undefined,
+      pendingTurnAttachments: undefined,
+      interruptedAssistantText,
     });
 
     // 7-8. Drop stdinTab mapping and listeners

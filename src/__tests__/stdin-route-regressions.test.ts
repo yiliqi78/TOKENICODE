@@ -12,6 +12,11 @@ const inputBarSource = readFileSync(
   'utf-8',
 );
 
+const permissionCardSource = readFileSync(
+  resolve(__dirname, '../components/chat/PermissionCard.tsx'),
+  'utf-8',
+);
+
 const streamProcessorSource = readFileSync(
   resolve(__dirname, '../hooks/useStreamProcessor.ts'),
   'utf-8',
@@ -45,6 +50,18 @@ describe('stdin route regressions', () => {
 
   it('broken-pipe fallback drops the stale stdin route', () => {
     expect(inputBarSource).toContain('cleanupStdinRoute(stdinId);');
+  });
+
+  it('tab switches snapshot the current draft before restoring the next tab', () => {
+    expect(inputBarSource).toContain('previousSessionIdRef');
+    expect(inputBarSource).toContain('textareaRef.current?.getText()');
+    expect(inputBarSource).toContain('setPendingAttachments(previousSessionId, latestFilesRef.current)');
+  });
+
+  it('permission responses resolve ownership from the message instead of the active tab', () => {
+    expect(permissionCardSource).toContain('const resolveOwner');
+    expect(permissionCardSource).toContain('message.owner?.tabId');
+    expect(permissionCardSource).not.toContain('getActiveTabState().sessionMeta.stdinId');
   });
 
   it('invalid ownership process_exit branches drop stale stdin routes', () => {

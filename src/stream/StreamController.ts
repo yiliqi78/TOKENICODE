@@ -50,7 +50,9 @@ export const DEFAULT_CONFIG: StreamControllerConfig = {
   ttlMs: 5_000,
   perStdinCapChars: 1 * 1024 * 1024,
   totalCapChars: 10 * 1024 * 1024,
-  intervalMs: 200,
+  // Keep the fallback flush responsive so background/slow tabs do not batch
+  // visible updates into 200ms-sized jumps.
+  intervalMs: 50,
 };
 
 export type StreamEvent =
@@ -75,6 +77,7 @@ export class StreamController {
   private readonly buffers = new Map<StdinId, Buffer>();
   private readonly orphans = new Map<StdinId, Orphan>();
   private readonly completedOnce = new Set<StdinId>();
+  private readonly eagerThinkingFlushed = new Set<StdinId>();
   private intervalHandle: ReturnType<typeof setInterval> | null = null;
   private readonly listeners = new Set<Listener>();
 
@@ -99,7 +102,18 @@ export class StreamController {
     if (!text) return;
     if (this.completedOnce.has(stdinId)) return;
     const buf = this.getOrCreateBuffer(stdinId);
+    const shouldFlushImmediately = !this.eagerThinkingFlushed.has(stdinId)
+      && !buf.text
+      && !buf.thinking
+      && !buf.raf;
     buf.thinking += text;
+    if (shouldFlushImmediately) {
+      this.eagerThinkingFlushed.add(stdinId);
+      this.doFlush(stdinId, buf);
+      if (!buf.text && !buf.thinking) this.buffers.delete(stdinId);
+      if (this.buffers.size === 0) this.stopInterval();
+      return;
+    }
     this.schedule(stdinId, buf);
   }
 
@@ -137,6 +151,7 @@ export class StreamController {
     const buf = this.buffers.get(stdinId);
     if (buf?.raf) this.scheduler.cancelRaf(buf.raf);
     this.buffers.delete(stdinId);
+    this.eagerThinkingFlushed.delete(stdinId);
     if (this.buffers.size === 0) this.stopInterval();
   }
 
@@ -148,6 +163,7 @@ export class StreamController {
   completeStream(stdinId: StdinId): void {
     if (this.completedOnce.has(stdinId)) return;
     this.completedOnce.add(stdinId);
+    this.eagerThinkingFlushed.delete(stdinId);
     const buf = this.buffers.get(stdinId);
     if (buf) {
       if (buf.raf) { this.scheduler.cancelRaf(buf.raf); buf.raf = 0; }
@@ -162,6 +178,7 @@ export class StreamController {
   /** Test/cleanup hook: reset completion guard (e.g., stdinId reused). */
   forgetCompletion(stdinId: StdinId): void {
     this.completedOnce.delete(stdinId);
+    this.eagerThinkingFlushed.delete(stdinId);
   }
 
   // --- Orphan queue ---

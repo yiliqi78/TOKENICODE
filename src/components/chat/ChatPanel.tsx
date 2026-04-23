@@ -14,12 +14,13 @@ import { AgentPanel } from '../agents/AgentPanel';
 // bridge import removed — spawn goes through sessionLifecycle module
 import { open } from '@tauri-apps/plugin-dialog';
 import { useT } from '../../lib/i18n';
-import { envFingerprint, resolveModelForProvider, spawnConfigHash } from '../../lib/api-provider';
+import { envFingerprint, is1MModel as isOneMillionModel, resolveModelForProvider, spawnConfigHash } from '../../lib/api-provider';
 import { useProviderStore } from '../../stores/providerStore';
 import { spawnSession } from '../../lib/sessionLifecycle';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
 import { SetupWizard } from '../setup/SetupWizard';
 import { AiAvatar } from '../shared/AiAvatar';
+import { UserAvatar } from '../shared/UserAvatar';
 import { useFindInPage } from '../../hooks/useFindInPage';
 import { FindBar } from './FindBar';
 
@@ -225,9 +226,10 @@ function CyclingThinkingText() {
 }
 
 /** Activity indicator with elapsed time and token count */
-function ActivityIndicator({ activityStatus, sessionMeta }: {
+function ActivityIndicator({ activityStatus, sessionMeta, sessionStatus }: {
   activityStatus: { phase: string; toolName?: string };
   sessionMeta: { turnStartTime?: number; outputTokens?: number; inputTokens?: number; lastProgressAt?: number };
+  sessionStatus?: string;
 }) {
   const t = useT();
   const [now, setNow] = useState(Date.now());
@@ -237,7 +239,12 @@ function ActivityIndicator({ activityStatus, sessionMeta }: {
     return () => clearInterval(id);
   }, []);
 
-  const phaseText = activityStatus.phase === 'thinking' ? t('chat.thinking')
+  const isStopping = sessionStatus === 'stopping';
+  const isStarting = sessionStatus === 'running'
+    && activityStatus.phase === 'idle';
+  const phaseText = isStopping ? t('chat.stopping')
+    : isStarting ? t('chat.startingAgent')
+    : activityStatus.phase === 'thinking' ? t('chat.thinking')
     : activityStatus.phase === 'writing' ? t('chat.writing')
     : activityStatus.phase === 'tool' ? `${t('chat.runningTool')}: ${activityStatus.toolName || ''}`
     : activityStatus.phase === 'awaiting' ? t('chat.awaiting')
@@ -252,25 +259,29 @@ function ActivityIndicator({ activityStatus, sessionMeta }: {
 
   // Context pressure warning: threshold depends on model context window size
   // 1M models → warn at 600K; others at 120K (60% of 200K).
-  // Opus 4.7 ships with 1M context by default (no [1m] variant needed).
   const selectedModel = useSettingsStore((s) => s.selectedModel);
   const resolvedModel = resolveModelForProvider(selectedModel);
-  const is1MModel = resolvedModel.includes('[1m]') || selectedModel.endsWith('-1m') || selectedModel === 'claude-opus-4-7';
-  const contextWindow = is1MModel ? 1_000_000 : 200_000;
+  const is1MContextModel = isOneMillionModel(resolvedModel);
+  const contextWindow = is1MContextModel ? 1_000_000 : 200_000;
   const inputTokens = sessionMeta.inputTokens || 0;
-  const contextWarning = inputTokens > contextWindow * 0.6;
+  const contextWarning = !isStopping && inputTokens > contextWindow * 0.6;
 
   // Stall detection: 120s of silence (no stream activity), not total elapsed time.
-  const stallWarning = !!sessionMeta.lastProgressAt
+  const stallWarning = !isStopping
+    && !!sessionMeta.lastProgressAt
     && !!elapsed
     && (now - sessionMeta.lastProgressAt) > 120_000;
 
-  const isThinking = activityStatus.phase === 'thinking';
+  const isThinking = !isStopping && !isStarting && activityStatus.phase === 'thinking';
 
   return (
-    <div className="flex items-center gap-1.5 py-1">
-      <span className={`text-sm font-medium leading-none text-accent
-        ${isThinking ? '' : 'animate-pulse-soft'}`}>/</span>
+    <div className={`flex items-center gap-1.5 py-1 ${isStopping ? 'px-2.5 rounded-full border border-warning/20 bg-warning/5 w-fit' : ''}`}>
+      {isStopping ? (
+        <span className="w-3.5 h-3.5 rounded-full border-2 border-warning/25 border-t-warning animate-spin flex-shrink-0" />
+      ) : (
+        <span className={`text-sm font-medium leading-none text-accent
+          ${isThinking ? '' : 'animate-pulse-soft'}`}>/</span>
+      )}
       <span className="text-sm text-text-muted">
         {isThinking ? <CyclingThinkingText /> : phaseText}
         {statsText && (
@@ -665,8 +676,8 @@ export function ChatPanel() {
                 message bubble when the current turn completes and the
                 FIFO drain in useStreamProcessor sends it. */}
             {pendingUserMessages && pendingUserMessages.length > 0 && pendingUserMessages.map((pending, idx) => (
-              <div key={`pending_${idx}`} className="flex justify-end gap-3 mt-4 opacity-60">
-                <div className="flex flex-col items-end max-w-[75%]">
+              <div key={`pending_${idx}`} className="flex justify-end gap-3 mt-4">
+                <div className="flex flex-col items-end max-w-[75%] opacity-60">
                   <div className="bg-bg-elevated border border-border-subtle text-text-primary
                     rounded-2xl rounded-br-md px-4 py-2.5 leading-relaxed whitespace-pre-wrap break-words">
                     {pending.text}
@@ -679,18 +690,12 @@ export function ChatPanel() {
                     {t('chat.queued')}
                   </span>
                 </div>
-                <div className="w-8 h-8 rounded-[10px] bg-bg-elevated flex-shrink-0
-                  flex items-center justify-center text-text-tertiary">
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                    <circle cx="8" cy="5" r="3" />
-                    <path d="M2 14c0-3 3-5 6-5s6 2 6 5" />
-                  </svg>
-                </div>
+                <UserAvatar size="w-8 h-8 text-xs" className="mt-0.5 flex-shrink-0" />
               </div>
             ))}
             {/* Inline activity status indicator — like Claude Desktop App */}
             {(sessionStatus === 'running' || sessionStatus === 'reconnecting' || sessionStatus === 'stopping' || activityStatus.phase === 'awaiting') && (
-              <ActivityIndicator activityStatus={activityStatus} sessionMeta={sessionMeta} />
+              <ActivityIndicator activityStatus={activityStatus} sessionMeta={sessionMeta} sessionStatus={sessionStatus} />
             )}
           </div>
         )}
@@ -794,6 +799,10 @@ async function startDraftSession(folderPath: string) {
 
     // Ensure tab exists before writing sessionMeta
     useChatStore.getState().ensureTab(draftId);
+    useChatStore.getState().setSessionMeta(draftId, {
+      stdinReady: false,
+      pendingReadyMessage: undefined,
+    });
 
     // Phase 2 §2.1: capture spawn-time fingerprint and config hash BEFORE
     // the async spawn so they reflect the config actually used, not whatever
@@ -848,6 +857,8 @@ async function startDraftSession(folderPath: string) {
       sessionId: spawnResult.sessionInfo.cli_session_id ?? undefined,
       envFingerprint: preEnvFingerprint,
       spawnedModel: model,
+      stdinReady: false,
+      pendingReadyMessage: undefined,
       // Phase 2 §2.1: lock in the pre-warm spawn config hash so the first
       // real user submit can detect drift correctly.
       // Uses pre-computed value captured before async spawn to avoid

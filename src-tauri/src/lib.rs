@@ -1577,12 +1577,18 @@ async fn start_claude_session(
         );
     }
 
-    // For models with 1M context window (MiMo v2 Pro etc.), override the auto-compact
-    // threshold so Claude Code doesn't compact prematurely. The CLI's internal model map
-    // may only know ~200K for these models; this env var directly sets the compact window.
+    // For models with 1M context window (Opus 4.7 by default, explicit 4.6 1M
+    // variants, MiMo v2 Pro, etc.), override the auto-compact threshold so
+    // Claude Code doesn't compact prematurely. The CLI's internal model map may
+    // only know ~200K for some of these models; this env var directly sets the
+    // compact window.
     if let Some(model_name) = params.model.as_deref() {
         let m = model_name.to_lowercase();
-        if m.contains("mimo") || m.contains("[1m]") || m.ends_with("-1m") || m == "claude-opus-4-7" {
+        let is_1m_model = m == "claude-opus-4-7"
+            || m.contains("mimo")
+            || m.contains("[1m]")
+            || m.ends_with("-1m");
+        if is_1m_model {
             resolved_env.insert(
                 "CLAUDE_CODE_AUTO_COMPACT_WINDOW".to_string(),
                 "1000000".to_string(),
