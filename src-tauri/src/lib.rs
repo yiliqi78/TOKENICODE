@@ -3503,7 +3503,16 @@ async fn decode_project_dir(encoded: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn read_file_tree(path: String, depth: Option<u32>) -> Result<Vec<FileNode>, String> {
+async fn read_file_tree(
+    path_access: State<'_, PathAccessManager>,
+    path: String,
+    depth: Option<u32>,
+) -> Result<Vec<FileNode>, String> {
+    // Register the browsed directory as a fixed root so file operations
+    // (preview, read) work even before the first CLI session is started.
+    path_access
+        .register_cwd(std::path::Path::new(&path))
+        .await;
     let max_depth = depth.unwrap_or(5);
     let root = std::path::Path::new(&path);
     if !root.exists() {

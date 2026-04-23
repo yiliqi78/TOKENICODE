@@ -258,21 +258,18 @@ export function useFileAttachments() {
         // Phase 3 §3.2: user dropped files in = user-initiated authorization.
         // Register each dropped path as a path grant for the active tab so
         // subsequent reads (thumbnail preview, size lookup) are allowed.
-        {
+        // Grants MUST be awaited before any file operation that depends on them.
+        (async () => {
           const activeTabId = useSessionStore.getState().selectedSessionId;
           if (activeTabId) {
-            for (const p of paths) {
-              bridge.addPathGrant(activeTabId, p).catch(() => { /* best-effort */ });
-            }
+            await Promise.all(paths.map((p) => bridge.addPathGrant(activeTabId, p).catch(() => { /* best-effort */ })));
           }
-        }
 
-        if (wasOverTree) {
-          // Drop onto file tree → copy files into project
-          const rootPath = useSettingsStore.getState().workingDirectory
-            || useFileStore.getState().rootPath;
-          if (rootPath) {
-            (async () => {
+          if (wasOverTree) {
+            // Drop onto file tree → copy files into project
+            const rootPath = useSettingsStore.getState().workingDirectory
+              || useFileStore.getState().rootPath;
+            if (rootPath) {
               for (const srcPath of paths) {
                 const name = srcPath.split(/[\\/]/).pop() || srcPath;
                 const dest = `${rootPath}/${name}`;
@@ -283,33 +280,33 @@ export function useFileAttachments() {
                 }
               }
               useFileStore.getState().refreshTree(rootPath);
-            })();
-          }
-        } else {
-          // Split: images → file attachments (with preview), non-images → inline chips.
-          // This ensures images show as visual thumbnails in FileUploadChips and
-          // their paths are properly included in the message sent to CLI (#70).
-          const imagePaths: string[] = [];
-          const otherPaths: string[] = [];
-          for (const p of paths) {
-            const name = p.split(/[\\/]/).pop() || '';
-            if (isImageExt(name)) {
-              imagePaths.push(p);
-            } else {
-              otherPaths.push(p);
+            }
+          } else {
+            // Split: images → file attachments (with preview), non-images → inline chips.
+            // This ensures images show as visual thumbnails in FileUploadChips and
+            // their paths are properly included in the message sent to CLI (#70).
+            const imagePaths: string[] = [];
+            const otherPaths: string[] = [];
+            for (const p of paths) {
+              const name = p.split(/[\\/]/).pop() || '';
+              if (isImageExt(name)) {
+                imagePaths.push(p);
+              } else {
+                otherPaths.push(p);
+              }
+            }
+
+            // Images → attachment system (addFilePaths generates thumbnails)
+            if (imagePaths.length > 0) {
+              addFilePaths(imagePaths);
+            }
+
+            // Non-images → inline file chips
+            for (const p of otherPaths) {
+              window.dispatchEvent(new CustomEvent('tokenicode:tree-file-inline', { detail: p }));
             }
           }
-
-          // Images → attachment system (addFilePaths generates thumbnails)
-          if (imagePaths.length > 0) {
-            addFilePaths(imagePaths);
-          }
-
-          // Non-images → inline file chips
-          for (const p of otherPaths) {
-            window.dispatchEvent(new CustomEvent('tokenicode:tree-file-inline', { detail: p }));
-          }
-        }
+        })();
       }
     }).then((fn) => { unlisten = fn; });
     return () => { unlisten?.(); };

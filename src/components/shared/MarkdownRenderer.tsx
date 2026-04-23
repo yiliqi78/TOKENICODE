@@ -32,8 +32,17 @@ function AsyncImage({ src, alt }: { src: string; alt?: string }) {
   const filePath = useMemo(() => (src.startsWith('file://') ? src.slice(7) : src), [src]);
   const inProject = useMemo(() => {
     if (!workingDirectory) return false;
+    // Resolve '..' and '.' segments to prevent path traversal bypassing
+    // the project-containment check (e.g. /project/../outside.png would
+    // naively pass a startsWith('/project/') test).
+    const segments: string[] = [];
+    for (const seg of filePath.split('/')) {
+      if (seg === '..') { segments.pop(); }
+      else if (seg !== '.' && seg !== '') { segments.push(seg); }
+    }
+    const normalized = '/' + segments.join('/');
     const base = workingDirectory.endsWith('/') ? workingDirectory : workingDirectory + '/';
-    return filePath === workingDirectory || filePath.startsWith(base);
+    return normalized === workingDirectory || normalized.startsWith(base);
   }, [filePath, workingDirectory]);
   const [authorized, setAuthorized] = useState(inProject);
 
