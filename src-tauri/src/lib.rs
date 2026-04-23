@@ -4003,9 +4003,16 @@ async fn unwatch_directory(state: State<'_, WatcherManager>, path: String) -> Re
 
 /// Get file size in bytes for a given path
 #[tauri::command]
-async fn get_file_size(path: String) -> Result<u64, String> {
+async fn get_file_size(
+    path_access: State<'_, PathAccessManager>,
+    path: String,
+    tab_id: Option<String>,
+) -> Result<u64, String> {
+    let p = path_access
+        .validate(std::path::Path::new(&path), tab_id.as_deref(), PathCapability::Read)
+        .await?;
     let metadata =
-        std::fs::metadata(&path).map_err(|e| format!("Cannot read file metadata: {}", e))?;
+        std::fs::metadata(&p).map_err(|e| format!("Cannot read file metadata: {}", e))?;
     Ok(metadata.len())
 }
 
