@@ -1,0 +1,206 @@
+{
+  "tests": [
+    {
+      "name": "sonnet-thinking中断后发送(带断言)",
+      "timeout": 90000,
+      "setup": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        },
+        {
+          "cmd": "switch-model",
+          "args": [
+            "claude-sonnet-4-6"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "cmd": "type",
+          "args": [
+            "请写一篇2000字关于机器学习的文章"
+          ]
+        },
+        {
+          "cmd": "send"
+        },
+        {
+          "cmd": "wait-for",
+          "flags": {
+            "selector": "[data-testid=stop-button]",
+            "timeout": "15000"
+          },
+          "timeout": 20000
+        },
+        {
+          "cmd": "stop"
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "active": false
+          }
+        },
+        {
+          "cmd": "type",
+          "args": [
+            "请只回复：OK"
+          ]
+        },
+        {
+          "cmd": "send"
+        },
+        {
+          "cmd": "wait-until-done",
+          "flags": {
+            "timeout": "60000"
+          },
+          "assert": {
+            "status": "completed"
+          },
+          "timeout": 65000
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "active": false,
+            "phase": "completed"
+          }
+        },
+        {
+          "cmd": "get-messages",
+          "assert": {
+            "total_gte": 2
+          }
+        }
+      ],
+      "teardown": [
+        {
+          "cmd": "stop",
+          "continueOnError": true
+        },
+        {
+          "cmd": "delete-session",
+          "continueOnError": true
+        }
+      ]
+    },
+    {
+      "name": "sonnet-writing中断后发送(带断言+wait-for-phase)",
+      "timeout": 90000,
+      "setup": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        },
+        {
+          "cmd": "switch-model",
+          "args": [
+            "claude-sonnet-4-6"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "cmd": "type",
+          "args": [
+            "请写一篇3000字详细介绍相对论的文章，从狭义相对论到广义相对论"
+          ]
+        },
+        {
+          "cmd": "send"
+        },
+        {
+          "cmd": "wait-for-phase",
+          "args": [
+            "writing"
+          ],
+          "flags": {
+            "timeout": "60000"
+          },
+          "timeout": 65000
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "active": true,
+            "phase": "writing"
+          }
+        },
+        {
+          "cmd": "stop"
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "active": false
+          }
+        },
+        {
+          "cmd": "delay",
+          "args": [
+            "1000"
+          ]
+        },
+        {
+          "cmd": "type",
+          "args": [
+            "请只回复：OK"
+          ]
+        },
+        {
+          "cmd": "send"
+        },
+        {
+          "cmd": "wait-until-done",
+          "flags": {
+            "timeout": "60000"
+          },
+          "assert": {
+            "status": "completed"
+          },
+          "timeout": 65000
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "active": false
+          }
+        },
+        {
+          "cmd": "get-messages",
+          "assert": {
+            "total_gte": 3
+          }
+        }
+      ],
+      "teardown": [
+        {
+          "cmd": "stop",
+          "continueOnError": true
+        },
+        {
+          "cmd": "delete-session",
+          "continueOnError": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,196 @@
+{
+  "tests": [
+    {
+      "name": "T01-斜杠命令/help发送(#65回归)",
+      "timeout": 90000,
+      "retry": 1,
+      "setup": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        },
+        {
+          "cmd": "switch-model",
+          "args": [
+            "claude-sonnet-4-6"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "cmd": "type",
+          "args": [
+            "/help"
+          ]
+        },
+        {
+          "cmd": "send"
+        },
+        {
+          "cmd": "wait-until-done",
+          "flags": {
+            "timeout": "60000"
+          },
+          "assert": {
+            "status": "completed"
+          },
+          "timeout": 65000
+        },
+        {
+          "cmd": "get-messages",
+          "assert": {
+            "total_gte": 1
+          }
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "active": false
+          }
+        }
+      ],
+      "teardown": [
+        {
+          "cmd": "stop",
+          "continueOnError": true
+        },
+        {
+          "cmd": "delete-session",
+          "continueOnError": true
+        }
+      ]
+    },
+    {
+      "name": "T02-斜杠命令/model发送",
+      "timeout": 90000,
+      "retry": 1,
+      "setup": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        },
+        {
+          "cmd": "switch-model",
+          "args": [
+            "claude-sonnet-4-6"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "cmd": "type",
+          "args": [
+            "/model"
+          ]
+        },
+        {
+          "cmd": "send"
+        },
+        {
+          "cmd": "wait-until-done",
+          "flags": {
+            "timeout": "60000"
+          },
+          "timeout": 65000
+        },
+        {
+          "cmd": "status"
+        }
+      ],
+      "teardown": [
+        {
+          "cmd": "stop",
+          "continueOnError": true
+        },
+        {
+          "cmd": "delete-session",
+          "continueOnError": true
+        }
+      ]
+    },
+    {
+      "name": "T03-普通文本不触发命令(#65)",
+      "timeout": 90000,
+      "retry": 1,
+      "setup": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        },
+        {
+          "cmd": "switch-model",
+          "args": [
+            "claude-sonnet-4-6"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "cmd": "type",
+          "args": [
+            "这不是一个斜杠命令，请回复OK"
+          ]
+        },
+        {
+          "cmd": "send"
+        },
+        {
+          "cmd": "wait-until-done",
+          "flags": {
+            "timeout": "60000"
+          },
+          "assert": {
+            "status": "completed"
+          },
+          "timeout": 65000
+        },
+        {
+          "cmd": "get-messages",
+          "assert": {
+            "total_gte": 2
+          }
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "active": false
+          }
+        }
+      ],
+      "teardown": [
+        {
+          "cmd": "stop",
+          "continueOnError": true
+        },
+        {
+          "cmd": "delete-session",
+          "continueOnError": true
+        }
+      ]
+    }
+  ]
+}

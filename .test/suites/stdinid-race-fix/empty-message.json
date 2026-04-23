@@ -1,0 +1,138 @@
+{
+  "tests": [
+    {
+      "name": "T01-空消息不应发送",
+      "timeout": 30000,
+      "setup": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        }
+      ],
+      "steps": [
+        {
+          "cmd": "send"
+        },
+        {
+          "cmd": "delay",
+          "args": [
+            "3000"
+          ]
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "active": false
+          }
+        },
+        {
+          "cmd": "get-messages",
+          "assert": {
+            "total_lte": 0
+          }
+        }
+      ],
+      "teardown": [
+        {
+          "cmd": "stop",
+          "continueOnError": true
+        },
+        {
+          "cmd": "delete-session",
+          "continueOnError": true
+        }
+      ]
+    },
+    {
+      "name": "T02-正常消息发送后空消息不应追加",
+      "timeout": 90000,
+      "retry": 1,
+      "setup": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        },
+        {
+          "cmd": "switch-model",
+          "args": [
+            "claude-sonnet-4-6"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "cmd": "type",
+          "args": [
+            "请只回复：收到"
+          ]
+        },
+        {
+          "cmd": "send"
+        },
+        {
+          "cmd": "wait-until-done",
+          "flags": {
+            "timeout": "60000"
+          },
+          "assert": {
+            "status": "completed"
+          },
+          "timeout": 65000
+        },
+        {
+          "cmd": "get-messages",
+          "assert": {
+            "total_gte": 2
+          }
+        },
+        {
+          "cmd": "send"
+        },
+        {
+          "cmd": "delay",
+          "args": [
+            "3000"
+          ]
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "active": false
+          }
+        },
+        {
+          "cmd": "get-messages",
+          "assert": {
+            "total_lte": 3
+          }
+        }
+      ],
+      "teardown": [
+        {
+          "cmd": "stop",
+          "continueOnError": true
+        },
+        {
+          "cmd": "delete-session",
+          "continueOnError": true
+        }
+      ]
+    }
+  ]
+}

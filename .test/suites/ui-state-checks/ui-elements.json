@@ -1,0 +1,360 @@
+{
+  "tests": [
+    {
+      "name": "T01-CLI管理页版本显示(#29#37#10#16)",
+      "timeout": 20000,
+      "steps": [
+        {
+          "cmd": "open-settings"
+        },
+        {
+          "cmd": "switch-settings-tab",
+          "args": [
+            "cli"
+          ]
+        },
+        {
+          "cmd": "delay",
+          "args": [
+            "2000"
+          ]
+        },
+        {
+          "cmd": "get-visible-text",
+          "flags": {
+            "selector": "[data-testid=settings-panel]"
+          }
+        },
+        {
+          "cmd": "close-settings"
+        }
+      ]
+    },
+    {
+      "name": "T02-MCP面板加载(#53#25#33)",
+      "timeout": 20000,
+      "steps": [
+        {
+          "cmd": "open-settings"
+        },
+        {
+          "cmd": "switch-settings-tab",
+          "args": [
+            "mcp"
+          ]
+        },
+        {
+          "cmd": "delay",
+          "args": [
+            "2000"
+          ]
+        },
+        {
+          "cmd": "get-visible-text",
+          "flags": {
+            "selector": "[data-testid=settings-panel]"
+          }
+        },
+        {
+          "cmd": "close-settings"
+        }
+      ]
+    },
+    {
+      "name": "T03-Provider面板Add按钮(#75)",
+      "timeout": 20000,
+      "steps": [
+        {
+          "cmd": "open-settings"
+        },
+        {
+          "cmd": "switch-settings-tab",
+          "args": [
+            "provider"
+          ]
+        },
+        {
+          "cmd": "delay",
+          "args": [
+            "2000"
+          ]
+        },
+        {
+          "cmd": "query-page",
+          "flags": {
+            "mode": "map",
+            "interactive-only": true
+          }
+        },
+        {
+          "cmd": "close-settings"
+        }
+      ]
+    },
+    {
+      "name": "T04-Provider预设检查(#14#21)",
+      "timeout": 20000,
+      "steps": [
+        {
+          "cmd": "open-settings"
+        },
+        {
+          "cmd": "switch-settings-tab",
+          "args": [
+            "provider"
+          ]
+        },
+        {
+          "cmd": "delay",
+          "args": [
+            "2000"
+          ]
+        },
+        {
+          "cmd": "get-visible-text",
+          "flags": {
+            "selector": "[data-testid=settings-panel]"
+          }
+        },
+        {
+          "cmd": "close-settings"
+        }
+      ]
+    },
+    {
+      "name": "T05-General设置页面(#15#73)",
+      "timeout": 20000,
+      "steps": [
+        {
+          "cmd": "open-settings"
+        },
+        {
+          "cmd": "switch-settings-tab",
+          "args": [
+            "general"
+          ]
+        },
+        {
+          "cmd": "delay",
+          "args": [
+            "2000"
+          ]
+        },
+        {
+          "cmd": "get-visible-text",
+          "flags": {
+            "selector": "[data-testid=settings-panel]"
+          }
+        },
+        {
+          "cmd": "close-settings"
+        }
+      ]
+    },
+    {
+      "name": "T06-模型选择器列表(#23#11)",
+      "timeout": 20000,
+      "steps": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "wait-for",
+          "flags": {
+            "selector": "[data-testid=model-selector]",
+            "timeout": "5000"
+          },
+          "timeout": 10000
+        },
+        {
+          "cmd": "query-page",
+          "flags": {
+            "mode": "map",
+            "interactive-only": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "T07-双击ESC不触发回退(#36)",
+      "timeout": 15000,
+      "setup": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        }
+      ],
+      "steps": [
+        {
+          "cmd": "exec",
+          "args": [
+            "(() => { const e1 = new KeyboardEvent('keydown', {key:'Escape',code:'Escape',bubbles:true}); document.dispatchEvent(e1); setTimeout(() => { const e2 = new KeyboardEvent('keydown', {key:'Escape',code:'Escape',bubbles:true}); document.dispatchEvent(e2); }, 200); return 'dispatched'; })()"
+          ]
+        },
+        {
+          "cmd": "delay",
+          "args": [
+            "1000"
+          ]
+        },
+        {
+          "cmd": "query-page",
+          "flags": {
+            "mode": "map",
+            "interactive-only": true
+          }
+        },
+        {
+          "cmd": "status"
+        }
+      ],
+      "teardown": [
+        {
+          "cmd": "stop",
+          "continueOnError": true
+        },
+        {
+          "cmd": "delete-session",
+          "continueOnError": true
+        }
+      ]
+    },
+    {
+      "name": "T08-Markdown加粗中文渲染(#19)",
+      "timeout": 90000,
+      "retry": 1,
+      "setup": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        },
+        {
+          "cmd": "switch-model",
+          "args": [
+            "claude-sonnet-4-6"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "cmd": "type",
+          "args": [
+            "请在回复中使用markdown加粗格式，输出这句话：**「测试」**是**（重要的）**。只输出这句话，不要其他内容"
+          ]
+        },
+        {
+          "cmd": "send"
+        },
+        {
+          "cmd": "wait-until-done",
+          "flags": {
+            "timeout": "60000"
+          },
+          "assert": {
+            "status": "completed"
+          },
+          "timeout": 65000
+        },
+        {
+          "cmd": "get-messages",
+          "flags": {
+            "last": "1",
+            "full": true
+          }
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "active": false
+          }
+        }
+      ],
+      "teardown": [
+        {
+          "cmd": "stop",
+          "continueOnError": true
+        },
+        {
+          "cmd": "delete-session",
+          "continueOnError": true
+        }
+      ]
+    },
+    {
+      "name": "T09-.md路径不触发URL(#62)",
+      "timeout": 15000,
+      "setup": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        }
+      ],
+      "steps": [
+        {
+          "cmd": "type",
+          "args": [
+            "请读取文件 /tmp/test/README.md 和 /tmp/test/CHANGELOG.md"
+          ]
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        },
+        {
+          "cmd": "status"
+        }
+      ],
+      "teardown": [
+        {
+          "cmd": "stop",
+          "continueOnError": true
+        },
+        {
+          "cmd": "delete-session",
+          "continueOnError": true
+        }
+      ]
+    },
+    {
+      "name": "T10-环境变量DISABLE_BETAS(#69)",
+      "timeout": 20000,
+      "steps": [
+        {
+          "cmd": "exec",
+          "args": [
+            "JSON.stringify({env: window.__tokenicode_test ? 'test_helper_exists' : 'no_helper'})"
+          ]
+        }
+      ]
+    }
+  ]
+}

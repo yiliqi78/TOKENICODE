@@ -82,6 +82,7 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
       <button
         onClick={() => !disabled && setOpen(!open)}
         disabled={disabled}
+        {...(import.meta.env.DEV && { 'data-testid': 'model-selector' })}
         className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg
           text-xs text-text-muted hover:text-text-primary
           hover:bg-bg-secondary transition-smooth
@@ -109,6 +110,7 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
                 <div className="border-t border-border-subtle my-1" />
               )}
               <button
+                {...(import.meta.env.DEV && { 'data-testid': `model-option-${option.id}` })}
                 onClick={() => {
                   if (option.id !== selectedModel) {
                     const oldShort = current.short;

@@ -1,0 +1,135 @@
+{
+  "tests": [
+    {
+      "name": "T01-ping连通性",
+      "timeout": 10000,
+      "steps": [
+        {
+          "cmd": "ping",
+          "assert": {
+            "ok": true,
+            "pong": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "T02-status全局状态快照",
+      "timeout": 10000,
+      "steps": [
+        {
+          "cmd": "status",
+          "assert": {
+            "ok": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "T03-query-page-state",
+      "timeout": 15000,
+      "steps": [
+        {
+          "cmd": "query-page",
+          "flags": {
+            "mode": "state"
+          }
+        }
+      ]
+    },
+    {
+      "name": "T04-query-page-info",
+      "timeout": 15000,
+      "steps": [
+        {
+          "cmd": "query-page",
+          "flags": {
+            "mode": "info"
+          }
+        }
+      ]
+    },
+    {
+      "name": "T05-query-page-map-interactive",
+      "timeout": 15000,
+      "steps": [
+        {
+          "cmd": "query-page",
+          "flags": {
+            "mode": "map",
+            "interactive-only": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "T06-check-editor欢迎页无编辑器",
+      "timeout": 10000,
+      "setup": [
+        {
+          "cmd": "new-session"
+        }
+      ],
+      "steps": [
+        {
+          "cmd": "check-editor"
+        }
+      ],
+      "teardown": [
+        {
+          "cmd": "stop",
+          "continueOnError": true
+        },
+        {
+          "cmd": "delete-session",
+          "continueOnError": true
+        }
+      ]
+    },
+    {
+      "name": "T07-new-session-with-cwd有编辑器",
+      "timeout": 15000,
+      "steps": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "T08-get-all-sessions返回列表",
+      "timeout": 10000,
+      "steps": [
+        {
+          "cmd": "get-all-sessions"
+        }
+      ]
+    },
+    {
+      "name": "T09-get-current-model返回模型",
+      "timeout": 10000,
+      "steps": [
+        {
+          "cmd": "get-current-model"
+        }
+      ]
+    },
+    {
+      "name": "T10-is-streaming空闲时为false",
+      "timeout": 10000,
+      "steps": [
+        {
+          "cmd": "is-streaming"
+        }
+      ]
+    }
+  ]
+}

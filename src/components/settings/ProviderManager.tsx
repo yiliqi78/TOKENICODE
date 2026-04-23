@@ -229,6 +229,7 @@ export function ProviderManager({ alwaysExpanded = false }: { alwaysExpanded?: b
           >
             <button
               onClick={() => setActive(null)}
+              {...(import.meta.env.DEV && { 'data-testid': 'provider-inherit-button' })}
               className={`text-left w-full px-3 py-2 ${!activeProviderId ? 'text-accent' : 'text-text-muted'}`}
             >
               {t('provider.inherit')}

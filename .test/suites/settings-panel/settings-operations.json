@@ -1,0 +1,291 @@
+{
+  "tests": [
+    {
+      "name": "T01-打开关闭设置面板",
+      "timeout": 15000,
+      "steps": [
+        {
+          "cmd": "open-settings"
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "settingsOpen": true
+          }
+        },
+        {
+          "cmd": "wait-for",
+          "flags": {
+            "selector": "[data-testid=settings-panel]",
+            "timeout": "5000"
+          },
+          "timeout": 10000
+        },
+        {
+          "cmd": "close-settings"
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "settingsOpen": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "T02-设置tab切换-general",
+      "timeout": 15000,
+      "steps": [
+        {
+          "cmd": "open-settings"
+        },
+        {
+          "cmd": "switch-settings-tab",
+          "args": [
+            "general"
+          ]
+        },
+        {
+          "cmd": "delay",
+          "args": [
+            "1000"
+          ]
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "settingsOpen": true
+          }
+        },
+        {
+          "cmd": "close-settings"
+        }
+      ]
+    },
+    {
+      "name": "T03-设置tab切换-provider(#75)",
+      "timeout": 15000,
+      "steps": [
+        {
+          "cmd": "open-settings"
+        },
+        {
+          "cmd": "switch-settings-tab",
+          "args": [
+            "provider"
+          ]
+        },
+        {
+          "cmd": "delay",
+          "args": [
+            "1000"
+          ]
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "settingsOpen": true
+          }
+        },
+        {
+          "cmd": "close-settings"
+        }
+      ]
+    },
+    {
+      "name": "T04-设置tab切换-cli(#79)",
+      "timeout": 15000,
+      "steps": [
+        {
+          "cmd": "open-settings"
+        },
+        {
+          "cmd": "switch-settings-tab",
+          "args": [
+            "cli"
+          ]
+        },
+        {
+          "cmd": "delay",
+          "args": [
+            "1000"
+          ]
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "settingsOpen": true
+          }
+        },
+        {
+          "cmd": "close-settings"
+        }
+      ]
+    },
+    {
+      "name": "T05-设置tab切换-mcp(#53)",
+      "timeout": 15000,
+      "steps": [
+        {
+          "cmd": "open-settings"
+        },
+        {
+          "cmd": "switch-settings-tab",
+          "args": [
+            "mcp"
+          ]
+        },
+        {
+          "cmd": "delay",
+          "args": [
+            "1000"
+          ]
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "settingsOpen": true
+          }
+        },
+        {
+          "cmd": "close-settings"
+        }
+      ]
+    },
+    {
+      "name": "T06-快速切换所有tab",
+      "timeout": 30000,
+      "steps": [
+        {
+          "cmd": "open-settings"
+        },
+        {
+          "cmd": "switch-settings-tab",
+          "args": [
+            "general"
+          ]
+        },
+        {
+          "cmd": "switch-settings-tab",
+          "args": [
+            "provider"
+          ]
+        },
+        {
+          "cmd": "switch-settings-tab",
+          "args": [
+            "cli"
+          ]
+        },
+        {
+          "cmd": "switch-settings-tab",
+          "args": [
+            "mcp"
+          ]
+        },
+        {
+          "cmd": "switch-settings-tab",
+          "args": [
+            "general"
+          ]
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "settingsOpen": true
+          }
+        },
+        {
+          "cmd": "close-settings"
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "settingsOpen": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "T07-设置面板打开时发消息",
+      "timeout": 60000,
+      "setup": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        },
+        {
+          "cmd": "switch-model",
+          "args": [
+            "claude-sonnet-4-6"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "cmd": "open-settings"
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "settingsOpen": true
+          }
+        },
+        {
+          "cmd": "close-settings"
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "settingsOpen": false
+          }
+        }
+      ],
+      "teardown": [
+        {
+          "cmd": "close-settings",
+          "continueOnError": true
+        }
+      ]
+    },
+    {
+      "name": "T08-provider-card存在性检查(#75)",
+      "timeout": 15000,
+      "steps": [
+        {
+          "cmd": "open-settings"
+        },
+        {
+          "cmd": "switch-settings-tab",
+          "args": [
+            "provider"
+          ]
+        },
+        {
+          "cmd": "delay",
+          "args": [
+            "1000"
+          ]
+        },
+        {
+          "cmd": "query-page",
+          "flags": {
+            "mode": "map",
+            "interactive-only": true
+          }
+        },
+        {
+          "cmd": "close-settings"
+        }
+      ]
+    }
+  ]
+}

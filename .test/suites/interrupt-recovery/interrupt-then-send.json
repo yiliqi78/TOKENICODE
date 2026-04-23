@@ -1,0 +1,401 @@
+{
+  "tests": [
+    {
+      "name": "T01-writing阶段中断后再发消息(#80核心复现)",
+      "timeout": 120000,
+      "retry": 1,
+      "setup": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        },
+        {
+          "cmd": "switch-model",
+          "args": [
+            "claude-sonnet-4-6"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "cmd": "type",
+          "args": [
+            "请写一篇3000字的科普文章，主题是人工智能的发展历史"
+          ]
+        },
+        {
+          "cmd": "send"
+        },
+        {
+          "cmd": "wait-for-phase",
+          "args": [
+            "writing"
+          ],
+          "flags": {
+            "timeout": "60000"
+          },
+          "timeout": 65000
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "active": true
+          }
+        },
+        {
+          "cmd": "stop"
+        },
+        {
+          "cmd": "delay",
+          "args": [
+            "2000"
+          ]
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "active": false
+          }
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        },
+        {
+          "cmd": "type",
+          "args": [
+            "请只回复：OK"
+          ]
+        },
+        {
+          "cmd": "send"
+        },
+        {
+          "cmd": "wait-until-done",
+          "flags": {
+            "timeout": "60000"
+          },
+          "assert": {
+            "status": "completed"
+          },
+          "timeout": 65000
+        },
+        {
+          "cmd": "get-messages",
+          "assert": {
+            "total_gte": 3
+          }
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "active": false
+          }
+        }
+      ],
+      "teardown": [
+        {
+          "cmd": "stop",
+          "continueOnError": true
+        },
+        {
+          "cmd": "delete-session",
+          "continueOnError": true
+        }
+      ]
+    },
+    {
+      "name": "T02-thinking阶段中断后再发消息(#80变体)",
+      "timeout": 120000,
+      "retry": 1,
+      "setup": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        },
+        {
+          "cmd": "switch-model",
+          "args": [
+            "claude-sonnet-4-6"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "cmd": "type",
+          "args": [
+            "请分析一下量子纠缠的哲学意义，写5000字"
+          ]
+        },
+        {
+          "cmd": "send"
+        },
+        {
+          "cmd": "wait-for-phase",
+          "args": [
+            "thinking"
+          ],
+          "flags": {
+            "timeout": "60000"
+          },
+          "timeout": 65000
+        },
+        {
+          "cmd": "stop"
+        },
+        {
+          "cmd": "delay",
+          "args": [
+            "2000"
+          ]
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "active": false
+          }
+        },
+        {
+          "cmd": "type",
+          "args": [
+            "请只回复：明白"
+          ]
+        },
+        {
+          "cmd": "send"
+        },
+        {
+          "cmd": "wait-until-done",
+          "flags": {
+            "timeout": "60000"
+          },
+          "assert": {
+            "status": "completed"
+          },
+          "timeout": 65000
+        },
+        {
+          "cmd": "get-messages",
+          "assert": {
+            "total_gte": 3
+          }
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "active": false
+          }
+        }
+      ],
+      "teardown": [
+        {
+          "cmd": "stop",
+          "continueOnError": true
+        },
+        {
+          "cmd": "delete-session",
+          "continueOnError": true
+        }
+      ]
+    },
+    {
+      "name": "T03-连续中断两次再发消息(#80压测)",
+      "timeout": 150000,
+      "setup": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        },
+        {
+          "cmd": "switch-model",
+          "args": [
+            "claude-sonnet-4-6"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "cmd": "type",
+          "args": [
+            "写一篇长文关于宇宙大爆炸"
+          ]
+        },
+        {
+          "cmd": "send"
+        },
+        {
+          "cmd": "wait-for-phase",
+          "args": [
+            "writing"
+          ],
+          "flags": {
+            "timeout": "60000"
+          },
+          "timeout": 65000
+        },
+        {
+          "cmd": "stop"
+        },
+        {
+          "cmd": "delay",
+          "args": [
+            "2000"
+          ]
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "active": false
+          }
+        },
+        {
+          "cmd": "type",
+          "args": [
+            "写一篇长文关于黑洞理论"
+          ]
+        },
+        {
+          "cmd": "send"
+        },
+        {
+          "cmd": "wait-for-phase",
+          "args": [
+            "writing"
+          ],
+          "flags": {
+            "timeout": "60000"
+          },
+          "timeout": 65000
+        },
+        {
+          "cmd": "stop"
+        },
+        {
+          "cmd": "delay",
+          "args": [
+            "2000"
+          ]
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "active": false
+          }
+        },
+        {
+          "cmd": "type",
+          "args": [
+            "请只回复：OK"
+          ]
+        },
+        {
+          "cmd": "send"
+        },
+        {
+          "cmd": "wait-until-done",
+          "flags": {
+            "timeout": "60000"
+          },
+          "assert": {
+            "status": "completed"
+          },
+          "timeout": 65000
+        },
+        {
+          "cmd": "get-messages",
+          "assert": {
+            "total_gte": 5
+          }
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "active": false
+          }
+        }
+      ],
+      "teardown": [
+        {
+          "cmd": "stop",
+          "continueOnError": true
+        },
+        {
+          "cmd": "delete-session",
+          "continueOnError": true
+        }
+      ]
+    },
+    {
+      "name": "T04-stop在非活跃状态不应报错",
+      "timeout": 15000,
+      "setup": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        }
+      ],
+      "steps": [
+        {
+          "cmd": "status",
+          "assert": {
+            "active": false
+          }
+        },
+        {
+          "cmd": "stop",
+          "continueOnError": true
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "active": false
+          }
+        }
+      ],
+      "teardown": [
+        {
+          "cmd": "stop",
+          "continueOnError": true
+        },
+        {
+          "cmd": "delete-session",
+          "continueOnError": true
+        }
+      ]
+    }
+  ]
+}
