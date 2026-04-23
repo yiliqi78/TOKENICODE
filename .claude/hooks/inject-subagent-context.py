@@ -19,7 +19,7 @@ Context Source: .trellis/.current-task points to task directory
 - cr.jsonl        - Code review dedicated context
 - prd.md          - Requirements document
 - info.md         - Technical design
-- codex-review-*.txt      - Code Review results (latest by timestamp)
+- codex-review-output.txt - Code Review results
 """
 
 # IMPORTANT: Suppress all warnings FIRST
@@ -62,12 +62,11 @@ AGENT_IMPLEMENT = "implement"
 AGENT_CHECK = "check"
 AGENT_DEBUG = "debug"
 AGENT_RESEARCH = "research"
-AGENT_REVIEW = "review"
 
 # Agents that require a task directory
-AGENTS_REQUIRE_TASK = (AGENT_IMPLEMENT, AGENT_CHECK, AGENT_DEBUG, AGENT_REVIEW)
+AGENTS_REQUIRE_TASK = (AGENT_IMPLEMENT, AGENT_CHECK, AGENT_DEBUG)
 # All supported agents
-AGENTS_ALL = (AGENT_IMPLEMENT, AGENT_CHECK, AGENT_DEBUG, AGENT_RESEARCH, AGENT_REVIEW)
+AGENTS_ALL = (AGENT_IMPLEMENT, AGENT_CHECK, AGENT_DEBUG, AGENT_RESEARCH)
 
 
 def find_repo_root(start_path: str) -> str | None:
@@ -137,7 +136,6 @@ def update_current_phase(repo_root: str, task_dir: str, subagent_type: str) -> N
         action_to_agent = {
             "implement": "implement",
             "check": "check",
-            "review": "review",
             "finish": "check",  # finish uses check agent
         }
 
@@ -156,15 +154,11 @@ def update_current_phase(repo_root: str, task_dir: str, subagent_type: str) -> N
         if new_phase is not None:
             task_data["current_phase"] = new_phase
 
-            import tempfile
-            fd, tmp_path = tempfile.mkstemp(
-                dir=os.path.dirname(task_json_path), suffix=".tmp"
-            )
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
+            with open(task_json_path, "w", encoding="utf-8") as f:
                 json.dump(task_data, f, indent=2, ensure_ascii=False)
-            os.replace(tmp_path, task_json_path)
-    except Exception as e:
-        print(f"[inject-context] WARNING: phase update failed: {e}", file=sys.stderr)
+    except Exception:
+        # Don't fail the hook if phase update fails
+        pass
 
 
 def read_file_content(base_path: str, file_path: str) -> str | None:
@@ -293,28 +287,6 @@ def get_agent_context(repo_root: str, task_dir: str, agent_type: str) -> str:
     return "\n\n".join(context_parts)
 
 
-def _get_git_diff(repo_root: str, stat_only: bool = False) -> str:
-    """Run git diff HEAD~1..HEAD and return output. Falls back to working-tree diff if HEAD~1 doesn't exist."""
-    import subprocess
-    try:
-        cmd = ["git", "diff", "HEAD~1..HEAD"]
-        if stat_only:
-            cmd.append("--stat")
-        result = subprocess.run(cmd, capture_output=True, text=True, cwd=repo_root, timeout=30)
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except Exception:
-        pass
-    try:
-        cmd = ["git", "diff"]
-        if stat_only:
-            cmd.append("--stat")
-        result = subprocess.run(cmd, capture_output=True, text=True, cwd=repo_root, timeout=30)
-        return result.stdout.strip()
-    except Exception:
-        return ""
-
-
 def get_implement_context(repo_root: str, task_dir: str) -> str:
     """
     Complete context for Implement Agent
@@ -343,17 +315,6 @@ def get_implement_context(repo_root: str, task_dir: str) -> str:
             f"=== {task_dir}/info.md (Technical Design) ===\n{info_content}"
         )
 
-    # 4. Auto-inject research reports from _research/ directory
-    import glob as _glob
-    research_dir = os.path.join(repo_root, task_dir, "_research")
-    if os.path.isdir(research_dir):
-        research_files = sorted(_glob.glob(os.path.join(research_dir, "*.md")))
-        for rf in research_files:
-            rel = os.path.relpath(rf, repo_root)
-            content = read_file_content(repo_root, rel)
-            if content:
-                context_parts.append(f"=== {rel} (Research Report) ===\n{content}")
-
     return "\n\n".join(context_parts)
 
 
@@ -378,7 +339,8 @@ def get_check_context(repo_root: str, task_dir: str) -> str:
         check_files = [
             (".claude/commands/trellis/finish-work.md", "Finish work checklist"),
             (".claude/commands/trellis/check-cross-layer.md", "Cross-layer check spec"),
-            (".claude/commands/trellis/check.md", "Code quality check spec"),
+            (".claude/commands/trellis/check-backend.md", "Backend check spec"),
+            (".claude/commands/trellis/check-frontend.md", "Frontend check spec"),
         ]
         for file_path, description in check_files:
             content = read_file_content(repo_root, file_path)
@@ -396,11 +358,6 @@ def get_check_context(repo_root: str, task_dir: str) -> str:
         context_parts.append(
             f"=== {task_dir}/prd.md (Requirements - for understanding intent) ===\n{prd_content}"
         )
-
-    # 3. Git diff of implement commit (changes to verify)
-    diff_output = _get_git_diff(repo_root)
-    if diff_output:
-        context_parts.append(f"=== Git Diff (implement changes to verify) ===\n{diff_output}")
 
     return "\n\n".join(context_parts)
 
@@ -449,11 +406,6 @@ def get_finish_context(repo_root: str, task_dir: str) -> str:
             f"=== {task_dir}/prd.md (Requirements - verify all met) ===\n{prd_content}"
         )
 
-    # 4. Git diff (full, to verify changes and update specs)
-    diff_output = _get_git_diff(repo_root, stat_only=False)
-    if diff_output:
-        context_parts.append(f"=== Git Diff (implement changes) ===\n{diff_output}")
-
     return "\n\n".join(context_parts)
 
 
@@ -463,7 +415,7 @@ def get_debug_context(repo_root: str, task_dir: str) -> str:
 
     Read order:
     1. All files in debug.jsonl (specs needed for fixing)
-    2. codex-review-*.txt (latest Codex Review results by timestamp)
+    2. codex-review-output.txt (Codex Review results)
     """
     context_parts = []
 
@@ -480,7 +432,8 @@ def get_debug_context(repo_root: str, task_dir: str) -> str:
             context_parts.append(f"=== {file_path} (Dev spec) ===\n{content}")
 
         check_files = [
-            (".claude/commands/trellis/check.md", "Code quality check spec"),
+            (".claude/commands/trellis/check-backend.md", "Backend check spec"),
+            (".claude/commands/trellis/check-frontend.md", "Frontend check spec"),
             (".claude/commands/trellis/check-cross-layer.md", "Cross-layer check spec"),
         ]
         for file_path, description in check_files:
@@ -488,99 +441,14 @@ def get_debug_context(repo_root: str, task_dir: str) -> str:
             if content:
                 context_parts.append(f"=== {file_path} ({description}) ===\n{content}")
 
-    # 2. Codex review output — find the latest codex-review-*.txt by name (timestamp-sorted)
-    import glob as _glob
-    review_dir = os.path.join(repo_root, task_dir)
-    review_files = sorted(_glob.glob(os.path.join(review_dir, "codex-review-[0-9]*.txt")), reverse=True)
-    if review_files:
-        latest = review_files[0]
-        rel_path = os.path.relpath(latest, repo_root)
-        codex_output = read_file_content(repo_root, rel_path)
-        if codex_output:
-            context_parts.append(
-                f"=== {rel_path} (Codex Review Results — latest) ===\n{codex_output}"
-            )
-
-    return "\n\n".join(context_parts)
-
-
-def get_review_context(repo_root: str, task_dir: str) -> str:
-    """
-    Complete context for Review Agent (dual-model external review)
-
-    Read order:
-    1. Codex SKILL.md protocol (from user's skill directory)
-    2. review.jsonl (if exists, for additional review context)
-    3. prd.md (task context)
-    """
-    context_parts = []
-
-    # 1. Codex SKILL.md protocol
-    codex_skill_path = os.path.expanduser("~/.claude/skills/codex/SKILL.md")
-    if os.path.exists(codex_skill_path):
-        try:
-            with open(codex_skill_path, "r", encoding="utf-8") as f:
-                codex_skill = f.read()
-            context_parts.append(
-                f"=== Codex Review Protocol (SKILL.md) ===\n{codex_skill}"
-            )
-        except Exception:
-            pass
-
-    # 2. review.jsonl (optional extra context)
-    review_entries = read_jsonl_entries(repo_root, f"{task_dir}/review.jsonl")
-    for file_path, content in review_entries:
-        context_parts.append(f"=== {file_path} ===\n{content}")
-
-    # 3. Requirements document (task context for understanding intent)
-    prd_content = read_file_content(repo_root, f"{task_dir}/prd.md")
-    if prd_content:
+    # 2. Codex review output (if exists)
+    codex_output = read_file_content(repo_root, f"{task_dir}/codex-review-output.txt")
+    if codex_output:
         context_parts.append(
-            f"=== {task_dir}/prd.md (Task Context) ===\n{prd_content}"
+            f"=== {task_dir}/codex-review-output.txt (Codex Review Results) ===\n{codex_output}"
         )
 
     return "\n\n".join(context_parts)
-
-
-def build_review_prompt(original_prompt: str, context: str, task_dir: str) -> str:
-    """Build complete prompt for Review (dual-model external review)"""
-    return f"""# Review Agent Task
-
-You are the Review Agent in the Multi-Agent Pipeline (dual-model external reviewer).
-
-## Your Context
-
-Codex review protocol and task requirements:
-
-{context}
-
----
-
-## Your Task
-
-{original_prompt}
-
----
-
-## Task Directory
-
-The current task directory is: `{task_dir}`
-Write your codex-review output file to this directory.
-
-## Key Instructions
-
-1. **Dual-model review**: Use GPT-5.3-codex + GPT-5.4 via `mcp__codex__codex` (2 concurrent calls)
-2. **Follow SKILL.md protocol**: XML block structure, grounding rules, anti-rubber-stamp
-3. **Arbitrate findings**: Consensus (both agree) → adopt. Single-source → verify yourself. Conflict → read code and decide.
-4. **Write verdict file**: `{{task_dir}}/codex-review-{{YYYYMMDD-HHmm}}.txt`
-5. **Return verdict clearly**: PASS / PASS WITH NOTES / FAIL + finding summary
-6. **Fallback**: If `mcp__codex__codex` is unavailable, use `node codex-companion.mjs review --wait`
-
-## Important Constraints
-
-- Do NOT fix code, only review
-- Do NOT execute git commit
-- Write exactly one codex-review file per invocation"""
 
 
 def build_implement_prompt(original_prompt: str, context: str) -> str:
@@ -735,34 +603,24 @@ def get_research_context(repo_root: str, task_dir: str | None) -> str:
     """
     context_parts = []
 
-    # 1. Project structure overview (dynamically discover spec directories)
+    # 1. Project structure overview (uses constants for paths)
     spec_path = f"{DIR_WORKFLOW}/{DIR_SPEC}"
-    spec_root = Path(repo_root) / DIR_WORKFLOW / DIR_SPEC
-
-    # Build spec tree dynamically
-    tree_lines = [f"{spec_path}/"]
-    if spec_root.is_dir():
-        pkg_dirs = sorted(d for d in spec_root.iterdir() if d.is_dir())
-        for i, pkg_dir in enumerate(pkg_dirs):
-            is_last = i == len(pkg_dirs) - 1
-            prefix = "└── " if is_last else "├── "
-            layers = sorted(d.name for d in pkg_dir.iterdir() if d.is_dir())
-            layer_info = f" ({', '.join(layers)})" if layers else ""
-            tree_lines.append(f"{prefix}{pkg_dir.name}/{layer_info}")
-
-    spec_tree = "\n".join(tree_lines)
-
     project_structure = f"""## Project Spec Directory Structure
 
 ```
-{spec_tree}
-```
+{spec_path}/
+├── shared/      # Cross-project common specs (TypeScript, code quality, git)
+├── frontend/    # Frontend standards
+├── backend/     # Backend standards
+└── guides/      # Thinking guides (cross-layer, code reuse, etc.)
 
-To get structured package info, run: `python3 ./{DIR_WORKFLOW}/scripts/get_context.py --mode packages`
+{DIR_WORKFLOW}/big-question/  # Known issues and pitfalls
+```
 
 ## Search Tips
 
 - Spec files: `{spec_path}/**/*.md`
+- Known issues: `{DIR_WORKFLOW}/big-question/`
 - Code search: Use Glob and Grep tools
 - Tech solutions: Use mcp__exa__web_search_exa or mcp__exa__get_code_context_exa"""
 
@@ -903,10 +761,6 @@ def main():
         assert task_dir is not None  # validated above
         context = get_debug_context(repo_root, task_dir)
         new_prompt = build_debug_prompt(original_prompt, context)
-    elif subagent_type == AGENT_REVIEW:
-        assert task_dir is not None  # validated above
-        context = get_review_context(repo_root, task_dir)
-        new_prompt = build_review_prompt(original_prompt, context, task_dir)
     elif subagent_type == AGENT_RESEARCH:
         # Research can work without task directory
         context = get_research_context(repo_root, task_dir)
@@ -915,7 +769,6 @@ def main():
         sys.exit(0)
 
     if not context:
-        print(f"[inject-context] WARNING: no context built for {subagent_type}, proceeding without injection", file=sys.stderr)
         sys.exit(0)
 
     # Return updated input with correct Claude Code PreToolUse format
