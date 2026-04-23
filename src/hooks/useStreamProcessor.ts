@@ -5,7 +5,7 @@ import { useSessionStore, setOrphanDrainCallback } from '../stores/sessionStore'
 import { useAgentStore, resolveAgentId, getAgentDepth } from '../stores/agentStore';
 import { useFileStore } from '../stores/fileStore';
 import { bridge } from '../lib/tauri-bridge';
-import { envFingerprint, resolveModelForProvider } from '../lib/api-provider';
+import { envFingerprint, resolveModelForProvider, spawnConfigHash, getAutoCompactThreshold } from '../lib/api-provider';
 import { useProviderStore } from '../stores/providerStore';
 import { t } from '../lib/i18n';
 import {
@@ -593,29 +593,54 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         // Decision 5: stopping state blocks drain pending.
         // Use bgWasStopping (captured BEFORE setSessionStatus above) because the
         // status was already overwritten to completed/error by the time we get here.
+        //
+        // Phase 2 §6: before sending, verify the config hash captured at enqueue
+        // time still matches the current spawnConfigHash. If not, the user
+        // changed provider / model / thinking mid-turn and the queued text
+        // would be processed on a stale process — backfill to inputDraft instead.
         {
           const bgDrainTab = store.getTab(tabId);
           const bgAllPending = bgDrainTab?.pendingUserMessages ?? [];
           const bgFlushStdinId = bgDrainTab?.sessionMeta.stdinId;
           if (bgAllPending.length > 0 && bgFlushStdinId && !bgWasStopping) {
-            const bgCombined = bgAllPending.join('\n\n');
-            store.clearPendingMessages(tabId);
-            store.addMessage(tabId, {
-              id: generateMessageId(),
-              role: 'user',
-              type: 'text',
-              content: bgCombined,
-              timestamp: Date.now(),
-            });
-            store.setSessionStatus(tabId, 'running');
-            store.setSessionMeta(tabId, { turnStartTime: Date.now(), lastProgressAt: Date.now(), inputTokens: 0, outputTokens: 0 });
-            store.setActivityStatus(tabId, { phase: 'thinking' });
-            bridge.sendStdin(bgFlushStdinId, bgCombined).catch((err) => {
-              console.error('[TC:bg] Failed to send pending messages:', err);
+            const bgCurrentHash = spawnConfigHash();
+            const bgHashMismatch = bgAllPending.some(
+              (p) => p.enqueueConfigHash !== undefined && p.enqueueConfigHash !== bgCurrentHash,
+            );
+            // Also detect stdinId drift: if the process was restarted since
+            // enqueue, the stdinId will differ and the queued text should not
+            // be sent to the new process.
+            const bgStdinMismatch = bgAllPending.some(
+              (p) => p.enqueueStdinId !== undefined && p.enqueueStdinId !== bgFlushStdinId,
+            );
+            if (bgHashMismatch || bgStdinMismatch) {
               const bgDraft = store.getTab(tabId)?.inputDraft ?? '';
-              store.setInputDraft(tabId, bgDraft ? `${bgDraft}\n\n${bgCombined}` : bgCombined);
-              store.setSessionStatus(tabId, 'error');
-            });
+              const bgBackfill = bgAllPending.map((p) => p.text).join('\n\n');
+              store.setInputDraft(tabId, bgDraft ? `${bgDraft}\n\n${bgBackfill}` : bgBackfill);
+              store.clearPendingMessages(tabId);
+              console.warn('[TC:bg] Config changed mid-queue — pending messages restored to draft');
+            } else {
+              const bgCombined = bgAllPending.map((p) => p.text).join('\n\n');
+              store.clearPendingMessages(tabId);
+              store.addMessage(tabId, {
+                id: generateMessageId(),
+                role: 'user',
+                type: 'text',
+                content: bgCombined,
+                timestamp: Date.now(),
+              });
+              store.setSessionStatus(tabId, 'running');
+              store.setSessionMeta(tabId, { turnStartTime: Date.now(), lastProgressAt: Date.now(), inputTokens: 0, outputTokens: 0 });
+              store.setActivityStatus(tabId, { phase: 'thinking' });
+              bridge.sendStdin(bgFlushStdinId, bgCombined).catch((err) => {
+                console.error('[TC:bg] Failed to send pending messages:', err);
+                const bgDraft = store.getTab(tabId)?.inputDraft ?? '';
+                store.setInputDraft(tabId, bgDraft ? `${bgDraft}\n\n${bgCombined}` : bgCombined);
+                cleanupStdinRoute(bgFlushStdinId);
+                store.setSessionMeta(tabId, { stdinId: undefined });
+                store.setSessionStatus(tabId, 'error');
+              });
+            }
           }
         }
 
@@ -626,7 +651,8 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           const bgCompactTab = store.getTab(tabId);
           const bgResultInputTokens = msg.usage?.input_tokens || 0;
           const bgCompactStdinId = bgCompactTab?.sessionMeta.stdinId;
-          if (bgResultInputTokens > 160_000 && !hasAutoCompactFired(tabId) && bgCompactStdinId && msg.subtype === 'success') {
+          const bgCompactThreshold = getAutoCompactThreshold(bgCompactTab?.sessionMeta.spawnedModel);
+          if (bgResultInputTokens > bgCompactThreshold && !hasAutoCompactFired(tabId) && bgCompactStdinId && msg.subtype === 'success') {
             markAutoCompactFired(tabId);
             console.log('[TOKENICODE] Background tab auto-compact triggered:', tabId, 'inputTokens =', bgResultInputTokens);
             const bgCompactMsgId = generateMessageId();
@@ -1660,6 +1686,11 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
                   phase: 'spawning', startTime: Date.now(), isMain: true,
                 });
 
+                // Phase 2 §2.1: capture spawn-time values BEFORE async spawn
+                // to avoid race with user config changes during the spawn window.
+                const preEnvFingerprint = envFingerprint();
+                const preSpawnConfigHash = spawnConfigHash();
+
                 // NEW-F fix: use owning tabId (retryTabId), not selectedSessionId
                 const spawnResult = await spawnSession({
                   tabId: retryTabId,
@@ -1689,8 +1720,9 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
 
                 setSessionMeta({
                   sessionId: spawnResult.sessionInfo.cli_session_id ?? undefined,
-                  envFingerprint: envFingerprint(),
+                  envFingerprint: preEnvFingerprint,
                   spawnedModel: model,
+                  spawnConfigHash: preSpawnConfigHash,
                 });
               } catch (retryErr) {
                 console.error('[TOKENICODE] Provider-switch auto-retry failed:', retryErr);
@@ -1870,12 +1902,14 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           }
         }
 
-        // --- Auto-compact: when input tokens exceed 160K (80% of 200K context),
+        // --- Auto-compact: when input tokens exceed 80% of context window,
         // automatically send /compact to prevent context overflow on the next turn.
         // Fires at most once per session to avoid infinite loops.
+        // Threshold is model-aware: 160K for 200K models, 800K for 1M models.
         const resultInputTokens = msg.usage?.input_tokens || 0;
         const compactStdinId = useChatStore.getState().getTab(tabId)?.sessionMeta.stdinId;
-        if (resultInputTokens > 160_000 && !hasAutoCompactFired(tabId) && compactStdinId && msg.subtype === 'success') {
+        const fgCompactThreshold = getAutoCompactThreshold(useChatStore.getState().getTab(tabId)?.sessionMeta.spawnedModel);
+        if (resultInputTokens > fgCompactThreshold && !hasAutoCompactFired(tabId) && compactStdinId && msg.subtype === 'success') {
           markAutoCompactFired(tabId);
           console.log('[TOKENICODE] Auto-compact triggered: inputTokens =', resultInputTokens);
           const compactMsgId = generateMessageId();
@@ -1931,43 +1965,64 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           const allPending = drainTab?.pendingUserMessages ?? [];
           const flushStdinId = drainTab?.sessionMeta.stdinId;
           if (allPending.length > 0 && flushStdinId && !fgWasStopping) {
-            const nextMsg = allPending.join('\n\n');
-            useChatStore.getState().clearPendingMessages(tabId);
-
-            // Add as a single user message — InputBar deliberately did NOT
-            // addMessage when enqueueing, because ChatPanel renders pending
-            // messages after the streaming bubble. Now they merge into one turn.
-            addMessage({
-              id: generateMessageId(),
-              role: 'user',
-              type: 'text',
-              content: nextMsg,
-              timestamp: Date.now(),
-            });
-            const nextTurnStartedAt = Date.now();
-            setSessionStatus('running');
-            setSessionMeta({
-              turnStartTime: nextTurnStartedAt,
-              lastProgressAt: nextTurnStartedAt,
-              inputTokens: 0,
-              outputTokens: 0,
-            });
-            setActivityStatus({ phase: 'thinking' });
-            agentActions.clearAgents();
-            agentActions.upsertAgent({
-              id: 'main',
-              parentId: null,
-              description: nextMsg.slice(0, 100),
-              phase: 'spawning',
-              startTime: Date.now(),
-              isMain: true,
-            });
-            bridge.sendStdin(flushStdinId, nextMsg).catch((err) => {
-              console.error('[TC] Failed to send pending messages:', err);
+            // Phase 2 §6: verify queued config hashes still match current before sending.
+            const currentHash = spawnConfigHash();
+            const hashMismatch = allPending.some(
+              (p) => p.enqueueConfigHash !== undefined && p.enqueueConfigHash !== currentHash,
+            );
+            // Also detect stdinId drift: if the process was restarted since
+            // enqueue, the stdinId will differ and the queued text should not
+            // be sent to the new process.
+            const stdinMismatch = allPending.some(
+              (p) => p.enqueueStdinId !== undefined && p.enqueueStdinId !== flushStdinId,
+            );
+            if (hashMismatch || stdinMismatch) {
               const draft = useChatStore.getState().getTab(tabId)?.inputDraft ?? '';
-              useChatStore.getState().setInputDraft(tabId, draft ? `${draft}\n\n${nextMsg}` : nextMsg);
-              setSessionStatus('error');
-            });
+              const backfill = allPending.map((p) => p.text).join('\n\n');
+              useChatStore.getState().setInputDraft(tabId, draft ? `${draft}\n\n${backfill}` : backfill);
+              useChatStore.getState().clearPendingMessages(tabId);
+              console.warn('[TC] Config changed mid-queue — pending messages restored to draft');
+            } else {
+              const nextMsg = allPending.map((p) => p.text).join('\n\n');
+              useChatStore.getState().clearPendingMessages(tabId);
+
+              // Add as a single user message — InputBar deliberately did NOT
+              // addMessage when enqueueing, because ChatPanel renders pending
+              // messages after the streaming bubble. Now they merge into one turn.
+              addMessage({
+                id: generateMessageId(),
+                role: 'user',
+                type: 'text',
+                content: nextMsg,
+                timestamp: Date.now(),
+              });
+              const nextTurnStartedAt = Date.now();
+              setSessionStatus('running');
+              setSessionMeta({
+                turnStartTime: nextTurnStartedAt,
+                lastProgressAt: nextTurnStartedAt,
+                inputTokens: 0,
+                outputTokens: 0,
+              });
+              setActivityStatus({ phase: 'thinking' });
+              agentActions.clearAgents();
+              agentActions.upsertAgent({
+                id: 'main',
+                parentId: null,
+                description: nextMsg.slice(0, 100),
+                phase: 'spawning',
+                startTime: Date.now(),
+                isMain: true,
+              });
+              bridge.sendStdin(flushStdinId, nextMsg).catch((err) => {
+                console.error('[TC] Failed to send pending messages:', err);
+                const draft = useChatStore.getState().getTab(tabId)?.inputDraft ?? '';
+                useChatStore.getState().setInputDraft(tabId, draft ? `${draft}\n\n${nextMsg}` : nextMsg);
+                cleanupStdinRoute(flushStdinId);
+                useChatStore.getState().setSessionMeta(tabId, { stdinId: undefined });
+                setSessionStatus('error');
+              });
+            }
           }
         }
 

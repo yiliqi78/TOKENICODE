@@ -3,13 +3,7 @@ import { useSettingsStore, MODEL_OPTIONS } from '../../stores/settingsStore';
 import { useChatStore, generateMessageId } from '../../stores/chatStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useProviderStore } from '../../stores/providerStore';
-
-/** Tier mapping from official ModelId to provider tier key */
-const TIER_MAP: Record<string, 'opus' | 'sonnet' | 'haiku'> = {
-  'claude-opus-4-7': 'opus',
-  'claude-sonnet-4-6': 'sonnet',
-  'claude-haiku-4-5-20251001': 'haiku',
-};
+import { TIER_MAP } from '../../lib/api-provider';
 
 const FIXED_TIERS = new Set(['opus', 'sonnet', 'haiku']);
 
@@ -58,10 +52,12 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
       const tier = TIER_MAP[m.id];
       const mapping = activeProvider.modelMappings.find((mm) => mm.tier === tier);
       if (mapping?.providerModel) {
-        // Show only the provider model name — the actual backend being called.
-        // The Claude-side tier prefix ("Opus 4.6 →") is noise since the mapping
-        // is user-configured and the provider name is what matters (#74).
-        return { id: m.id, label: mapping.providerModel, short: mapping.providerModel, mapped: true, isExtra: false };
+        // Show provider model name with the original variant label so users
+        // can distinguish between e.g. Opus 4.6 and Opus 4.7 1M even when
+        // they map to the same provider model (#139 port).
+        const variantLabel = `${mapping.providerModel} (${m.short})`;
+        const variantShort = `${mapping.providerModel} (${m.short})`;
+        return { id: m.id, label: variantLabel, short: variantShort, mapped: true, isExtra: false };
       }
       return { id: m.id, label: m.label, short: m.short, mapped: false, isExtra: false };
     });

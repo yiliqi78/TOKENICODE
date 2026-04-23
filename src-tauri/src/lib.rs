@@ -1469,7 +1469,7 @@ async fn start_claude_session(
     // may only know ~200K for these models; this env var directly sets the compact window.
     if let Some(model_name) = params.model.as_deref() {
         let m = model_name.to_lowercase();
-        if m.contains("mimo") || m.contains("[1m]") {
+        if m.contains("mimo") || m.contains("[1m]") || m.ends_with("-1m") || m == "claude-opus-4-7" {
             resolved_env.insert(
                 "CLAUDE_CODE_AUTO_COMPACT_WINDOW".to_string(),
                 "1000000".to_string(),
