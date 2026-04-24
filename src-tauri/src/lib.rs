@@ -756,6 +756,9 @@ struct ProvidersFile {
 }
 
 const PARTIAL_MESSAGES_OVERRIDE_ENV: &str = "TOKENICODE_INCLUDE_PARTIAL_MESSAGES";
+const OPUS_4_7_MODEL_ID: &str = "claude-opus-4-7";
+const OPUS_4_7_LEGACY_1M_MODEL_ID: &str = "claude-opus-4-7-1m";
+const OPUS_4_7_CLI_1M_MODEL_ID: &str = "claude-opus-4-7[1m]";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ProviderRuntimeCapabilities {
@@ -1247,11 +1250,21 @@ fn redacted_env_for_log(env: &HashMap<String, String>) -> BTreeMap<String, Strin
         .collect()
 }
 
+fn normalize_cli_model_id(model: &str) -> String {
+    let lower = model.to_lowercase();
+    if lower == OPUS_4_7_MODEL_ID || lower == OPUS_4_7_LEGACY_1M_MODEL_ID {
+        OPUS_4_7_CLI_1M_MODEL_ID.to_string()
+    } else {
+        model.to_string()
+    }
+}
+
 #[cfg(test)]
 mod provider_capability_tests {
     use super::{
-        parse_bool_override, redacted_env_for_log, resolve_provider_capabilities, ApiProvider,
-        ModelMapping, PARTIAL_MESSAGES_OVERRIDE_ENV,
+        normalize_cli_model_id, parse_bool_override, redacted_env_for_log,
+        resolve_provider_capabilities, ApiProvider, ModelMapping, OPUS_4_7_CLI_1M_MODEL_ID,
+        PARTIAL_MESSAGES_OVERRIDE_ENV,
     };
     use std::collections::HashMap;
 
@@ -1286,6 +1299,19 @@ mod provider_capability_tests {
         assert!(caps.is_native_anthropic);
         assert!(caps.supports_partial_messages);
         assert!(caps.supports_thinking_effort);
+    }
+
+    #[test]
+    fn opus_4_7_normalizes_to_cli_1m_model_id() {
+        assert_eq!(
+            normalize_cli_model_id("claude-opus-4-7"),
+            OPUS_4_7_CLI_1M_MODEL_ID
+        );
+        assert_eq!(
+            normalize_cli_model_id("claude-opus-4-7-1m"),
+            OPUS_4_7_CLI_1M_MODEL_ID
+        );
+        assert_eq!(normalize_cli_model_id("glm-5"), "glm-5");
     }
 
     #[test]
@@ -1716,7 +1742,7 @@ async fn start_claude_session(
 
     if let Some(ref model) = params.model {
         args.push("--model".to_string());
-        args.push(model.clone());
+        args.push(normalize_cli_model_id(model));
     }
 
     if let Some(ref tools) = params.allowed_tools {
@@ -2615,7 +2641,7 @@ async fn send_control_request(
             let model = payload
                 .get("model")
                 .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
+                .map(normalize_cli_model_id);
             ControlRequest::set_model(model)
         }
         "rewind_files" => {
