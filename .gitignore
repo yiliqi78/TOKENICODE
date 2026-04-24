@@ -47,13 +47,32 @@ package-lock.json
 # Obsidian
 .obsidian/
 
-# Local development workflow (Trellis + Claude Code + Codex)
-.trellis/
+# Updater JSON (release artifacts, not source)
+latest.json
+latest-*.json
+
+# Internal / personal
+bug-reports/
+configs/
+
+# AI workflow configs (local dev tooling, not project source)
+CLAUDE.md
+AGENTS.md
 .claude/
+.trellis/
 .codex/
 .agents/
-AGENTS.md
-CLAUDE.md
 .agent-log
 .session-id
+
+# Internal docs (not for public repo)
+docs/cloud-thoughts*
+docs/auto-compact*
+docs/landing.html
+docs/TOKENICODE重构*
+docs/豆包*
+screenshots/rewind.png
+screenshots/slash-commands.png
+
+# Test run outputs
 .test/runs/
