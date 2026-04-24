@@ -53,4 +53,7 @@ package-lock.json
 .codex/
 .agents/
 AGENTS.md
+CLAUDE.md
+.agent-log
+.session-id
 .test/runs/
