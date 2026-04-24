@@ -1,19 +1,9 @@
 import { useState, useRef, useEffect, useMemo, Fragment } from 'react';
-import { useSettingsStore, MODEL_OPTIONS } from '../../stores/settingsStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { useChatStore, generateMessageId } from '../../stores/chatStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useProviderStore } from '../../stores/providerStore';
-import { TIER_MAP } from '../../lib/api-provider';
-
-const FIXED_TIERS = new Set(['opus', 'sonnet', 'haiku']);
-
-interface DisplayOption {
-  id: string;
-  label: string;
-  short: string;
-  mapped: boolean;
-  isExtra: boolean;
-}
+import { getModelDisplayOptions, getSelectedModelOptionId, type ModelDisplayOption } from '../../lib/api-provider';
 
 export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
   const selectedModel = useSettingsStore((s) => s.selectedModel);
@@ -37,45 +27,12 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  // Build display options: official Claude models + extra models from provider.
-  // Deduplicate: if multiple Claude models map to the same provider model, keep only the first.
-  const displayOptions = useMemo((): DisplayOption[] => {
-    if (!activeProvider || activeProvider.modelMappings.length === 0) {
-      return MODEL_OPTIONS.map((m) => ({ id: m.id, label: m.label, short: m.short, mapped: false, isExtra: false }));
-    }
-
-    // Official models with tier mapping.
-    // When multiple Claude models map to the same provider model (e.g. Opus and Opus 1M
-    // both map to "mimo-v2-pro"), keep both entries with their original labels so the user
-    // can still distinguish them — the 1M variant uses a higher context window (#139 port).
-    const official = MODEL_OPTIONS.map((m) => {
-      const tier = TIER_MAP[m.id];
-      const mapping = activeProvider.modelMappings.find((mm) => mm.tier === tier);
-      if (mapping?.providerModel) {
-        // Show provider model name with the original variant label so users
-        // can distinguish between e.g. Opus 4.6 and Opus 4.7 1M even when
-        // they map to the same provider model (#139 port).
-        const variantLabel = `${mapping.providerModel} (${m.short})`;
-        const variantShort = `${mapping.providerModel} (${m.short})`;
-        return { id: m.id, label: variantLabel, short: variantShort, mapped: true, isExtra: false };
-      }
-      return { id: m.id, label: m.label, short: m.short, mapped: false, isExtra: false };
-    });
-
-    // Extra models (non-tier mappings added by user)
-    const extras: DisplayOption[] = activeProvider.modelMappings
-      .filter((m) => !FIXED_TIERS.has(m.tier) && m.tier && m.providerModel)
-      .map((m) => {
-        const short = m.providerModel.includes('/')
-          ? m.providerModel.split('/').pop()!
-          : m.providerModel;
-        return { id: m.tier, label: m.providerModel, short, mapped: true, isExtra: true };
-      });
-
-    return [...official, ...extras];
+  const displayOptions = useMemo((): ModelDisplayOption[] => {
+    return getModelDisplayOptions(activeProvider);
   }, [activeProvider]);
+  const selectedOptionId = getSelectedModelOptionId(selectedModel, displayOptions);
 
-  const current = displayOptions.find((m) => m.id === selectedModel) || displayOptions[0];
+  const current = displayOptions.find((m) => m.id === selectedOptionId) || displayOptions[0];
 
   return (
     <div ref={ref} className="relative">
@@ -112,7 +69,7 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
               <button
                 {...(import.meta.env.DEV && { 'data-testid': `model-option-${option.id}` })}
                 onClick={() => {
-                  if (option.id !== selectedModel) {
+                  if (option.id !== selectedOptionId) {
                     const oldShort = current.short;
                     const newShort = option.short;
                     setSelectedModel(option.id);
@@ -133,7 +90,7 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
                 }}
                 className={`w-full text-left px-3 py-2 text-xs
                   transition-smooth flex items-center justify-between
-                  ${option.id === selectedModel
+                  ${option.id === selectedOptionId
                     ? 'text-accent bg-accent/5'
                     : 'text-text-muted hover:text-text-primary hover:bg-bg-secondary'
                   }`}
@@ -141,7 +98,7 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
                 <div className="min-w-0">
                   <div className={`font-medium truncate ${option.mapped ? 'font-mono' : ''}`}>{option.label}</div>
                 </div>
-                {option.id === selectedModel && (
+                {option.id === selectedOptionId && (
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
                     stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 ml-2">
                     <path d="M3 8l3.5 3.5L13 5" />

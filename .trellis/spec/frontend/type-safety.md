@@ -71,6 +71,27 @@ export const MODEL_OPTIONS: { id: ModelId; label: string; short: string }[] = [
 ];
 ```
 
+### Provider model display helpers
+
+When provider model mappings affect multiple UI surfaces, derive display options in `lib/api-provider.ts` and export the option shape from that module. Do not rebuild labels independently inside components.
+
+```tsx
+export interface ModelDisplayOption {
+  id: string;
+  label: string;
+  short: string;
+  mapped: boolean;
+  isExtra: boolean;
+  providerModel?: string;
+  sourceTier?: string;
+}
+
+const options = getModelDisplayOptions(activeProvider);
+const selectedOptionId = getSelectedModelOptionId(selectedModel, options);
+```
+
+Provider-specific non-Claude mappings must display only configured provider model names, without appending Claude tier labels such as `(Opus 4.7)`. Components such as `GeneralTab` and `ModelSelector` should consume `ModelDisplayOption` directly so selection, labels, and deduplication stay consistent.
+
 ---
 
 ## IPC Type Boundary
