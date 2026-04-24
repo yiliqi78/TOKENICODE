@@ -31,7 +31,6 @@
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.0",
-    "tauri-plugin-mcp": "^0.1.0",
     "@tiptap/extension-hard-break": "^3.20.0",
     "@tiptap/extension-placeholder": "^3.20.0",
     "@tiptap/pm": "^3.20.0",
@@ -50,12 +49,14 @@
     "rehype-sanitize": "^6.0.0",
     "remark-cjk-friendly": "^2.0.1",
     "remark-gfm": "^4.0.1",
+    "tauri-plugin-mcp": "^0.1.0",
     "zustand": "^5.0.11"
   },
   "devDependencies": {
     "@lezer/highlight": "^1.2.3",
     "@tailwindcss/vite": "^4.1.18",
     "@tauri-apps/cli": "^2",
+    "@types/node": "^25.6.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
