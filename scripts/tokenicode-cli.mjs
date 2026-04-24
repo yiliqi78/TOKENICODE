@@ -267,17 +267,26 @@ const commands = {
   },
 
   async 'check-editor'(client) {
-    try {
+    const deadline = Date.now() + 3000;
+    let last = null;
+    while (Date.now() < deadline) {
       const code = `JSON.stringify({
-        hasEditor: !!document.querySelector('[data-testid=send-button]'),
-        hasChatPanel: !!document.querySelector('[data-testid=chat-messages]'),
+        hasEditor: !!window.__tokenicode_editor || !!document.querySelector('[data-testid=send-button], [data-chat-input], .tiptap[contenteditable=true]'),
+        editorReady: !!window.__tokenicode_editor,
+        hasChatPanel: !!document.querySelector('[data-testid=chat-messages], .selectable'),
         session: window.__tokenicode_test.status().session
       })`;
-      const raw = await execJs(client, code, 3000);
-      return raw ? JSON.parse(raw) : { hasEditor: false, hasChatPanel: false, session: null };
-    } catch {
-      return { hasEditor: false, hasChatPanel: false, session: null };
+      try {
+        const raw = await execJs(client, code, 3000);
+        last = raw ? JSON.parse(raw) : { hasEditor: false, hasChatPanel: false, session: null };
+        if (last.hasEditor && last.editorReady) return last;
+        if (!last.session) return last;
+      } catch {
+        last = { hasEditor: false, hasChatPanel: false, session: null };
+      }
+      await sleep(100);
     }
+    return last || { hasEditor: false, hasChatPanel: false, session: null };
   },
 
   // ── Model & Provider ──
@@ -381,21 +390,40 @@ const commands = {
 
   async 'wait-for'(client, { positional, flags }) {
     const timeout = parseInt(flags.timeout) || 10_000;
-    const payload = { window_label: 'main', timeout };
-
-    if (flags.text) {
-      payload.text = flags.text;
-    } else if (flags.selector) {
-      payload.selector = flags.selector;
-    } else if (positional.length > 0) {
-      payload.text = positional.join(' ');
-    } else {
+    const text = flags.text || (positional.length > 0 ? positional.join(' ') : null);
+    const selector = flags.selector || null;
+    if (!text && !selector) {
       throw new Error('Usage: wait-for --text TEXT | --selector SELECTOR | TEXT');
     }
 
-    const resp = await client.send('wait_for', payload, timeout + 2000);
-    if (!resp.success) throw new Error(resp.error || 'wait_for failed');
-    return { found: true, ...(resp.data || {}) };
+    const deadline = Date.now() + timeout;
+    let lastError = null;
+    while (Date.now() < deadline) {
+      const remaining = Math.max(500, deadline - Date.now());
+      const code = `(function(){
+        const selector = ${JSON.stringify(selector)};
+        const text = ${JSON.stringify(text)};
+        if (selector) {
+          const el = document.querySelector(selector);
+          if (el) return JSON.stringify({ found: true, selector, text: el.innerText || el.textContent || '' });
+        }
+        if (text) {
+          const bodyText = document.body ? (document.body.innerText || document.body.textContent || '') : '';
+          if (bodyText.includes(text)) return JSON.stringify({ found: true, text });
+        }
+        return JSON.stringify({ found: false });
+      })()`;
+      try {
+        const raw = await execJs(client, code, Math.min(3000, remaining + 250));
+        const result = raw ? JSON.parse(raw) : { found: false };
+        if (result.found) return result;
+      } catch (err) {
+        lastError = err.message;
+      }
+      await sleep(Math.min(POLL_INTERVAL, Math.max(50, deadline - Date.now())));
+    }
+    const target = selector ? `selector ${selector}` : `text ${text}`;
+    throw new Error(`wait-for timed out after ${timeout}ms for ${target}${lastError ? ` (${lastError})` : ''}`);
   },
 
   async 'wait-until-done'(client, { flags }) {

@@ -559,7 +559,12 @@ export function ChatPanel() {
       {/* Main chat area */}
       <div className="flex flex-col flex-1 min-w-0">
       {find.isOpen && <FindBar {...find} />}
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-5 py-6 selectable">
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        data-testid="chat-messages"
+        className="flex-1 overflow-y-auto px-5 py-6 selectable"
+      >
         {!workingDirectory && messages.length === 0 && !isStreaming ? (
           <WelcomeScreen />
         ) : messages.length === 0 && !isStreaming ? (

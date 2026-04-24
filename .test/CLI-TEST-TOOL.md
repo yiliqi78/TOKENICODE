@@ -383,6 +383,15 @@ node scripts/tokenicode-cli.mjs exec "JSON.stringify(window.__tokenicode_test.st
 node scripts/run-tests.mjs <test-file.json> [--flags]
 ```
 
+全量阶段入口：
+
+```bash
+# Phase 1：基础/无 LLM；Phase 2：LLM 交互；Phase 3：分支回归
+bash .test/scripts/run-e2e.sh --phase 1 --detail minimal
+bash .test/scripts/run-all-phases.sh --detail minimal
+bash .test/scripts/run-branch-validation.sh --cycles 3 --phases 1,2,3 --detail minimal --retry 1
+```
+
 ### 运行器参数
 
 | 参数 | 默认值 | 说明 |
@@ -404,11 +413,19 @@ node scripts/run-tests.mjs <test-file.json> [--flags]
 5. **自动重试**：step 失败 → 重试整个测试（所有 attempt 历史都保留在报告中）
 6. **超时硬上限**：`testTimeout` 是硬限制，每步的超时被 clamp 到剩余测试预算（teardown 例外：至少 3s 做清理）
 7. **兜底策略**：
-   - 连续 3 个测试失败 → 自动 `restart`（杀掉 Tauri 进程树，重启 `pnpm tauri dev`）
-   - restart 成功 → 重置计数，继续
-   - restart 也失败 → 终止运行，剩余测试标记 `skipped`
+   - 连续 3 个测试失败 → 先自动 `restart`（同窗口 reload）
+   - restart 失败 → 升级 `relaunch`（杀掉 Tauri/Vite 后重启 `pnpm tauri dev`）
+   - relaunch 也失败 → 终止运行，剩余测试标记 `skipped`
 8. **stdout**：每个测试一行 JSON 摘要 + 最终一行 `_summary`
 9. **报告文件**：完整 JSON 报告存盘，`_summary` 中包含 `reportWritten` 和 `reportWriteError` 告知写入状态
+
+`run-e2e.sh` 会为每个 suite 写两个文件：
+
+| 文件 | 内容 |
+|------|------|
+| `*.ndjson` | runner 控制台日志与摘要行 |
+| `*.report.json` | `run-tests.mjs --report` 生成的结构化报告 |
+| `SUMMARY.md` | 本轮总览 |
 
 ### 测试定义格式
 
@@ -714,61 +731,36 @@ python3 .test/scripts/analyze-reports.py .test/runs/<日期目录>
 
 ## 五、完整端到端示例
 
+仓库内置了一个最小可复制 suite：
+
 ```bash
-TKN="node scripts/tokenicode-cli.mjs"
-RUN=".test/runs/$(date +%Y-%m-%d)-my-feature"
-
-# 1. 确认应用在运行
-$TKN ping
-
-# 2. 创建测试时间目录 + suite 定义
-mkdir -p "$RUN" .test/suites/my-feature
-
-# 3. 写测试定义（放 suites/ 下，可跨时间复用）
-cat > .test/suites/my-feature/basic.json << 'EOF'
-{
-  "tests": [
-    {
-      "name": "健康检查",
-      "steps": [{"cmd": "ping"}, {"cmd": "status", "assert": {"active": false}}]
-    },
-    {
-      "name": "发送消息",
-      "setup": [
-        {"cmd": "new-session", "flags": {"cwd": "/tmp/tokenicode-test"}},
-        {"cmd": "check-editor", "assert": {"hasEditor": true}},
-        {"cmd": "switch-model", "args": ["claude-sonnet-4-6"]}
-      ],
-      "steps": [
-        {"cmd": "type", "args": ["请只回复：OK"]},
-        {"cmd": "send"},
-        {"cmd": "wait-until-done", "flags": {"timeout": "30000"}, "assert": {"status": "completed"}, "timeout": 35000},
-        {"cmd": "get-messages", "assert": {"total_gte": 2}}
-      ],
-      "teardown": [{"cmd": "stop", "continueOnError": true}],
-      "retry": 1
-    }
-  ]
-}
-EOF
-
-# 4. 执行（单次，报告输出到时间目录）
-mkdir -p "$RUN/my-feature"
-node scripts/run-tests.mjs .test/suites/my-feature/basic.json --report "$RUN/my-feature/run-001.json"
-
-# 5. 批量执行（20 轮）
-for i in $(seq 1 20); do
-  node scripts/run-tests.mjs .test/suites/my-feature/basic.json \
-    --report "$RUN/my-feature/run-$(printf '%03d' $i).json" \
-    --detail minimal
-done
-
-# 6. 汇总分析
-python3 .test/scripts/analyze-reports.py "$RUN"
-
-# 7. 记录发现（放时间目录下）
-# 在 $RUN/notes-my-feature.md 记录测试结论、踩坑、bug
+.test/suites/examples/health-smoke.json
 ```
+
+单独运行：
+
+```bash
+RUN=".test/runs/$(date +%Y-%m-%d_%H-%M-%S)-example"
+mkdir -p "$RUN"
+
+node scripts/run-tests.mjs .test/suites/examples/health-smoke.json \
+  --report "$RUN/examples__health-smoke.report.json" \
+  --detail standard \
+  > "$RUN/examples__health-smoke.ndjson" 2>&1
+
+python3 .test/scripts/analyze-reports.py "$RUN"
+```
+
+加入阶段测试前，先把新 suite 按同样方式单独跑通。确认稳定后，再把它加入 `.test/scripts/run-e2e.sh` 对应 phase。
+
+大量测试时不要只跑一轮：
+
+```bash
+bash .test/scripts/run-branch-validation.sh --cycles 5 --phases 1,2,3 --detail minimal --retry 1
+```
+
+脚本会生成 `.test/runs/<timestamp>-branch-validation/RUNS.md` 和 `BUGS.md`。
+分支验证阶段只记录 bug，不顺手修业务代码。
 
 ---
 
@@ -778,10 +770,15 @@ python3 .test/scripts/analyze-reports.py "$RUN"
 
 | 文件 | 行数 | 说明 |
 |------|------|------|
-| `scripts/tokenicode-cli.mjs` | ~530 | CLI 工具主体，30 个命令（含 restart），零外部依赖 |
-| `scripts/run-tests.mjs` | ~550 | 批量测试运行器：串行执行 + Schema 校验 + 自动重试 + 超时硬上限 + 全量记录 + 兜底 restart |
-| `AI-TEST-GUIDE.md` | ~300 | AI 测试编排指南（测试模式参考） |
-| `CLI-TEST-TOOL.md` | 本文件 | 完整文档 |
+| `scripts/tokenicode-cli.mjs` | ~715 | CLI 工具主体，30 个命令（含 restart/relaunch），零外部依赖 |
+| `scripts/run-tests.mjs` | ~646 | 批量测试运行器：串行执行 + Schema 校验 + 自动重试 + 超时硬上限 + 全量记录 + 兜底 restart/relaunch |
+| `.test/scripts/run-e2e.sh` | ~230 | 分阶段运行 suites，写 `*.ndjson` + `*.report.json` + `SUMMARY.md` |
+| `.test/scripts/run-all-phases.sh` | ~20 | 全阶段入口，运行后调用分析器 |
+| `.test/scripts/run-branch-validation.sh` | ~210 | 多轮分支验证入口，生成 `RUNS.md` + `BUGS.md` |
+| `.test/scripts/analyze-reports.py` | ~300 | 汇总新旧报告格式，识别稳定/间歇性失败 |
+| `.test/suites/examples/health-smoke.json` | 示例 | 最小可复制 suite 模板 |
+| `.test/README.md` | 索引 | 测试目录入口说明 |
+| `.test/CLI-TEST-TOOL.md` | 本文件 | 完整文档 |
 
 ### 修改文件
 
@@ -834,7 +831,7 @@ import { parseSessionMessages } from './lib/session-loader';
 
 - **HMR 不更新 test helper**：修改 `App.tsx` 后，Vite HMR 不会更新 `useEffect` 闭包。需要 `exec "location.reload()"` 全量刷新 webview。
 - **execute_js 不支持 async**：返回 Promise 的代码会被序列化为 `{}`。`switch-session` 因此使用全局变量 + 轮询模式。
-- **欢迎页没有编辑器**：`new-session` 和 `restart` 后都会停在欢迎页，该页面没有 TipTap 编辑器。`type` 返回 `ok` 但实际无效，`send` 同理。**必须先 `switch-session` 加载一个已有会话**才能进行对话测试。详见「二点五、正确的新会话流程」。
+- **欢迎页没有编辑器**：`new-session` 无参数和 `restart` 后会停在欢迎页，该页面没有 TipTap 编辑器。对话测试必须使用 `new-session --cwd <path>` 创建可用会话，或先 `switch-session <SESSION_ID>` 加载已有会话。详见「二点五、正确的新会话流程」。
 - **DOM click 对 React 组件无效**：所有交互走 `execute_js` + Zustand store 直操，不走原生点击事件。
 - **relaunch 开新窗口**：`relaunch` 命令 spawn 新进程，会开新 Tauri 窗口。日常测试用 `restart`（同窗口 reload）即可。
 - **relaunch 进程泄漏**：`relaunch` 通过 `lsof` 找 socket 持有者 PID 来杀进程，但旧的 `target/debug/tokenicode` 子进程经常杀不干净。长时间无人值守测试（5 小时）实测累积了 76 个僵尸进程。测试前后手动清理：`pkill -9 -f 'target/debug/tokenicode'`。

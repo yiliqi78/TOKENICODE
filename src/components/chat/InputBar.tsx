@@ -1228,6 +1228,17 @@ export function InputBar() {
   // Keep ref in sync so executeImmediateCommand can call latest handleSubmit
   handleSubmitRef.current = handleSubmit;
 
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const testWindow = window as any;
+    testWindow.__tokenicode_editor = textareaRef.current?.getEditor() || null;
+    testWindow.__tokenicode_send = () => handleSubmitRef.current();
+    return () => {
+      if (testWindow.__tokenicode_send) delete testWindow.__tokenicode_send;
+      if (testWindow.__tokenicode_editor) delete testWindow.__tokenicode_editor;
+    };
+  });
+
   // handleStreamMessage and handleBackgroundStreamMessage are provided by
   // useStreamProcessor hook (see src/hooks/useStreamProcessor.ts).
 
@@ -1552,6 +1563,7 @@ export function InputBar() {
           {/* Stop button — visible only while running */}
           {isRunning && (
             <button
+              data-testid="stop-button"
               onClick={async () => {
                 const stopTabId = useSessionStore.getState().selectedSessionId;
                 const sid = getActiveTabState().sessionMeta.stdinId;
@@ -1582,6 +1594,7 @@ export function InputBar() {
             </button>
           )}
           <button
+            data-testid="send-button"
             onClick={handleSubmit}
             disabled={isAwaiting || isStopping || (!input.trim() && !activePrefix)}
             className={`flex-shrink-0 self-end w-8 h-8 rounded-[10px]

@@ -1,0 +1,53 @@
+{
+  "captureSnapshots": false,
+  "testTimeout": 30000,
+  "tests": [
+    {
+      "name": "example-ping",
+      "steps": [
+        {
+          "cmd": "ping",
+          "assert": {
+            "pong": true
+          }
+        },
+        {
+          "cmd": "status",
+          "assert": {
+            "active": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "example-new-session-with-editor",
+      "setup": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true,
+            "hasChatPanel": true
+          }
+        }
+      ],
+      "teardown": [
+        {
+          "cmd": "stop",
+          "continueOnError": true
+        },
+        {
+          "cmd": "delete-session",
+          "continueOnError": true
+        }
+      ]
+    }
+  ]
+}
