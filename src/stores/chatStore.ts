@@ -136,6 +136,9 @@ export interface SessionMeta {
    *  thinkingLevel + provider.updatedAt). Phase 2 §2.1. Compared in
    *  handleSubmit to detect config drift that requires kill + respawn. */
   spawnConfigHash?: string;
+  /** True after the CLI has emitted assistant-side stream evidence for the
+   *  current turn. This may be true even when thinking is hidden by settings. */
+  turnAcceptedForResume?: boolean;
   /** Snapshot of sessionMode at session spawn — per-session isolation (Phase 4) */
   snapshotMode?: import('./settingsStore').SessionMode;
   /** Snapshot of selectedModel at session spawn — per-session isolation (Phase 4) */

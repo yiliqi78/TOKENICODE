@@ -20,7 +20,7 @@ export interface StreamRouter {
 
 export interface StreamSink {
   updatePartialText(tabId: TabId, text: string): void;
-  updatePartialThinking(tabId: TabId, text: string): void;
+  updatePartialThinking(tabId: TabId, text: string, stdinId?: StdinId): void;
 }
 
 export interface Scheduler {
@@ -155,6 +155,20 @@ export class StreamController {
     if (this.buffers.size === 0) this.stopInterval();
   }
 
+  /** Drop only buffered thinking for one stdinId, preserving pending text. */
+  clearThinking(stdinId: StdinId): void {
+    const buf = this.buffers.get(stdinId);
+    this.eagerThinkingFlushed.delete(stdinId);
+    if (!buf) return;
+
+    buf.thinking = '';
+    if (buf.text) return;
+
+    if (buf.raf) this.scheduler.cancelRaf(buf.raf);
+    this.buffers.delete(stdinId);
+    if (this.buffers.size === 0) this.stopInterval();
+  }
+
   /**
    * Atomically finalize a stream: flush any pending buffer, clear state, and
    * emit `completed` exactly once. Duplicate calls for the same stdinId are
@@ -226,7 +240,7 @@ export class StreamController {
     const entry = this.orphans.get(stdinId);
     if (!entry) return;
     if (entry.text) this.sink.updatePartialText(tabId, entry.text);
-    if (entry.thinking) this.sink.updatePartialThinking(tabId, entry.thinking);
+    if (entry.thinking) this.sink.updatePartialThinking(tabId, entry.thinking, stdinId);
     this.orphans.delete(stdinId);
     this.emit({ type: 'orphan-drained', stdinId, tabId });
     if (replayEvent) {
@@ -278,6 +292,8 @@ export class StreamController {
     buf.raf = this.scheduler.raf(() => {
       buf.raf = 0;
       this.doFlush(stdinId, buf);
+      if (!buf.text && !buf.thinking) this.buffers.delete(stdinId);
+      if (this.buffers.size === 0) this.stopInterval();
     });
   }
 
@@ -313,7 +329,7 @@ export class StreamController {
       buf.text = '';
     }
     if (buf.thinking) {
-      this.sink.updatePartialThinking(tabId, buf.thinking);
+      this.sink.updatePartialThinking(tabId, buf.thinking, stdinId);
       buf.thinking = '';
     }
     this.emit({ type: 'partial-flushed', stdinId, tabId, textLen, thinkingLen });

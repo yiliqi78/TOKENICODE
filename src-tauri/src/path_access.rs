@@ -49,7 +49,10 @@ impl PathAccessManager {
             push_canonical(&mut roots, home.join(".claude.json"));
             push_canonical(&mut roots, home.join(".claude"));
             push_canonical(&mut roots, home.join(".tokenicode"));
-            push_canonical(&mut roots, home.join("Library/Application Support/TOKENICODE"));
+            push_canonical(
+                &mut roots,
+                home.join("Library/Application Support/TOKENICODE"),
+            );
         }
         // System temp dir — save_temp_file writes here when cwd is missing.
         push_canonical(&mut roots, std::env::temp_dir());
@@ -270,12 +273,10 @@ mod tests {
         mgr.register_cwd(tmp.path()).await;
 
         // Craft a path that tries to escape the registered cwd with `..`.
-        let escape = tmp.path().join("..").join(
-            outside
-                .path()
-                .file_name()
-                .unwrap(),
-        );
+        let escape = tmp
+            .path()
+            .join("..")
+            .join(outside.path().file_name().unwrap());
 
         mgr.validate(&escape, Some("tab1"), PathCapability::Read)
             .await

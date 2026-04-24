@@ -100,6 +100,7 @@ import {
   handleProcessExitFinalize,
   hasRecoverableFrontendSession,
   clearFinalized,
+  getRecentlyFinalizedStdin,
   type SpawnParams,
 } from '../lib/sessionLifecycle';
 
@@ -516,5 +517,56 @@ describe('handleProcessExitFinalize', () => {
       'tab-1',
       expect.objectContaining({ interruptedAssistantText: 'partial assistant reply' }),
     );
+    expect(getRecentlyFinalizedStdin('desk_123')).toEqual(
+      expect.objectContaining({ tabId: 'tab-1', reason: 'stop' }),
+    );
+    clearFinalized('desk_123');
+  });
+
+  it('clears recently-finalized stop records with clearFinalized', () => {
+    mockGetTabForStdin.mockReturnValue('tab-1');
+    mockGetTab.mockReturnValue({
+      tabId: 'tab-1',
+      messages: [],
+      partialText: '',
+      partialThinking: '',
+      pendingUserMessages: [],
+      inputDraft: '',
+      pendingAttachments: [],
+      sessionMeta: {
+        stdinId: 'desk_123',
+        teardownReason: 'stop',
+      },
+      sessionStatus: 'stopping',
+    });
+
+    handleProcessExitFinalize('desk_123');
+    expect(getRecentlyFinalizedStdin('desk_123')?.reason).toBe('stop');
+
+    clearFinalized('desk_123');
+    expect(getRecentlyFinalizedStdin('desk_123')).toBeUndefined();
+  });
+
+  it('keeps explicit stop as stopped even when finalization is timeout-driven', () => {
+    mockGetTabForStdin.mockReturnValue('tab-1');
+    mockGetTab.mockReturnValue({
+      tabId: 'tab-1',
+      messages: [],
+      partialText: '',
+      partialThinking: '',
+      pendingUserMessages: [],
+      inputDraft: '',
+      pendingAttachments: [],
+      sessionMeta: {
+        stdinId: 'desk_123',
+        teardownReason: 'stop',
+      },
+      sessionStatus: 'stopping',
+    });
+
+    handleProcessExitFinalize('desk_123', true);
+
+    expect(mockSetSessionStatus).toHaveBeenCalledWith('tab-1', 'stopped');
+    clearFinalized('desk_123');
   });
 });

@@ -45,7 +45,8 @@ describe('stdin route regressions', () => {
 
   it('sessionMeta.sessionId only stores the real CLI session id', () => {
     expect(chatPanelSource).toContain('sessionId: spawnResult.sessionInfo.cli_session_id ?? undefined');
-    expect(inputBarSource).toContain('sessionId: spawnResult.sessionInfo.cli_session_id ?? undefined');
+    expect(inputBarSource).toContain('const nextSessionId = spawnResult.sessionInfo.cli_session_id');
+    expect(inputBarSource).toContain('sessionId: nextSessionId');
   });
 
   it('broken-pipe fallback drops the stale stdin route', () => {
@@ -86,6 +87,21 @@ describe('stdin route regressions', () => {
     expect(planReviewCardSource).toContain("if (!liveStdinId || liveState.sessionStatus !== 'running') {");
     expect(planReviewCardSource).toContain("interactionError: 'CLI process exited'");
     expect(inputBarSource).toContain('const hasLivePlanSession = Boolean(stdinId && tabState.sessionStatus === \'running\');');
+  });
+
+  it('hidden provider thinking records resume evidence without deleting real sessions', () => {
+    expect(streamProcessorSource).toContain('turnAcceptedForResume: true');
+    expect(inputBarSource).toContain('resumeTab?.sessionMeta.turnAcceptedForResume === true');
+    expect(streamProcessorSource).toContain('if (tabId.startsWith(\'draft_\')) {');
+    expect(streamProcessorSource).toContain('tabId = cliSessionId;');
+    expect(streamProcessorSource).not.toContain('bridge.deleteSession(tabId, oldSession.path)');
+  });
+
+  it('post-spawn metadata follows draft promotion to the current stdin owner', () => {
+    expect(inputBarSource).toContain('const spawnOwnerTabId = useSessionStore.getState().getTabForStdin(preGeneratedId) ?? tabId;');
+    expect(inputBarSource).toContain('const existingOwnerSessionId = useChatStore.getState().getTab(spawnOwnerTabId)?.sessionMeta.sessionId;');
+    expect(inputBarSource).toContain('?? (spawnOwnerTabId !== tabId ? existingOwnerSessionId : undefined)');
+    expect(inputBarSource).toContain('setSessionMeta(spawnOwnerTabId, {');
   });
 
   it('background auto-compact keeps the tab busy until compact settles', () => {

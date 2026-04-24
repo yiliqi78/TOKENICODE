@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
-import { useChatStore, useActiveTab, getActiveTabState, generateMessageId, isSessionBusy, registerLiveComposerSnapshotProvider } from '../../stores/chatStore';
+import { useChatStore, useActiveTab, getActiveTabState, generateMessageId, isSessionBusy, registerLiveComposerSnapshotProvider, type ChatMessage } from '../../stores/chatStore';
 import { useSettingsStore, MODEL_OPTIONS, mapSessionModeToPermissionMode, setSessionModeLocal, type ThinkingLevel } from '../../stores/settingsStore';
 import { bridge, type UnifiedCommand } from '../../lib/tauri-bridge';
 import { ModelSelector } from './ModelSelector';
@@ -48,6 +48,15 @@ function buildInterruptedContinuationPrompt(interruptedAssistantText: string, ne
     '用户接下来的消息是基于这段已输出内容的后续指令：',
     cleanNext,
   ].join('\n\n');
+}
+
+function hasResumableConversationEvidence(messages: ChatMessage[]): boolean {
+  return messages.some(
+    (m) =>
+      m.role === 'assistant'
+      && (m.type === 'text' || m.type === 'tool_use' || m.type === 'thinking')
+      && m.content.trim().length > 0,
+  );
 }
 
 /** Thinking effort level selector dropdown for the toolbar */
@@ -969,6 +978,7 @@ export function InputBar() {
           outputTokens: 0,
           teardownReason: undefined,
           pendingReadyMessage: undefined,
+          turnAcceptedForResume: false,
           ...pendingTurnMeta,
         });
         setActivityStatus(tabId, { phase: 'idle' });
@@ -1103,15 +1113,15 @@ export function InputBar() {
         // Mode is now passed via --mode CLI arg in startSession, not text prefix.
         // Text prefix (/ask, /plan) caused "Unknown skill" errors in stream-json mode.
 
-        // Resume guard: only resume if the session had a real assistant exchange.
-        // A pre-warm that only emitted system:init (no real reply) leaves cliResumeId set
-        // but hadRealExchange = false, so we skip --resume and start fresh.
-        const tabMessages = useChatStore.getState().getTab(tabId)?.messages ?? [];
-        const hadRealExchange = tabMessages.some(
-          m => m.role === 'assistant' && (m.type === 'text' || m.type === 'tool_use'),
-        );
-        const fallbackResumeId = getActiveTabState().sessionMeta.sessionId;
-        const existingSessionId = hadRealExchange
+        // Resume guard: only resume if the session has user-visible assistant
+        // evidence. Interrupted thinking counts because the CLI has already
+        // established a real conversation that the next send should continue.
+        const resumeTab = useChatStore.getState().getTab(tabId);
+        const tabMessages = resumeTab?.messages ?? [];
+        const hasResumableEvidence = hasResumableConversationEvidence(tabMessages)
+          || resumeTab?.sessionMeta.turnAcceptedForResume === true;
+        const fallbackResumeId = resumeTab?.sessionMeta.sessionId;
+        const existingSessionId = hasResumableEvidence
           ? (useSessionStore.getState().sessions.find((s) => s.id === tabId)?.cliResumeId
             ?? (fallbackResumeId && !fallbackResumeId.startsWith('desk_') ? fallbackResumeId : undefined))
           : undefined;
@@ -1182,9 +1192,14 @@ export function InputBar() {
           cli: spawnResult.sessionInfo.cli_path,
         });
 
-        // Write additional meta (envFingerprint, spawnedModel, clear switch flags)
-        setSessionMeta(tabId, {
-          sessionId: spawnResult.sessionInfo.cli_session_id ?? undefined,
+        // Write additional meta to the current stdin owner. A draft can be
+        // promoted to the real CLI session id before startSession resolves.
+        const spawnOwnerTabId = useSessionStore.getState().getTabForStdin(preGeneratedId) ?? tabId;
+        const existingOwnerSessionId = useChatStore.getState().getTab(spawnOwnerTabId)?.sessionMeta.sessionId;
+        const nextSessionId = spawnResult.sessionInfo.cli_session_id
+          ?? (spawnOwnerTabId !== tabId ? existingOwnerSessionId : undefined);
+        setSessionMeta(spawnOwnerTabId, {
+          sessionId: nextSessionId,
           envFingerprint: preEnvFingerprint,
           spawnedModel: resolveModelForProvider(selectedModel),
           stdinReady: false,

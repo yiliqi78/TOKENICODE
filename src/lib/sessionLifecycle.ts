@@ -63,6 +63,40 @@ export interface SpawnResult {
 const finalizedSet = new Set<string>();
 const finalizedTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+export interface RecentlyFinalizedStdin {
+  tabId: string;
+  reason?: TeardownReason;
+  finalizedAt: number;
+}
+
+const recentlyFinalizedStdin = new Map<string, RecentlyFinalizedStdin>();
+const recentlyFinalizedTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const RECENTLY_FINALIZED_TTL_MS = 30_000;
+
+function rememberRecentlyFinalizedStdin(stdinId: string, entry: RecentlyFinalizedStdin): void {
+  const existingTimer = recentlyFinalizedTimers.get(stdinId);
+  if (existingTimer) clearTimeout(existingTimer);
+  recentlyFinalizedStdin.set(stdinId, entry);
+  recentlyFinalizedTimers.set(
+    stdinId,
+    setTimeout(() => {
+      recentlyFinalizedStdin.delete(stdinId);
+      recentlyFinalizedTimers.delete(stdinId);
+    }, RECENTLY_FINALIZED_TTL_MS),
+  );
+}
+
+export function getRecentlyFinalizedStdin(stdinId: string): RecentlyFinalizedStdin | undefined {
+  return recentlyFinalizedStdin.get(stdinId);
+}
+
+export function clearRecentlyFinalizedStdin(stdinId: string): void {
+  const timer = recentlyFinalizedTimers.get(stdinId);
+  if (timer) clearTimeout(timer);
+  recentlyFinalizedTimers.delete(stdinId);
+  recentlyFinalizedStdin.delete(stdinId);
+}
+
 /**
  * Run `fn` exactly once for a given stdinId. Returns true if `fn` ran,
  * false if it was already finalized. Auto-cleans after 30 seconds.
@@ -87,6 +121,7 @@ export function clearFinalized(stdinId: string): void {
   if (timer) clearTimeout(timer);
   finalizedTimers.delete(stdinId);
   finalizedSet.delete(stdinId);
+  clearRecentlyFinalizedStdin(stdinId);
 }
 
 // ---------------------------------------------------------------------------
@@ -115,12 +150,13 @@ export function checkOwnership(stdinId: string): OwnershipResult {
 export function cleanupListeners(stdinId: string): void {
   const unlisteners = (window as any).__claudeUnlisteners;
   if (unlisteners && unlisteners[stdinId]) {
+    const unlisten = unlisteners[stdinId];
+    delete unlisteners[stdinId];
     try {
-      unlisteners[stdinId]();
+      unlisten();
     } catch {
       /* ignore */
     }
-    delete unlisteners[stdinId];
   }
 }
 
@@ -219,7 +255,10 @@ export async function spawnSession(params: SpawnParams): Promise<SpawnResult> {
     if (!(window as any).__claudeUnlisteners) {
       (window as any).__claudeUnlisteners = {};
     }
+    let didUnlisten = false;
     const combinedUnlisten = () => {
+      if (didUnlisten) return;
+      didUnlisten = true;
       unlistenStream();
       unlistenStderr();
       unlistenExit();
@@ -398,6 +437,12 @@ export function handleProcessExitFinalize(stdinId: string, isTimeout = false): v
 
     const tab = store.getTab(tabId);
     if (!tab) return;
+    const teardownReason = tab.sessionMeta.teardownReason;
+    rememberRecentlyFinalizedStdin(stdinId, {
+      tabId,
+      reason: teardownReason,
+      finalizedAt: Date.now(),
+    });
 
     // 2. Save partial text/thinking as interrupted messages
     const pThinking = tab.partialThinking ?? '';
@@ -436,7 +481,7 @@ export function handleProcessExitFinalize(stdinId: string, isTimeout = false): v
     const pending = tab.pendingUserMessages ?? [];
     const pendingTurnInput = tab.sessionMeta.pendingTurnInput?.trim();
     const pendingTurnAttachments = tab.sessionMeta.pendingTurnAttachments ?? [];
-    const isExplicitStop = tab.sessionMeta.teardownReason === 'stop';
+    const isExplicitStop = teardownReason === 'stop';
     const interruptedAssistantText = isExplicitStop && pText.trim().length > 0 ? pText : undefined;
     const combinedDraftParts = [
       isExplicitStop ? pendingTurnInput : '',
@@ -488,7 +533,9 @@ export function handleProcessExitFinalize(stdinId: string, isTimeout = false): v
     // 10. Set final sessionStatus
     const currentStatus = store.getTab(tabId)?.sessionStatus;
     let finalStatus: SessionStatus;
-    if (isTimeout) {
+    if (teardownReason === 'stop') {
+      finalStatus = 'stopped';
+    } else if (isTimeout) {
       finalStatus = 'error';
     } else if (currentStatus === 'stopping') {
       finalStatus = 'stopped';

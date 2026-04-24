@@ -9,15 +9,15 @@ mod protocol;
 mod windows_ps;
 
 use crate::events::emit_to_frontend;
+use crate::path_access::{PathAccessManager, PathCapability};
 use commands::{
     BypassModeMap, ManagedProcess, ProcessManager, SessionInfo, StartSessionParams, StdinManager,
 };
-use crate::path_access::{PathAccessManager, PathCapability};
 // protocol module kept for ControlRequest (send_control_request) and tests
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::process::Stdio;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
@@ -755,6 +755,32 @@ struct ProvidersFile {
     providers: Vec<ApiProvider>,
 }
 
+const PARTIAL_MESSAGES_OVERRIDE_ENV: &str = "TOKENICODE_INCLUDE_PARTIAL_MESSAGES";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ProviderRuntimeCapabilities {
+    is_native_anthropic: bool,
+    supports_partial_messages: bool,
+    supports_thinking_effort: bool,
+}
+
+impl ProviderRuntimeCapabilities {
+    fn native_anthropic() -> Self {
+        Self {
+            is_native_anthropic: true,
+            supports_partial_messages: true,
+            supports_thinking_effort: true,
+        }
+    }
+}
+
+type ProviderEnvResolution = (
+    HashMap<String, String>,
+    Vec<String>,
+    Vec<String>,
+    ProviderRuntimeCapabilities,
+);
+
 impl Default for ProvidersFile {
     fn default() -> Self {
         Self {
@@ -1034,18 +1060,22 @@ async fn test_provider_connection(
 }
 
 /// Resolve provider env vars and CLI args from a provider_id.
-/// Returns (extra_env, keys_to_remove, extra_args, is_native_anthropic).
-/// Phase 5 / C8 (v3 §4.3): the `is_native_anthropic` flag lets
-/// `start_claude_session` skip Anthropic-specific env injections
-/// (EFFORT_LEVEL / MAX_OUTPUT / SDK_FILE_CHECKPOINTING) and the
-/// `--include-partial-messages` CLI flag for third-party providers that
-/// don't understand them.
-fn resolve_provider_env(
-    provider_id: Option<&str>,
-) -> Result<(HashMap<String, String>, Vec<String>, Vec<String>, bool), String> {
+/// Returns (extra_env, keys_to_remove, extra_args, runtime capabilities).
+/// Phase 5 / C8 (v3 §4.3) originally treated every non-native provider as
+/// degraded. That avoided compatibility errors, but also disabled the partial
+/// text/thinking stream for providers that do support Anthropic-compatible
+/// partial messages. Keep risky native-only env vars native-only, but default
+/// Anthropic-format API providers to the same partial-message stream path as
+/// native Claude. Providers can opt out with TOKENICODE_INCLUDE_PARTIAL_MESSAGES=false.
+fn resolve_provider_env(provider_id: Option<&str>) -> Result<ProviderEnvResolution, String> {
     let Some(pid) = provider_id else {
         // No provider → assume native Anthropic (Claude Desktop / CCswitch).
-        return Ok((HashMap::new(), vec![], vec![], true));
+        return Ok((
+            HashMap::new(),
+            vec![],
+            vec![],
+            ProviderRuntimeCapabilities::native_anthropic(),
+        ));
     };
 
     let providers_file = load_providers()?;
@@ -1076,6 +1106,10 @@ fn resolve_provider_env(
     let mut keys_to_remove = Vec::new();
     if let Some(ref extra) = provider.extra_env {
         for (k, v) in extra {
+            // App-private capability override; do not leak it to Claude CLI.
+            if k == PARTIAL_MESSAGES_OVERRIDE_ENV {
+                continue;
+            }
             if v.is_empty() {
                 keys_to_remove.push(k.clone());
             } else {
@@ -1106,6 +1140,7 @@ fn resolve_provider_env(
     // Only keep betas enabled when the base URL is explicitly Anthropic's native API.
     let base_lower = provider.base_url.to_lowercase();
     let is_native_anthropic = base_lower.is_empty() || base_lower.contains("api.anthropic.com");
+    let provider_capabilities = resolve_provider_capabilities(provider, is_native_anthropic);
     if !is_native_anthropic {
         env.entry("CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS".to_string())
             .or_insert_with(|| "1".to_string());
@@ -1152,7 +1187,198 @@ fn resolve_provider_env(
         vec![]
     };
 
-    Ok((env, keys_to_remove, extra_args, is_native_anthropic))
+    Ok((env, keys_to_remove, extra_args, provider_capabilities))
+}
+
+fn resolve_provider_capabilities(
+    provider: &ApiProvider,
+    is_native_anthropic: bool,
+) -> ProviderRuntimeCapabilities {
+    if is_native_anthropic {
+        return ProviderRuntimeCapabilities::native_anthropic();
+    }
+
+    let supports_partial_messages = provider_partial_messages_override(provider)
+        .unwrap_or_else(|| provider.api_format.eq_ignore_ascii_case("anthropic"));
+    let supports_thinking_effort = provider.api_format.eq_ignore_ascii_case("anthropic");
+
+    ProviderRuntimeCapabilities {
+        is_native_anthropic: false,
+        supports_partial_messages,
+        supports_thinking_effort,
+    }
+}
+
+fn provider_partial_messages_override(provider: &ApiProvider) -> Option<bool> {
+    provider
+        .extra_env
+        .as_ref()
+        .and_then(|extra| extra.get(PARTIAL_MESSAGES_OVERRIDE_ENV))
+        .and_then(|value| parse_bool_override(value))
+}
+
+fn parse_bool_override(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
+fn redacted_env_for_log(env: &HashMap<String, String>) -> BTreeMap<String, String> {
+    env.iter()
+        .map(|(key, value)| {
+            let key_upper = key.to_ascii_uppercase();
+            let should_redact = key_upper.contains("KEY")
+                || key_upper.contains("TOKEN")
+                || key_upper.contains("AUTH")
+                || key_upper.contains("SECRET")
+                || key_upper.contains("PASSWORD")
+                || key_upper.contains("PROXY");
+            (
+                key.clone(),
+                if should_redact {
+                    "[REDACTED]".to_string()
+                } else {
+                    value.clone()
+                },
+            )
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod provider_capability_tests {
+    use super::{
+        parse_bool_override, redacted_env_for_log, resolve_provider_capabilities, ApiProvider,
+        ModelMapping, PARTIAL_MESSAGES_OVERRIDE_ENV,
+    };
+    use std::collections::HashMap;
+
+    fn provider(
+        base_url: &str,
+        preset: Option<&str>,
+        api_format: &str,
+        extra_env: Option<HashMap<String, String>>,
+    ) -> ApiProvider {
+        ApiProvider {
+            id: "p1".to_string(),
+            name: "Provider".to_string(),
+            base_url: base_url.to_string(),
+            api_format: api_format.to_string(),
+            api_key: Some("key".to_string()),
+            model_mappings: vec![ModelMapping {
+                tier: "sonnet".to_string(),
+                provider_model: "model".to_string(),
+            }],
+            extra_env,
+            proxy_url: None,
+            preset: preset.map(str::to_string),
+            created_at: 1,
+            updated_at: 1,
+        }
+    }
+
+    #[test]
+    fn native_anthropic_always_supports_partial_messages() {
+        let p = provider("https://api.anthropic.com", None, "anthropic", None);
+        let caps = resolve_provider_capabilities(&p, true);
+        assert!(caps.is_native_anthropic);
+        assert!(caps.supports_partial_messages);
+        assert!(caps.supports_thinking_effort);
+    }
+
+    #[test]
+    fn anthropic_format_providers_default_to_partial_messages() {
+        let p = provider(
+            "https://dashscope.aliyuncs.com/apps/anthropic",
+            Some("qwen"),
+            "anthropic",
+            None,
+        );
+        let caps = resolve_provider_capabilities(&p, false);
+        assert!(!caps.is_native_anthropic);
+        assert!(caps.supports_partial_messages);
+        assert!(caps.supports_thinking_effort);
+    }
+
+    #[test]
+    fn openai_format_providers_do_not_get_claude_partial_messages() {
+        let p = provider("https://example.com/v1", None, "openai", None);
+        let caps = resolve_provider_capabilities(&p, false);
+        assert!(!caps.supports_partial_messages);
+        assert!(!caps.supports_thinking_effort);
+    }
+
+    #[test]
+    fn explicit_partial_messages_override_wins_for_non_native_provider() {
+        let mut extra = HashMap::new();
+        extra.insert(
+            PARTIAL_MESSAGES_OVERRIDE_ENV.to_string(),
+            "false".to_string(),
+        );
+        let p = provider(
+            "https://openrouter.ai/api",
+            Some("openrouter"),
+            "anthropic",
+            Some(extra),
+        );
+        let caps = resolve_provider_capabilities(&p, false);
+        assert!(!caps.supports_partial_messages);
+        assert!(caps.supports_thinking_effort);
+
+        let mut extra = HashMap::new();
+        extra.insert(
+            PARTIAL_MESSAGES_OVERRIDE_ENV.to_string(),
+            "true".to_string(),
+        );
+        let p = provider(
+            "https://unknown.example.com",
+            None,
+            "anthropic",
+            Some(extra),
+        );
+        let caps = resolve_provider_capabilities(&p, false);
+        assert!(caps.supports_partial_messages);
+        assert!(caps.supports_thinking_effort);
+    }
+
+    #[test]
+    fn bool_override_parser_accepts_common_values() {
+        assert_eq!(parse_bool_override("1"), Some(true));
+        assert_eq!(parse_bool_override("on"), Some(true));
+        assert_eq!(parse_bool_override("false"), Some(false));
+        assert_eq!(parse_bool_override("OFF"), Some(false));
+        assert_eq!(parse_bool_override("maybe"), None);
+    }
+
+    #[test]
+    fn env_log_redacts_secrets_but_keeps_routing_context() {
+        let env = HashMap::from([
+            ("ANTHROPIC_API_KEY".to_string(), "sk-real".to_string()),
+            (
+                "ANTHROPIC_BASE_URL".to_string(),
+                "https://api.example.com".to_string(),
+            ),
+            (
+                "https_proxy".to_string(),
+                "http://user:pass@127.0.0.1:7890".to_string(),
+            ),
+        ]);
+        let redacted = redacted_env_for_log(&env);
+        assert_eq!(
+            redacted.get("ANTHROPIC_API_KEY").map(String::as_str),
+            Some("[REDACTED]")
+        );
+        assert_eq!(
+            redacted.get("https_proxy").map(String::as_str),
+            Some("[REDACTED]")
+        );
+        assert_eq!(
+            redacted.get("ANTHROPIC_BASE_URL").map(String::as_str),
+            Some("https://api.example.com")
+        );
+    }
 }
 
 /// Find the JSONL file for a given session UUID by scanning ~/.claude/projects/*/.
@@ -1375,7 +1601,10 @@ fn build_mcp_scratch_config(stdin_id: &str) -> Option<std::path::PathBuf> {
     if std::fs::create_dir_all(&dir).is_err() {
         return None;
     }
-    let path = dir.join(format!("mcp-session-{}.json", safe_stdin_for_path(stdin_id)));
+    let path = dir.join(format!(
+        "mcp-session-{}.json",
+        safe_stdin_for_path(stdin_id)
+    ));
     let payload = serde_json::json!({ "mcpServers": servers });
     std::fs::write(&path, serde_json::to_string_pretty(&payload).ok()?).ok()?;
     Some(path)
@@ -1383,7 +1612,13 @@ fn build_mcp_scratch_config(stdin_id: &str) -> Option<std::path::PathBuf> {
 
 fn safe_stdin_for_path(id: &str) -> String {
     id.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -1392,9 +1627,10 @@ fn safe_stdin_for_path(id: &str) -> String {
 /// stale files across sessions.
 fn cleanup_mcp_scratch_config(stdin_id: &str) {
     if let Some(home) = dirs::home_dir() {
-        let path = home
-            .join(".tokenicode")
-            .join(format!("mcp-session-{}.json", safe_stdin_for_path(stdin_id)));
+        let path = home.join(".tokenicode").join(format!(
+            "mcp-session-{}.json",
+            safe_stdin_for_path(stdin_id)
+        ));
         let _ = std::fs::remove_file(&path);
     }
 }
@@ -1527,32 +1763,45 @@ async fn start_claude_session(
     let enriched_path = build_enriched_path();
 
     // Resolve provider environment variables from provider_id.
-    // C8 (v3 §4.3): is_native_anthropic tells us whether to inject CLI-specific
-    // env vars + --include-partial-messages. Third-party providers (OpenRouter,
-    // Qwen/DeepSeek/MiMo via /anthropic proxies) reject unknown flags so we skip
-    // them there.
-    let (mut resolved_env, inherited_keys_to_remove, provider_extra_args, is_native_anthropic) =
+    // ProviderRuntimeCapabilities keeps native-only env vars separate from
+    // partial-message streaming support. Some Anthropic-compatible providers
+    // support partial text/thinking deltas even though they are not the native
+    // api.anthropic.com endpoint.
+    let (mut resolved_env, inherited_keys_to_remove, provider_extra_args, provider_caps) =
         resolve_provider_env(params.provider_id.as_deref())?;
 
     // Append provider-specific CLI args (e.g. --setting-sources project,local)
     args.extend(provider_extra_args);
 
-    // NEW-O: partial messages streaming is Anthropic-specific. Drop it for
-    // third-party providers that return HTTP 400 on unknown Anthropic flags.
-    if !is_native_anthropic {
+    // Keep partial text/thinking deltas for known-compatible providers; degrade
+    // explicitly for unknown providers that may reject the partial-message path.
+    if !provider_caps.supports_partial_messages {
         if let Some(idx) = args.iter().position(|a| a == "--include-partial-messages") {
             args.remove(idx);
         }
+        eprintln!(
+            "[TOKENICODE] partial streaming disabled for provider {:?} (unsupported/unknown capability)",
+            params.provider_id
+        );
+    } else if !provider_caps.is_native_anthropic {
+        eprintln!(
+            "[TOKENICODE] partial streaming enabled for provider {:?}",
+            params.provider_id
+        );
     }
 
-    // Inject effort level env var for non-off thinking levels.
-    // C8: EFFORT_LEVEL is Anthropic-specific — the third-party proxies we
-    // ship to interpret it differently (or error). Keep it native-only.
-    if thinking_level != "off" && is_native_anthropic {
+    // Apply effort level for non-off thinking levels.
+    // Native Claude keeps the existing env path. Anthropic-format API
+    // providers use the CLI's public --effort flag so the setting can reach
+    // provider-routed sessions without enabling native-only env side effects.
+    if thinking_level != "off" && provider_caps.is_native_anthropic {
         resolved_env.insert(
             "CLAUDE_CODE_EFFORT_LEVEL".to_string(),
             thinking_level.to_string(),
         );
+    } else if thinking_level != "off" && provider_caps.supports_thinking_effort {
+        args.push("--effort".to_string());
+        args.push(thinking_level.to_string());
     }
 
     // Raise the per-turn output token cap from the CLI default (32K) to 64K.
@@ -1560,7 +1809,7 @@ async fn start_claude_session(
     // third-party providers (their underlying models cap lower and they
     // reject the request with 400). Keep this Anthropic-native only; users
     // on third-party providers can still override via provider extra_env.
-    if is_native_anthropic {
+    if provider_caps.is_native_anthropic {
         resolved_env
             .entry("CLAUDE_CODE_MAX_OUTPUT_TOKENS".to_string())
             .or_insert_with(|| "64000".to_string());
@@ -1570,7 +1819,7 @@ async fn start_claude_session(
     // C8: SDK file checkpointing is an Anthropic-specific CLI feature — it
     // requires --replay-user-messages which third-party providers don't
     // reliably support.
-    if is_native_anthropic {
+    if provider_caps.is_native_anthropic {
         resolved_env.insert(
             "CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING".to_string(),
             "1".to_string(),
@@ -1831,7 +2080,10 @@ async fn start_claude_session(
     );
     eprintln!("[TOKENICODE] args: {:?}", &args);
     eprintln!("[TOKENICODE] PATH: {}", &enriched_path);
-    eprintln!("[TOKENICODE] resolved_env: {:?}", &resolved_env);
+    eprintln!(
+        "[TOKENICODE] resolved_env: {:?}",
+        redacted_env_for_log(&resolved_env)
+    );
     eprintln!("[TOKENICODE] cwd: {}", &params.cwd);
 
     // Capture stdin and store in StdinManager for sending follow-up messages
@@ -3416,7 +3668,11 @@ fn extract_semver(raw: &str) -> Option<String> {
             // each dot. `2.1.92` passes; `2.1` and `2..` do not.
             if dots == 2 {
                 let parts: Vec<&str> = candidate.split('.').collect();
-                if parts.len() == 3 && parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())) {
+                if parts.len() == 3
+                    && parts
+                        .iter()
+                        .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+                {
                     return Some(candidate.to_string());
                 }
             }
@@ -3438,7 +3694,10 @@ mod extract_semver_tests {
 
     #[test]
     fn with_suffix() {
-        assert_eq!(extract_semver("2.1.92 (Claude Code)"), Some("2.1.92".into()));
+        assert_eq!(
+            extract_semver("2.1.92 (Claude Code)"),
+            Some("2.1.92".into())
+        );
     }
 
     #[test]
@@ -3516,9 +3775,7 @@ async fn read_file_tree(
 ) -> Result<Vec<FileNode>, String> {
     // Register the browsed directory as a fixed root so file operations
     // (preview, read) work even before the first CLI session is started.
-    path_access
-        .register_cwd(std::path::Path::new(&path))
-        .await;
+    path_access.register_cwd(std::path::Path::new(&path)).await;
     let max_depth = depth.unwrap_or(5);
     let root = std::path::Path::new(&path);
     if !root.exists() {
@@ -3605,7 +3862,11 @@ async fn read_file_content(
     tab_id: Option<String>,
 ) -> Result<String, String> {
     let p = path_access
-        .validate(std::path::Path::new(&path), tab_id.as_deref(), PathCapability::Read)
+        .validate(
+            std::path::Path::new(&path),
+            tab_id.as_deref(),
+            PathCapability::Read,
+        )
         .await?;
     // Limit to 1MB to prevent loading huge files
     let metadata = std::fs::metadata(&p).map_err(|e| format!("Cannot read file: {}", e))?;
@@ -3639,7 +3900,11 @@ async fn read_file_base64(
     use base64::Engine as _;
 
     let p = path_access
-        .validate(std::path::Path::new(&path), tab_id.as_deref(), PathCapability::Read)
+        .validate(
+            std::path::Path::new(&path),
+            tab_id.as_deref(),
+            PathCapability::Read,
+        )
         .await?;
 
     let metadata = std::fs::metadata(&p).map_err(|e| format!("Cannot read file: {}", e))?;
@@ -3685,7 +3950,11 @@ async fn write_file_content(
     tab_id: Option<String>,
 ) -> Result<(), String> {
     let p = path_access
-        .validate(std::path::Path::new(&path), tab_id.as_deref(), PathCapability::Write)
+        .validate(
+            std::path::Path::new(&path),
+            tab_id.as_deref(),
+            PathCapability::Write,
+        )
         .await?;
     std::fs::write(&p, &content).map_err(|e| format!("Cannot write file: {}", e))
 }
@@ -3698,10 +3967,18 @@ async fn copy_file(
     tab_id: Option<String>,
 ) -> Result<(), String> {
     let s = path_access
-        .validate(std::path::Path::new(&src), tab_id.as_deref(), PathCapability::Read)
+        .validate(
+            std::path::Path::new(&src),
+            tab_id.as_deref(),
+            PathCapability::Read,
+        )
         .await?;
     let d = path_access
-        .validate(std::path::Path::new(&dest), tab_id.as_deref(), PathCapability::Write)
+        .validate(
+            std::path::Path::new(&dest),
+            tab_id.as_deref(),
+            PathCapability::Write,
+        )
         .await?;
     std::fs::copy(&s, &d)
         .map(|_| ())
@@ -3716,10 +3993,18 @@ async fn rename_file(
     tab_id: Option<String>,
 ) -> Result<(), String> {
     let s = path_access
-        .validate(std::path::Path::new(&src), tab_id.as_deref(), PathCapability::Write)
+        .validate(
+            std::path::Path::new(&src),
+            tab_id.as_deref(),
+            PathCapability::Write,
+        )
         .await?;
     let d = path_access
-        .validate(std::path::Path::new(&dest), tab_id.as_deref(), PathCapability::Write)
+        .validate(
+            std::path::Path::new(&dest),
+            tab_id.as_deref(),
+            PathCapability::Write,
+        )
         .await?;
     std::fs::rename(&s, &d).map_err(|e| format!("Cannot rename file: {}", e))
 }
@@ -3731,7 +4016,11 @@ async fn delete_file(
     tab_id: Option<String>,
 ) -> Result<(), String> {
     let p = path_access
-        .validate(std::path::Path::new(&path), tab_id.as_deref(), PathCapability::Delete)
+        .validate(
+            std::path::Path::new(&path),
+            tab_id.as_deref(),
+            PathCapability::Delete,
+        )
         .await?;
     // Move to system trash/recycle bin (recoverable) instead of permanent delete
     trash::delete(&p).map_err(|e| format!("Cannot move to trash: {}", e))
@@ -3744,7 +4033,11 @@ async fn create_directory(
     tab_id: Option<String>,
 ) -> Result<(), String> {
     let p = path_access
-        .validate(std::path::Path::new(&path), tab_id.as_deref(), PathCapability::Write)
+        .validate(
+            std::path::Path::new(&path),
+            tab_id.as_deref(),
+            PathCapability::Write,
+        )
         .await?;
     std::fs::create_dir_all(&p).map_err(|e| format!("Cannot create directory: {}", e))
 }
@@ -4024,7 +4317,11 @@ async fn get_file_size(
     tab_id: Option<String>,
 ) -> Result<u64, String> {
     let p = path_access
-        .validate(std::path::Path::new(&path), tab_id.as_deref(), PathCapability::Read)
+        .validate(
+            std::path::Path::new(&path),
+            tab_id.as_deref(),
+            PathCapability::Read,
+        )
         .await?;
     let metadata =
         std::fs::metadata(&p).map_err(|e| format!("Cannot read file metadata: {}", e))?;
@@ -4426,7 +4723,11 @@ async fn read_skill(
     tab_id: Option<String>,
 ) -> Result<String, String> {
     let p = path_access
-        .validate(std::path::Path::new(&path), tab_id.as_deref(), PathCapability::Read)
+        .validate(
+            std::path::Path::new(&path),
+            tab_id.as_deref(),
+            PathCapability::Read,
+        )
         .await?;
     std::fs::read_to_string(&p).map_err(|e| format!("Cannot read skill file: {}", e))
 }
@@ -4440,7 +4741,11 @@ async fn write_skill(
     tab_id: Option<String>,
 ) -> Result<(), String> {
     let p = path_access
-        .validate(std::path::Path::new(&path), tab_id.as_deref(), PathCapability::Write)
+        .validate(
+            std::path::Path::new(&path),
+            tab_id.as_deref(),
+            PathCapability::Write,
+        )
         .await?;
     if let Some(parent) = p.parent() {
         std::fs::create_dir_all(parent)
@@ -4457,7 +4762,11 @@ async fn delete_skill(
     tab_id: Option<String>,
 ) -> Result<(), String> {
     let p = path_access
-        .validate(std::path::Path::new(&path), tab_id.as_deref(), PathCapability::Delete)
+        .validate(
+            std::path::Path::new(&path),
+            tab_id.as_deref(),
+            PathCapability::Delete,
+        )
         .await?;
     let p = p.as_path();
     std::fs::remove_file(p).map_err(|e| format!("Failed to delete skill file: {}", e))?;
@@ -4702,7 +5011,11 @@ async fn toggle_skill_enabled(
     tab_id: Option<String>,
 ) -> Result<(), String> {
     let p = path_access
-        .validate(std::path::Path::new(&path), tab_id.as_deref(), PathCapability::Write)
+        .validate(
+            std::path::Path::new(&path),
+            tab_id.as_deref(),
+            PathCapability::Write,
+        )
         .await?;
     let content =
         std::fs::read_to_string(&p).map_err(|e| format!("Cannot read skill file: {}", e))?;
@@ -7342,7 +7655,7 @@ async fn generate_session_title(
 
     // Resolve model and env vars for provider
     let (provider_env, provider_keys_to_remove, model_name) = if let Some(ref pid) = provider_id {
-        let (env, keys, _args, _is_native) = resolve_provider_env(Some(pid))?;
+        let (env, keys, _args, _caps) = resolve_provider_env(Some(pid))?;
         // Find haiku tier mapping from provider
         let providers_file = load_providers()?;
         let provider = providers_file.providers.iter().find(|p| p.id == *pid);
@@ -7649,9 +7962,8 @@ pub fn run() {
                 let mcp_config = tauri_plugin_mcp::PluginConfig::new("TOKENICODE".to_string())
                     .start_socket_server(true)
                     .socket_path(std::path::PathBuf::from("/tmp/tokenicode-test.sock"));
-                app.handle().plugin(
-                    tauri_plugin_mcp::init_with_config(mcp_config)
-                )?;
+                app.handle()
+                    .plugin(tauri_plugin_mcp::init_with_config(mcp_config))?;
                 eprintln!("[TOKENICODE] Test harness registered on /tmp/tokenicode-test.sock");
             }
 
@@ -7787,15 +8099,20 @@ mod decode_tests {
         let encoded = encode_path(&full_path);
 
         let result = decode_project_name(&encoded);
-        assert_eq!(result, full_path,
-            "Decoder should find the hyphenated dir on disk and keep the hyphen");
+        assert_eq!(
+            result, full_path,
+            "Decoder should find the hyphenated dir on disk and keep the hyphen"
+        );
     }
 
     #[test]
     fn test_hidden_dir_double_dash_with_tempdir() {
         // Create .claude-worktrees/condescending-brown inside a temp dir
         let tmp = TempDir::new().unwrap();
-        let hidden = tmp.path().join(".claude-worktrees").join("condescending-brown");
+        let hidden = tmp
+            .path()
+            .join(".claude-worktrees")
+            .join("condescending-brown");
         std::fs::create_dir_all(&hidden).unwrap();
 
         let full_path = hidden.to_string_lossy().to_string();
@@ -7825,8 +8142,10 @@ mod decode_tests {
         let encoded = encode_path(&full_path).replace(' ', "-");
 
         let result = decode_project_name(&encoded);
-        assert_eq!(result, full_path,
-            "Decoder should find the space-containing dir on disk");
+        assert_eq!(
+            result, full_path,
+            "Decoder should find the space-containing dir on disk"
+        );
     }
 
     #[test]

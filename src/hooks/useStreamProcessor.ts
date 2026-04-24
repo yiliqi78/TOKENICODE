@@ -1,6 +1,6 @@
-import { useCallback, type MutableRefObject } from 'react';
+import { useCallback, useRef, type MutableRefObject } from 'react';
 import { useChatStore, generateMessageId, type ChatMessage } from '../stores/chatStore';
-import { useSettingsStore, mapSessionModeToPermissionMode, getEffectiveMode } from '../stores/settingsStore';
+import { useSettingsStore, mapSessionModeToPermissionMode, getEffectiveMode, getEffectiveThinking } from '../stores/settingsStore';
 import { useSessionStore, setOrphanDrainCallback } from '../stores/sessionStore';
 import { useAgentStore, resolveAgentId, getAgentDepth } from '../stores/agentStore';
 import { useCommandStore } from '../stores/commandStore';
@@ -10,6 +10,11 @@ import { envFingerprint, resolveModelForProvider, spawnConfigHash, getAutoCompac
 import { useProviderStore } from '../stores/providerStore';
 import { t } from '../lib/i18n';
 import {
+  clearPreservedThinkingSnapshot,
+  filterThinkingDeltaAfterPreservedSnapshot,
+  rememberPreservedThinkingSnapshot,
+} from '../stream/thinkingDedupe';
+import {
   checkOwnership,
   handleProcessExitFinalize,
   cleanupStdinRoute,
@@ -18,6 +23,7 @@ import {
   waitForStdinCleared,
   hasAutoCompactFired,
   markAutoCompactFired,
+  getRecentlyFinalizedStdin,
 } from '../lib/sessionLifecycle';
 
 // --- Error classification for user-facing messages ---
@@ -157,7 +163,9 @@ function markStdinReady(tabId: string, stdinId: string | undefined, model: strin
   });
 
   if (shouldStartTurn) {
-    store.setActivityStatus(tabId, { phase: 'thinking' });
+    store.setActivityStatus(tabId, {
+      phase: shouldRenderThinkingForTab(tabId) ? 'thinking' : 'writing',
+    });
   }
 
   if (stdinId && pendingReady?.stdinId === stdinId) {
@@ -204,6 +212,34 @@ function buildThinkingSnapshot(msgUuid: string | undefined, content: any[]) {
   };
 }
 
+function appendDedupedThinking(base: string, next: string) {
+  if (!base) return next;
+  if (!next) return base;
+
+  const trimmedNext = next.trim();
+  const trimmedBase = base.trim();
+  if (!trimmedNext) return base;
+  if (!trimmedBase) return next;
+  if (base.includes(trimmedNext)) return base;
+  if (next.includes(trimmedBase)) return next;
+
+  const maxOverlap = Math.min(base.length, next.length);
+  for (let len = maxOverlap; len > 0; len--) {
+    if (base.endsWith(next.slice(0, len))) {
+      return base + next.slice(len);
+    }
+  }
+  return base + next;
+}
+
+function mergeThinkingContent(...parts: Array<string | undefined>) {
+  const merged = parts.reduce<string>((acc, part) => {
+    if (!part || part.trim().length === 0) return acc;
+    return appendDedupedThinking(acc, part);
+  }, '');
+  return merged.trim();
+}
+
 function buildCommittedThinkingId(msgUuid: string | undefined) {
   return msgUuid ? `${msgUuid}__thinking_committed` : undefined;
 }
@@ -212,25 +248,59 @@ function resolveThinkingPersistence(
   msgUuid: string | undefined,
   content: any[],
   partialThinking: string | undefined,
+  bufferedThinking?: string,
 ) {
   const snapshot = buildThinkingSnapshot(msgUuid, content);
-  if (snapshot) return snapshot;
-  const fallback = partialThinking?.trim();
-  if (!fallback) return null;
+  const mergedContent = mergeThinkingContent(
+    snapshot?.content,
+    partialThinking,
+    bufferedThinking,
+  );
+  if (!mergedContent) return null;
   return {
-    id: msgUuid ? `${msgUuid}_thinking` : generateMessageId(),
-    content: fallback,
+    id: snapshot?.id ?? (msgUuid ? `${msgUuid}_thinking` : generateMessageId()),
+    content: mergedContent,
   };
 }
 
 function shouldMaterializeThinkingSnapshot(content: any[], hasTextBlock: boolean) {
   if (hasTextBlock) return true;
   return content.some(
-    (b: any) => b.type === 'tool_use' || b.type === 'tool_result' || b.type === 'todo',
+    (b: any) =>
+      b.type === 'tool_use'
+      || b.type === 'tool_result'
+      || b.type === 'todo',
   );
 }
 
-function clearLivePartialThinking(tabId: string) {
+function isPureThinkingOnlySnapshot(content: any[]) {
+  return content.length > 0
+    && content.every((b: any) => b.type === 'thinking')
+    && content.some(
+      (b: any) => typeof b.thinking === 'string' && b.thinking.length > 0,
+    );
+}
+
+function shouldCreateStreamingToolPlaceholder(toolName: string | undefined) {
+  return Boolean(
+    toolName
+      && toolName !== 'ExitPlanMode'
+      && toolName !== 'Task'
+      && toolName !== 'Agent'
+      && toolName !== 'TaskCreate'
+      && toolName !== 'SendMessage'
+      && toolName !== 'AskUserQuestion',
+  );
+}
+
+function shouldRenderThinkingForTab(tabId: string) {
+  const tab = useChatStore.getState().getTab(tabId);
+  return getEffectiveThinking(tab?.sessionMeta) !== 'off';
+}
+
+function clearLivePartialThinking(tabId: string, stdinId?: string) {
+  if (stdinId) streamController.clearThinking(stdinId);
+  clearPreservedThinkingSnapshot(tabId, stdinId);
   const store = useChatStore.getState();
   const tab = store.getTab(tabId);
   if (!tab?.partialThinking) return;
@@ -239,13 +309,133 @@ function clearLivePartialThinking(tabId: string) {
   useChatStore.setState({ tabs: nextTabs, sessionCache: nextTabs });
 }
 
+function clearLivePartialText(tabId: string, stdinId?: string) {
+  if (stdinId) streamController.flush(stdinId);
+  const store = useChatStore.getState();
+  const tab = store.getTab(tabId);
+  if (!tab?.partialText) return;
+  const nextTabs = new Map(store.tabs);
+  nextTabs.set(tabId, {
+    ...tab,
+    partialText: '',
+    isStreaming: Boolean(tab.partialThinking),
+  });
+  useChatStore.setState({ tabs: nextTabs, sessionCache: nextTabs });
+}
+
+function preserveLiveThinkingSnapshot(params: {
+  tabId: string;
+  thinkingPersistence: { id: string; content: string } | null;
+  stdinId?: string;
+}) {
+  const { tabId, thinkingPersistence, stdinId } = params;
+  if (!shouldRenderThinkingForTab(tabId)) {
+    clearLivePartialThinking(tabId, stdinId);
+    return false;
+  }
+  if (!thinkingPersistence?.content) return false;
+  if (stdinId) streamController.clearThinking(stdinId);
+  rememberPreservedThinkingSnapshot(tabId, stdinId, thinkingPersistence.content);
+
+  useChatStore.setState((state) => {
+    const tab = state.tabs.get(tabId);
+    if (!tab) return {};
+    const nextThinking = mergeThinkingContent(tab.partialThinking, thinkingPersistence.content);
+    if (!nextThinking || nextThinking === tab.partialThinking) return {};
+    const nextTabs = new Map(state.tabs);
+    nextTabs.set(tabId, {
+      ...tab,
+      partialThinking: nextThinking,
+      isStreaming: true,
+      activityStatus:
+        tab.activityStatus.phase === 'tool'
+          || tab.activityStatus.phase === 'awaiting'
+          || tab.activityStatus.phase === 'writing'
+          ? tab.activityStatus
+          : tab.partialText.length > 0
+            ? { phase: 'writing' as const }
+            : { phase: 'thinking' as const },
+    });
+    return { tabs: nextTabs, sessionCache: nextTabs };
+  });
+  return true;
+}
+
+function appendLiveThinkingDelta(tabId: string, delta: string, stdinId?: string) {
+  if (!delta) return;
+  if (!shouldRenderThinkingForTab(tabId)) {
+    clearLivePartialThinking(tabId, stdinId);
+    return;
+  }
+  const currentThinking = useChatStore.getState().getTab(tabId)?.partialThinking ?? '';
+  const filtered = filterThinkingDeltaAfterPreservedSnapshot({
+    tabId,
+    stdinId,
+    currentThinking,
+    delta,
+  });
+  if (filtered) useChatStore.getState().updatePartialThinking(tabId, filtered);
+}
+
+function commitThinkingAtTurnBoundary(params: {
+  tabId: string;
+  msgUuid: string | undefined;
+  timestamp: number;
+  subAgentDepth?: number;
+  stdinId?: string;
+}) {
+  const {
+    tabId,
+    msgUuid,
+    timestamp,
+    subAgentDepth,
+    stdinId,
+  } = params;
+  const tab = useChatStore.getState().getTab(tabId);
+  const bufferedThinking = stdinId
+    ? streamController.peekBufferedThinking(stdinId)
+    : undefined;
+  const thinkingPersistence = resolveThinkingPersistence(
+    msgUuid,
+    [],
+    tab?.partialThinking,
+    bufferedThinking,
+  );
+  return commitThinkingBeforeAssistantText({
+    tabId,
+    msgUuid,
+    thinkingPersistence,
+    timestamp,
+    subAgentDepth,
+    stdinId,
+  });
+}
+
 function finalizeBackgroundAssistantStreamingState(params: {
   tabId: string;
   hasTextBlock: boolean;
+  hasAskUserQuestion: boolean;
   shouldMaterializeThinking: boolean;
   thinkingPersistence: { id: string; content: string } | null;
+  stdinId?: string;
 }) {
-  const { tabId, hasTextBlock, shouldMaterializeThinking, thinkingPersistence } = params;
+  const {
+    tabId,
+    hasTextBlock,
+    hasAskUserQuestion,
+    shouldMaterializeThinking,
+    thinkingPersistence,
+    stdinId,
+  } = params;
+  if (stdinId) {
+    if (hasTextBlock) {
+      streamController.clearPartial(stdinId);
+    } else if (hasAskUserQuestion) {
+      streamController.flush(stdinId);
+    } else if (shouldMaterializeThinking && thinkingPersistence) {
+      streamController.clearThinking(stdinId);
+    }
+  }
   useChatStore.setState((state) => {
     const latestTab = state.tabs.get(tabId);
     if (!latestTab) return {};
@@ -257,6 +447,20 @@ function finalizeBackgroundAssistantStreamingState(params: {
         partialText: '',
         partialThinking: '',
         isStreaming: false,
+      });
+      return { tabs: nextTabs, sessionCache: nextTabs };
+    }
+
+    if (hasAskUserQuestion && latestTab.partialText) {
+      const nextPartialThinking = shouldMaterializeThinking && thinkingPersistence
+        ? ''
+        : latestTab.partialThinking;
+      const nextTabs = new Map(state.tabs);
+      nextTabs.set(tabId, {
+        ...latestTab,
+        partialText: '',
+        partialThinking: nextPartialThinking,
+        isStreaming: Boolean(nextPartialThinking),
       });
       return { tabs: nextTabs, sessionCache: nextTabs };
     }
@@ -277,6 +481,7 @@ function commitThinkingBeforeAssistantText(params: {
   thinkingPersistence: { id: string; content: string } | null;
   timestamp: number;
   subAgentDepth?: number;
+  stdinId?: string;
 }) {
   const {
     tabId,
@@ -284,12 +489,17 @@ function commitThinkingBeforeAssistantText(params: {
     thinkingPersistence,
     timestamp,
     subAgentDepth,
+    stdinId,
   } = params;
   if (!thinkingPersistence) return false;
 
   const store = useChatStore.getState();
   const tab = store.getTab(tabId);
   if (!tab) return false;
+  if (!shouldRenderThinkingForTab(tabId)) {
+    clearLivePartialThinking(tabId, stdinId);
+    return false;
+  }
 
   const committedId = buildCommittedThinkingId(msgUuid) ?? thinkingPersistence.id;
   const legacyId = msgUuid ? `${msgUuid}_thinking` : undefined;
@@ -308,7 +518,7 @@ function commitThinkingBeforeAssistantText(params: {
         ...(subAgentDepth !== undefined ? { subAgentDepth } : {}),
       });
     }
-    clearLivePartialThinking(tabId);
+    clearLivePartialThinking(tabId, stdinId);
     return true;
   }
 
@@ -320,7 +530,7 @@ function commitThinkingBeforeAssistantText(params: {
     ...(subAgentDepth !== undefined ? { subAgentDepth } : {}),
     timestamp,
   });
-  clearLivePartialThinking(tabId);
+  clearLivePartialThinking(tabId, stdinId);
   return true;
 }
 
@@ -352,8 +562,15 @@ export const __streamThinkingTesting = {
   buildThinkingSnapshot,
   buildCommittedThinkingId,
   resolveThinkingPersistence,
+  mergeThinkingContent,
   shouldMaterializeThinkingSnapshot,
+  isPureThinkingOnlySnapshot,
+  shouldCreateStreamingToolPlaceholder,
+  clearLivePartialText,
+  preserveLiveThinkingSnapshot,
+  appendLiveThinkingDelta,
   commitThinkingBeforeAssistantText,
+  commitThinkingAtTurnBoundary,
   finalizeBackgroundAssistantStreamingState,
 };
 
@@ -394,6 +611,17 @@ function _maybeRefreshFileTree(tabId: string, toolUseId?: string, toolName?: str
   }
 }
 
+function isAssistantResumeEvidenceEvent(msg: any): boolean {
+  if (msg.type === 'assistant' || msg.type === 'content_block_delta') return true;
+  if (msg.type !== 'stream_event') return false;
+  const evtType = msg.event?.type;
+  return evtType === 'message_start'
+    || evtType === 'message_delta'
+    || evtType === 'content_block_start'
+    || evtType === 'content_block_delta'
+    || evtType === 'content_block_stop';
+}
+
 /**
  * Configuration refs and callbacks that the stream processor needs
  * from the parent InputBar component.
@@ -423,6 +651,36 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
     lastStderrRef,
     setInputSync,
   } = config;
+  const lastProgressWriteRef = useRef<Record<string, number>>({});
+
+  const markStreamProgress = useCallback((tabId: string, msg: any) => {
+    const isHighFrequencyDelta =
+      (msg.type === 'stream_event' && msg.event?.type === 'content_block_delta')
+      || msg.type === 'content_block_delta';
+    const now = Date.now();
+    const last = lastProgressWriteRef.current[tabId] ?? 0;
+    if (isHighFrequencyDelta && now - last < 250) return;
+    lastProgressWriteRef.current[tabId] = now;
+
+    const tab = useChatStore.getState().getTab(tabId);
+    const shouldClearTurnMeta = msg.type !== 'system'
+      && msg.type !== 'process_exit'
+      && tab?.sessionStatus !== 'stopping';
+    const hasResumeEvidence = isAssistantResumeEvidenceEvent(msg);
+
+    useChatStore.getState().setSessionMeta(tabId, {
+      lastProgressAt: now,
+      ...(hasResumeEvidence ? { turnAcceptedForResume: true } : {}),
+      ...(shouldClearTurnMeta
+        ? {
+          pendingTurnMessageId: undefined,
+          pendingTurnInput: undefined,
+          pendingTurnAttachments: undefined,
+          interruptedAssistantText: undefined,
+        }
+        : {}),
+    });
+  }, []);
 
   /**
    * Handle stream messages for a background (non-active) tab — route to cache.
@@ -438,16 +696,8 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
       }
     }
 
-    // Update lastProgressAt for stall detection on background tabs
-    store.setSessionMeta(tabId, { lastProgressAt: Date.now() });
-    if (msg.type !== 'system' && msg.type !== 'process_exit') {
-      store.setSessionMeta(tabId, {
-        pendingTurnMessageId: undefined,
-        pendingTurnInput: undefined,
-        pendingTurnAttachments: undefined,
-        interruptedAssistantText: undefined,
-      });
-    }
+    // Update progress for stall detection without writing Zustand state for every token.
+    markStreamProgress(tabId, msg);
 
     switch (msg.type) {
       case 'tokenicode_permission_request': {
@@ -506,6 +756,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             || bgTab?.messages.find((m) => m.type === 'question' && !m.resolved && m.toolName === 'AskUserQuestion');
           const ownerStdinId = (msg.__stdinId as string | undefined)
             ?? bgTab?.sessionMeta.stdinId;
+          clearLivePartialText(tabId, ownerStdinId);
           if (existing) {
             store.updateMessage(tabId, existing.id, {
               permissionData: {
@@ -576,7 +827,11 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           // F1 (#57): background tabs must handle thinking_delta too,
           // otherwise thinking content is silently lost on tab switch.
           const thinking = evt.delta.thinking || '';
-          if (thinking) store.updatePartialThinking(tabId, thinking);
+          if (shouldRenderThinkingForTab(tabId)) {
+            appendLiveThinkingDelta(tabId, thinking, msg.__stdinId as string | undefined);
+          } else if (msg.__stdinId) {
+            streamController.clearThinking(msg.__stdinId as string);
+          }
         }
         // Early detection: create plan_review card for background tab (Plan mode only).
         // Bypass auto-approves via Rust backend — no UI card needed.
@@ -634,32 +889,52 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         // block is present (which supersedes streaming text). Otherwise, preserve
         // it to avoid intermediate thinking-only messages destroying streaming text.
         const bgHasTextBlock = content.some((b: any) => b.type === 'text' && b.text);
-        const bgShouldMaterializeThinking = shouldMaterializeThinkingSnapshot(content, bgHasTextBlock);
-        const bgTab = store.getTab(tabId);
-        const bgThinkingPersistence = resolveThinkingPersistence(
-          msg.uuid,
-          content,
-          bgTab?.partialThinking,
+        const bgHasAskUserQuestion = content.some(
+          (b: any) => b.type === 'tool_use' && b.name === 'AskUserQuestion',
         );
+        const bgShouldRenderThinking = shouldRenderThinkingForTab(tabId);
+        const bgIsPureThinkingOnly = bgShouldRenderThinking && isPureThinkingOnlySnapshot(content);
+        const bgShouldMaterializeThinking = bgShouldRenderThinking
+          && shouldMaterializeThinkingSnapshot(content, bgHasTextBlock);
+        const bgTab = store.getTab(tabId);
+        const bgStdinId = msg.__stdinId as string | undefined;
+        const bgBufferedThinking = bgStdinId
+          ? streamController.peekBufferedThinking(bgStdinId)
+          : undefined;
+        const bgThinkingPersistence = bgShouldRenderThinking
+          ? resolveThinkingPersistence(
+            msg.uuid,
+            content,
+            bgTab?.partialThinking,
+            bgBufferedThinking,
+          )
+          : null;
+        if (!bgShouldMaterializeThinking && bgIsPureThinkingOnly && bgThinkingPersistence) {
+          preserveLiveThinkingSnapshot({
+            tabId,
+            thinkingPersistence: bgThinkingPersistence,
+            stdinId: bgStdinId,
+          });
+        }
         let bgThinkingMessageEmitted = bgHasTextBlock
           ? commitThinkingBeforeAssistantText({
             tabId,
             msgUuid: msg.uuid,
             thinkingPersistence: bgThinkingPersistence,
             timestamp: Date.now(),
+            stdinId: bgStdinId,
           })
           : false;
         finalizeBackgroundAssistantStreamingState({
           tabId,
           hasTextBlock: bgHasTextBlock,
+          hasAskUserQuestion: bgHasAskUserQuestion,
           shouldMaterializeThinking: bgShouldMaterializeThinking,
           thinkingPersistence: bgThinkingPersistence,
+          stdinId: bgStdinId,
         });
         // Skip text blocks when AskUserQuestion is present — the
         // interactive question UI makes them redundant.
-        const bgHasAskUserQuestion = content.some(
-          (b: any) => b.type === 'tool_use' && b.name === 'AskUserQuestion',
-        );
         for (let blockIdx = 0; blockIdx < content.length; blockIdx++) {
           const block = content[blockIdx];
           if (block.type === 'text') {
@@ -754,27 +1029,27 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               });
             }
           } else if (block.type === 'thinking') {
+            if (!bgShouldRenderThinking) continue;
             if (bgThinkingMessageEmitted) continue;
             store.setActivityStatus(tabId, { phase: 'thinking' });
             if (bgShouldMaterializeThinking && bgThinkingPersistence) {
-              store.addMessage(tabId, {
-                id: bgThinkingPersistence.id,
-                role: 'assistant',
-                type: 'thinking',
-                content: bgThinkingPersistence.content,
+              bgThinkingMessageEmitted = commitThinkingBeforeAssistantText({
+                tabId,
+                msgUuid: msg.uuid,
+                thinkingPersistence: bgThinkingPersistence,
                 timestamp: Date.now(),
+                stdinId: bgStdinId,
               });
-              bgThinkingMessageEmitted = true;
             }
           }
         }
         if (bgShouldMaterializeThinking && bgThinkingPersistence && !bgThinkingMessageEmitted) {
-          store.addMessage(tabId, {
-            id: bgThinkingPersistence.id,
-            role: 'assistant',
-            type: 'thinking',
-            content: bgThinkingPersistence.content,
+          commitThinkingBeforeAssistantText({
+            tabId,
+            msgUuid: msg.uuid,
+            thinkingPersistence: bgThinkingPersistence,
             timestamp: Date.now(),
+            stdinId: bgStdinId,
           });
         }
         break;
@@ -842,6 +1117,40 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
       case 'result': {
         // Capture stopping state BEFORE status update — needed for drain guard below
         const bgWasStopping = store.getTab(tabId)?.sessionStatus === 'stopping';
+        const bgResultTab = store.getTab(tabId);
+        const bgResultStdinId = (msg.__stdinId as string | undefined)
+          ?? bgResultTab?.sessionMeta.stdinId;
+        const bgFinalizedRoute = bgResultStdinId ? getRecentlyFinalizedStdin(bgResultStdinId) : undefined;
+        const bgIsUserStopResult = msg.subtype !== 'success'
+          && (
+            bgWasStopping
+            || bgResultTab?.sessionMeta.teardownReason === 'stop'
+            || bgFinalizedRoute?.reason === 'stop'
+            || msg.subtype === 'user_abort'
+          );
+
+        if (bgIsUserStopResult) {
+          if (bgResultStdinId && bgWasStopping) {
+            handleProcessExitFinalize(bgResultStdinId);
+          } else {
+            store.setSessionStatus(tabId, 'stopped');
+            store.setSessionMeta(tabId, {
+              stdinReady: false,
+              pendingReadyMessage: undefined,
+              turnStartTime: undefined,
+              lastProgressAt: undefined,
+            });
+          }
+          useSessionStore.getState().fetchSessions();
+          break;
+        }
+
+        commitThinkingAtTurnBoundary({
+          tabId,
+          msgUuid: msg.uuid,
+          timestamp: Date.now(),
+          stdinId: bgResultStdinId,
+        });
 
         // Clear pending command on result (e.g. /compact completing on background tab)
         completePendingCommand(tabId, {
@@ -1102,14 +1411,16 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             }
           } else if (msg.delta?.type === 'thinking_delta') {
             const thinking = msg.delta?.thinking || '';
-            if (thinking) {
-              store.updatePartialThinking(tabId, thinking);
+            if (thinking && shouldRenderThinkingForTab(tabId)) {
+              appendLiveThinkingDelta(tabId, thinking, msg.__stdinId as string | undefined);
+            } else if (thinking && msg.__stdinId) {
+              streamController.clearThinking(msg.__stdinId as string);
             }
           }
         }
         break;
     }
-  }, [exitPlanModeSeenRef]);
+  }, [exitPlanModeSeenRef, markStreamProgress]);
 
   /**
    * Handle stream messages for the foreground (active) tab.
@@ -1136,9 +1447,25 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
     // MUST run before tokenicode_permission_request and all other handlers
     // to prevent messages from background sessions leaking into the active tab.
     const msgStdinId = msg.__stdinId;
-    const ownerTabId = msgStdinId
+    const directOwnerTabId = msgStdinId
       ? useSessionStore.getState().getTabForStdin(msgStdinId)
       : undefined;
+    const finalizedRoute = msgStdinId ? getRecentlyFinalizedStdin(msgStdinId) : undefined;
+    const isFinalizedUserStopEvent = !directOwnerTabId && finalizedRoute?.reason === 'stop';
+    if (isFinalizedUserStopEvent) {
+      if (msg.type === 'result') {
+        useChatStore.getState().setSessionStatus(finalizedRoute.tabId, 'stopped');
+        useChatStore.getState().setSessionMeta(finalizedRoute.tabId, {
+          stdinReady: false,
+          pendingReadyMessage: undefined,
+          turnStartTime: undefined,
+          lastProgressAt: undefined,
+        });
+        useSessionStore.getState().fetchSessions();
+      }
+      return;
+    }
+    const ownerTabId = directOwnerTabId;
     const activeTabId = useSessionStore.getState().selectedSessionId;
 
     const isBackground = ownerTabId && ownerTabId !== activeTabId;
@@ -1161,8 +1488,9 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
       return;
     }
 
-    const tabId = ownerTabId || activeTabId;
-    if (!tabId) return;
+    const initialTabId = ownerTabId || activeTabId;
+    if (!initialTabId) return;
+    let tabId: string = initialTabId;
 
     // Ownership guard: reject stale messages BEFORE any state writes (F4 fix).
     // Must run before permission handling, cliResumeId capture, or switch block.
@@ -1173,16 +1501,8 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
       }
     }
 
-    // Update lastProgressAt on every foreground stream event for stall detection
-    useChatStore.getState().setSessionMeta(tabId, { lastProgressAt: Date.now() });
-    if (msg.type !== 'system' && msg.type !== 'process_exit') {
-      useChatStore.getState().setSessionMeta(tabId, {
-        pendingTurnMessageId: undefined,
-        pendingTurnInput: undefined,
-        pendingTurnAttachments: undefined,
-        interruptedAssistantText: undefined,
-      });
-    }
+    // Update progress for stall detection without writing Zustand state for every token.
+    markStreamProgress(tabId, msg);
 
     // --- SDK Permission Request (routed through stream channel for reliability) ---
     if (msg.type === 'tokenicode_permission_request') {
@@ -1253,6 +1573,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           // exists — because a new control_request supersedes a stale one.
           const existingOwnerStdin = (msg.__stdinId as string | undefined)
             ?? chatStore.getTab(tabId)?.sessionMeta.stdinId;
+          clearLivePartialText(tabId, existingOwnerStdin);
           chatStore.updateMessage(tabId, existing.id, {
             permissionData: {
               requestId: msg.request_id,
@@ -1271,6 +1592,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         // handler can use the spawning context instead of getActiveTabState().
         const ownerStdinId = (msg.__stdinId as string | undefined)
           ?? chatStore.getTab(tabId)?.sessionMeta.stdinId;
+        clearLivePartialText(tabId, ownerStdinId);
         chatStore.addMessage(tabId, {
           id: questionId,
           role: 'assistant',
@@ -1347,9 +1669,11 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         useSessionStore.getState().setCliResumeId(tabId, cliSessionId);
         bridge.trackSession(cliSessionId).catch(() => {});
 
-        // Promote draft tab to real session ID so it merges with disk session
+        // Promote draft tabs to the real CLI session ID so they merge with
+        // disk sessions. Non-draft tabs are never physically deleted here:
+        // resume evidence, not heuristic deletion, preserves continuity.
         if (tabId.startsWith('draft_')) {
-          // Migrate tab data under old draft key to new real key
+          // Migrate tab data under old key to new real key
           const chatState = useChatStore.getState();
           const tabData = chatState.getTab(tabId);
           if (tabData) {
@@ -1359,6 +1683,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             useChatStore.setState({ tabs: newTabs, sessionCache: newTabs });
           }
           useSessionStore.getState().promoteDraft(tabId, cliSessionId);
+          tabId = cliSessionId;
         }
 
         useSessionStore.getState().fetchSessions();
@@ -1413,11 +1738,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           // Skip ExitPlanMode (handled by plan_review path) and Task/Agent/
           // TaskCreate/SendMessage (handled by agent registration below).
           const toolName = evt.content_block.name;
-          if (toolName !== 'ExitPlanMode'
-              && toolName !== 'Task'
-              && toolName !== 'Agent'
-              && toolName !== 'TaskCreate'
-              && toolName !== 'SendMessage') {
+          if (shouldCreateStreamingToolPlaceholder(toolName)) {
             setActivityStatus({ phase: 'tool', toolName });
             agentActions.updatePhase(agentId, 'tool', toolName);
             addMessage({
@@ -1442,11 +1763,17 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         } else if (evt.type === 'content_block_delta' && evt.delta?.type === 'thinking_delta') {
           const thinkingText = evt.delta.thinking || '';
           if (thinkingText && msgStdinId) {
-            streamController.appendThinking(msgStdinId, thinkingText);
-            agentActions.updatePhase(agentId, 'thinking');
+            if (shouldRenderThinkingForTab(tabId)) {
+              streamController.appendThinking(msgStdinId, thinkingText);
+              agentActions.updatePhase(agentId, 'thinking');
+            } else {
+              streamController.clearThinking(msgStdinId);
+              setActivityStatus({ phase: 'writing' });
+              agentActions.updatePhase(agentId, 'writing');
+            }
           } else {
-            setActivityStatus({ phase: 'thinking' });
-            agentActions.updatePhase(agentId, 'thinking');
+            setActivityStatus({ phase: shouldRenderThinkingForTab(tabId) ? 'thinking' : 'writing' });
+            agentActions.updatePhase(agentId, shouldRenderThinkingForTab(tabId) ? 'thinking' : 'writing');
           }
         }
 
@@ -1571,13 +1898,32 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         // frequently. We must NOT aggressively wipe streaming text state when the
         // message only contains a thinking block (no text block yet).
         const hasTextBlock = content.some((b: any) => b.type === 'text' && b.text);
-        const shouldMaterializeThinking = shouldMaterializeThinkingSnapshot(content, hasTextBlock);
-        const currentTab = useChatStore.getState().getTab(tabId);
-        const thinkingPersistence = resolveThinkingPersistence(
-          msg.uuid,
-          content,
-          currentTab?.partialThinking,
+        const hasAskUserQuestion = content.some(
+          (b: any) => b.type === 'tool_use' && b.name === 'AskUserQuestion',
         );
+        const shouldRenderThinking = shouldRenderThinkingForTab(tabId);
+        const isPureThinkingOnly = shouldRenderThinking && isPureThinkingOnlySnapshot(content);
+        const shouldMaterializeThinking = shouldRenderThinking
+          && shouldMaterializeThinkingSnapshot(content, hasTextBlock);
+        const currentTab = useChatStore.getState().getTab(tabId);
+        const bufferedThinking = msgStdinId
+          ? streamController.peekBufferedThinking(msgStdinId)
+          : undefined;
+        const thinkingPersistence = shouldRenderThinking
+          ? resolveThinkingPersistence(
+            msg.uuid,
+            content,
+            currentTab?.partialThinking,
+            bufferedThinking,
+          )
+          : null;
+        if (!shouldMaterializeThinking && isPureThinkingOnly && thinkingPersistence) {
+          preserveLiveThinkingSnapshot({
+            tabId,
+            thinkingPersistence,
+            stdinId: msgStdinId,
+          });
+        }
         const committedThinkingBeforeText = hasTextBlock
           ? commitThinkingBeforeAssistantText({
             tabId,
@@ -1585,22 +1931,15 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             thinkingPersistence,
             timestamp: Date.now(),
             subAgentDepth: agentDepth,
+            stdinId: msgStdinId,
           })
           : false;
 
         if (hasTextBlock) {
           // Full clear — the text block supersedes streaming partial text
           clearPartial();
-        } else {
-          // Only clear thinking partial — preserve streaming text
-          {
-            const td = useChatStore.getState().getTab(tabId);
-            if (td?.partialThinking && shouldMaterializeThinking && thinkingPersistence) {
-              const nt = new Map(useChatStore.getState().tabs);
-              nt.set(tabId, { ...td, partialThinking: '' });
-              useChatStore.setState({ tabs: nt, sessionCache: nt });
-            }
-          }
+        } else if (hasAskUserQuestion) {
+          clearLivePartialText(tabId, msgStdinId);
         }
 
         // If there's a pending slash command processing card, mark it as
@@ -1621,9 +1960,6 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         // If this message contains AskUserQuestion, skip text blocks —
         // the interactive question UI makes them redundant and avoids
         // showing raw question descriptions alongside the rich UI.
-        const hasAskUserQuestion = content.some(
-          (b: any) => b.type === 'tool_use' && b.name === 'AskUserQuestion',
-        );
         let thinkingMessageEmitted = committedThinkingBeforeText;
 
         for (let blockIdx = 0; blockIdx < content.length; blockIdx++) {
@@ -1792,6 +2128,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
 
             }
           } else if (block.type === 'thinking') {
+            if (!shouldRenderThinking) continue;
             // Complete thinking block arrived — clear streaming thinking text.
             // DON'T override activityStatus here: if text is currently streaming,
             // the phase should remain 'writing'. The streaming events (thinking_delta,
@@ -1799,26 +2136,25 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             if (thinkingMessageEmitted) continue;
             agentActions.updatePhase(agentId, 'thinking');
             if (shouldMaterializeThinking && thinkingPersistence) {
-              addMessage({
-                id: thinkingPersistence.id,
-                role: 'assistant',
-                type: 'thinking',
-                content: thinkingPersistence.content,
-                subAgentDepth: agentDepth,
+              thinkingMessageEmitted = commitThinkingBeforeAssistantText({
+                tabId,
+                msgUuid: msg.uuid,
+                thinkingPersistence,
                 timestamp: Date.now(),
+                subAgentDepth: agentDepth,
+                stdinId: msgStdinId,
               });
-              thinkingMessageEmitted = true;
             }
           }
         }
         if (shouldMaterializeThinking && thinkingPersistence && !thinkingMessageEmitted) {
-          addMessage({
-            id: thinkingPersistence.id,
-            role: 'assistant',
-            type: 'thinking',
-            content: thinkingPersistence.content,
-            subAgentDepth: agentDepth,
+          commitThinkingBeforeAssistantText({
+            tabId,
+            msgUuid: msg.uuid,
+            thinkingPersistence,
             timestamp: Date.now(),
+            subAgentDepth: agentDepth,
+            stdinId: msgStdinId,
           });
         }
 
@@ -1968,7 +2304,21 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
 
       case 'result': {
         // Capture stopping state BEFORE any status updates — needed for drain guard later
-        const fgWasStopping = useChatStore.getState().getTab(tabId)?.sessionStatus === 'stopping';
+        const fgResultTab = useChatStore.getState().getTab(tabId);
+        const fgWasStopping = fgResultTab?.sessionStatus === 'stopping';
+        const fgFinalizedRoute = msgStdinId ? getRecentlyFinalizedStdin(msgStdinId) : undefined;
+        const fgErrorText = [msg.result, msg.error, msg.content]
+          .filter(Boolean)
+          .map(String)
+          .join(' ')
+          .trim();
+        const fgIsUserStopResult = msg.subtype !== 'success'
+          && (
+            fgWasStopping
+            || fgResultTab?.sessionMeta.teardownReason === 'stop'
+            || fgFinalizedRoute?.reason === 'stop'
+            || msg.subtype === 'user_abort'
+          );
 
         // Sub-agent results carry parent_tool_use_id — they must NOT terminate the
         // main session. Only the main agent's result (no parent_tool_use_id) ends the
@@ -1982,6 +2332,31 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           break;
         }
 
+        if (fgIsUserStopResult) {
+          if (msgStdinId && fgWasStopping) {
+            handleProcessExitFinalize(msgStdinId);
+          } else {
+            setSessionStatus('stopped');
+            setSessionMeta({
+              stdinReady: false,
+              pendingReadyMessage: undefined,
+              turnStartTime: undefined,
+              lastProgressAt: undefined,
+            });
+          }
+          agentActions.completeAll('error');
+          useSessionStore.getState().fetchSessions();
+          break;
+        }
+
+        commitThinkingAtTurnBoundary({
+          tabId,
+          msgUuid: msg.uuid,
+          timestamp: Date.now(),
+          subAgentDepth: agentDepth,
+          stdinId: msgStdinId,
+        });
+
         // Clear any remaining partial text before marking turn complete
         clearPartial();
 
@@ -1992,10 +2367,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         if (msg.subtype !== 'success') {
           const meta = useChatStore.getState().getTab(tabId)?.sessionMeta ?? {};
           // Build a combined error string from all possible error fields
-          const errorText = [msg.result, msg.error, msg.content]
-            .filter(Boolean)
-            .map(String)
-            .join(' ');
+          const errorText = fgErrorText;
           const isThinkingSignatureError = /invalid.*signature.*thinking|thinking.*invalid.*signature/i.test(errorText);
 
           const switchedFlag = meta.providerSwitched || meta.modelSwitched;
@@ -2241,11 +2613,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         // output were silently swallowed. Now we always annotate on failure,
         // with a de-dup guard so the retry/Stop paths don't double-post.
         if (msg.subtype !== 'success') {
-          const errorText = [msg.error, msg.result, msg.content]
-            .filter(Boolean)
-            .map(String)
-            .join(' ')
-            .trim();
+          const errorText = fgErrorText;
           const isUserStop = /user[_ ]abort|interrupt|abort/i.test(errorText)
             || msg.subtype === 'user_abort'
             || fgWasStopping;
@@ -2592,8 +2960,10 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             }
           } else if (msg.delta?.type === 'thinking_delta') {
             const thinking = msg.delta?.thinking || '';
-            if (thinking && msgStdinId) {
+            if (thinking && msgStdinId && shouldRenderThinkingForTab(tabId)) {
               streamController.appendThinking(msgStdinId, thinking);
+            } else if (thinking && msgStdinId) {
+              streamController.clearThinking(msgStdinId);
             }
           }
         }

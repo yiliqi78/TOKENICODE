@@ -12,6 +12,9 @@ Common cross-layer bugs:
 - API returns format A, frontend expects format B
 - Database stores X, service transforms to Y, but loses data
 - Multiple layers implement the same logic differently
+- Runtime capability is inferred from a provider name/list instead of the actual protocol boundary, so new compatible providers lose streaming or feature support
+- Stream payload boundaries are confused with UI persistence boundaries, so partial thinking/text is committed too early or cleared before the final result path can persist it
+- Stop/resume recovery is inferred from visible messages only, so hidden thinking or late provider stop results can detach the next send into a new conversation
 
 ---
 
@@ -82,6 +85,9 @@ After implementation:
 - [ ] Tested with edge cases (null, empty, invalid)
 - [ ] Verified error handling at each boundary
 - [ ] Checked data survives round-trip
+- [ ] For provider/model routing, verified the protocol capability decision and the UI rendering path together
+- [ ] For streaming reasoning, verified thinking-only, text, tool/question, result-only, and process-exit event sequences separately
+- [ ] For stop/resume flows, verified stdin routing, recent-finalized cleanup, visible/hidden assistant evidence, and post-draft-promotion metadata writes together
 
 ---
 

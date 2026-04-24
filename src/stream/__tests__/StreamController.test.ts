@@ -105,6 +105,19 @@ describe('StreamController · §4.3.1', () => {
       expect(ctrl.__testing.hasBuffer('s2')).toBe(true);
       expect(ctrl.__testing.getBuffer('s2')?.text).toBe('beta');
     });
+
+    it('clearThinking_clears_pending_thinking_without_dropping_text', () => {
+      const { ctrl, scheduler, textCalls, thinkingCalls } = makeHarness({ s1: 't1' });
+      ctrl.appendText('s1', 'answer ');
+      ctrl.appendThinking('s1', 'hidden tail');
+
+      ctrl.clearThinking('s1');
+      scheduler.flushRaf();
+
+      expect(textCalls).toEqual([['t1', 'answer ']]);
+      expect(thinkingCalls).toEqual([]);
+      expect(ctrl.__testing.hasBuffer('s1')).toBe(false);
+    });
   });
 
   describe('completeStream', () => {

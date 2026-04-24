@@ -161,6 +161,7 @@ describe('background assistant finalization', () => {
     __streamThinkingTesting.finalizeBackgroundAssistantStreamingState({
       tabId: 'bg-tab',
       hasTextBlock: true,
+      hasAskUserQuestion: false,
       shouldMaterializeThinking: true,
       thinkingPersistence,
     });

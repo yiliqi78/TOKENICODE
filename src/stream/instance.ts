@@ -12,6 +12,8 @@
  */
 import { useChatStore } from '../stores/chatStore';
 import { useSessionStore } from '../stores/sessionStore';
+import { getEffectiveThinking } from '../stores/settingsStore';
+import { filterThinkingDeltaAfterPreservedSnapshot } from './thinkingDedupe';
 import {
   StreamController,
   DEFAULT_CONFIG,
@@ -27,8 +29,18 @@ const router: StreamRouter = {
 const sink: StreamSink = {
   updatePartialText: (tabId, text) =>
     useChatStore.getState().updatePartialMessage(tabId, text),
-  updatePartialThinking: (tabId, text) =>
-    useChatStore.getState().updatePartialThinking(tabId, text),
+  updatePartialThinking: (tabId, text, stdinId) => {
+    const tab = useChatStore.getState().getTab(tabId);
+    if (getEffectiveThinking(tab?.sessionMeta) === 'off') return;
+    const currentThinking = useChatStore.getState().getTab(tabId)?.partialThinking ?? '';
+    const filtered = filterThinkingDeltaAfterPreservedSnapshot({
+      tabId,
+      stdinId,
+      currentThinking,
+      delta: text,
+    });
+    if (filtered) useChatStore.getState().updatePartialThinking(tabId, filtered);
+  },
 };
 
 export const streamController = new StreamController(router, sink);

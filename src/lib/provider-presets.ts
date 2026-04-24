@@ -120,7 +120,7 @@ export const PROVIDER_PRESETS: PresetProvider[] = [
     apiFormat: 'anthropic',
     extra_env: {},
     keyUrl: 'https://platform.xiaomimimo.com/',
-    thinkingSupport: 'unknown',
+    thinkingSupport: 'full',
     defaultModels: {
       opus: 'mimo-v2-pro[1m]',
       sonnet: 'mimo-v2-omni',
@@ -134,7 +134,7 @@ export const PROVIDER_PRESETS: PresetProvider[] = [
     apiFormat: 'anthropic',
     extra_env: {},
     keyUrl: 'https://platform.xiaomimimo.com/#/console/plan-manage',
-    thinkingSupport: 'unknown',
+    thinkingSupport: 'full',
     defaultModels: {
       opus: 'mimo-v2-pro[1m]',
       sonnet: 'mimo-v2-omni',
