@@ -974,6 +974,7 @@ export function InputBar() {
         setSessionMeta(tabId, {
           turnStartTime: undefined,
           lastProgressAt: undefined,
+          apiRetry: undefined,
           inputTokens: 0,
           outputTokens: 0,
           teardownReason: undefined,
@@ -990,6 +991,7 @@ export function InputBar() {
         setSessionMeta(tabId, {
           turnStartTime: turnStartedAt,
           lastProgressAt: turnStartedAt,
+          apiRetry: undefined,
           inputTokens: 0,
           outputTokens: 0,
           pendingReadyMessage: undefined,

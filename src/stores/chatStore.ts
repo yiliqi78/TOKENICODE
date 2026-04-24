@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { useSessionStore } from './sessionStore';
+import type { ApiRetryStatus } from '../lib/api-retry';
 import type { FileAttachment } from '../hooks/useFileAttachments';
 
 // --- Types ---
@@ -129,6 +130,8 @@ export interface SessionMeta {
   turnStartTime?: number;
   /** Timestamp of last stream activity — used for stall detection instead of total elapsed */
   lastProgressAt?: number;
+  /** Latest API retry event for this turn, such as provider 429/backoff state. */
+  apiRetry?: ApiRetryStatus;
   /** JSON fingerprint of the active provider config used when spawning the CLI process.
    *  Compared before sending via stdin to detect stale pre-warm sessions. */
   envFingerprint?: string;
@@ -525,7 +528,12 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         // partialText visible so the user sees prior content while we
         // re-establish or wait for process_exit.
         ...(status === 'completed' || status === 'error' || status === 'idle' || status === 'stopped'
-          ? { isStreaming: false, partialText: '', partialThinking: '' }
+          ? {
+            isStreaming: false,
+            partialText: '',
+            partialThinking: '',
+            sessionMeta: { ...tab.sessionMeta, apiRetry: undefined },
+          }
           : {}),
         // Sync activity status with session status
         ...(status === 'completed' ? { activityStatus: { phase: 'completed' as ActivityPhase } }

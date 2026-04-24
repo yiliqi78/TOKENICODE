@@ -1,18 +1,10 @@
 import { useState, useEffect } from 'react';
 import { type ChatMessage } from '../../stores/chatStore';
 import { useT } from '../../lib/i18n';
+import { formatElapsedCompact } from '../../lib/elapsed-time';
 
 interface Props {
   message: ChatMessage;
-}
-
-/** Format elapsed ms into "Xs" or "Xm Ys" */
-function formatElapsed(ms: number): string {
-  const totalSec = Math.floor(ms / 1000);
-  if (totalSec < 60) return `${totalSec}s`;
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  return `${m}m ${s}s`;
 }
 
 /**
@@ -38,7 +30,7 @@ export function CommandProcessingCard({ message }: Props) {
     return () => clearInterval(id);
   }, [isCompleted]);
 
-  const elapsed = formatElapsed((isCompleted ? (data.completedAt || Date.now()) : now) - startTime);
+  const elapsed = formatElapsedCompact((isCompleted ? (data.completedAt || Date.now()) : now) - startTime);
 
   // Collapsible output
   const [showOutput, setShowOutput] = useState(false);

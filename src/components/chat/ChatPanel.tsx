@@ -23,6 +23,8 @@ import { AiAvatar } from '../shared/AiAvatar';
 import { UserAvatar } from '../shared/UserAvatar';
 import { useFindInPage } from '../../hooks/useFindInPage';
 import { FindBar } from './FindBar';
+import { formatElapsedCompact } from '../../lib/elapsed-time';
+import { formatRetryDelaySeconds, isRateLimitRetry, type ApiRetryStatus } from '../../lib/api-retry';
 
 /** Shared plan panel toggle — used by ChatPanel (panel) and InputBar (button) */
 export const usePlanPanelStore = create<{
@@ -142,15 +144,6 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
-/** Format elapsed seconds into "Xm Ys" or "Xs" */
-function formatElapsed(ms: number): string {
-  const totalSec = Math.floor(ms / 1000);
-  if (totalSec < 60) return `${totalSec}s`;
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  return `${m}m ${s}s`;
-}
-
 /** Cycling typewriter text for thinking phase — like Claude Code website "Built for > coders" */
 const THINKING_WORD_COUNT = 17;
 const TYPING_SPEED = 80;      // ms per character (typing)
@@ -225,10 +218,26 @@ function CyclingThinkingText() {
   );
 }
 
+function formatApiRetryText(retry: ApiRetryStatus, t: (key: string) => string): string {
+  const attempt = retry.attempt
+    ? retry.maxRetries
+      ? t('chat.apiRetryAttempt')
+        .replace('{attempt}', String(retry.attempt))
+        .replace('{max}', String(retry.maxRetries))
+      : t('chat.apiRetryAttemptOnly').replace('{attempt}', String(retry.attempt))
+    : '';
+  const base = isRateLimitRetry(retry)
+    ? t('chat.apiRetryRateLimit')
+    : t('chat.apiRetryGeneric');
+  const delay = formatRetryDelaySeconds(retry.retryDelayMs);
+  const delayText = delay ? ` ${t('chat.apiRetryDelay').replace('{delay}', delay)}` : '';
+  return `${base.replace('{attempt}', attempt ? ` ${attempt}` : '')}${delayText}`;
+}
+
 /** Activity indicator with elapsed time and token count */
 function ActivityIndicator({ activityStatus, sessionMeta, sessionStatus }: {
   activityStatus: { phase: string; toolName?: string };
-  sessionMeta: { turnStartTime?: number; outputTokens?: number; inputTokens?: number; lastProgressAt?: number };
+  sessionMeta: { turnStartTime?: number; outputTokens?: number; inputTokens?: number; lastProgressAt?: number; apiRetry?: ApiRetryStatus };
   sessionStatus?: string;
 }) {
   const t = useT();
@@ -240,9 +249,12 @@ function ActivityIndicator({ activityStatus, sessionMeta, sessionStatus }: {
   }, []);
 
   const isStopping = sessionStatus === 'stopping';
+  const retryStatus = !isStopping ? sessionMeta.apiRetry : undefined;
   const isStarting = sessionStatus === 'running'
     && activityStatus.phase === 'idle';
+  const retryText = retryStatus ? formatApiRetryText(retryStatus, t) : null;
   const phaseText = isStopping ? t('chat.stopping')
+    : retryText ? retryText
     : isStarting ? t('chat.startingAgent')
     : activityStatus.phase === 'thinking' ? t('chat.thinking')
     : activityStatus.phase === 'writing' ? t('chat.writing')
@@ -251,7 +263,7 @@ function ActivityIndicator({ activityStatus, sessionMeta, sessionStatus }: {
     : activityStatus.phase === 'reconnecting' ? t('chat.reconnecting')
     : t('chat.running');
 
-  const elapsed = sessionMeta.turnStartTime ? formatElapsed(now - sessionMeta.turnStartTime) : null;
+  const elapsed = sessionMeta.turnStartTime ? formatElapsedCompact(now - sessionMeta.turnStartTime) : null;
   const tokens = sessionMeta.outputTokens ? formatTokens(sessionMeta.outputTokens) : null;
   const statsText = elapsed
     ? tokens ? `(${elapsed} · ↓ ${tokens})` : `(${elapsed})`
@@ -272,7 +284,8 @@ function ActivityIndicator({ activityStatus, sessionMeta, sessionStatus }: {
     && !!elapsed
     && (now - sessionMeta.lastProgressAt) > 120_000;
 
-  const isThinking = !isStopping && !isStarting && activityStatus.phase === 'thinking';
+  const isRetrying = Boolean(retryStatus);
+  const isThinking = !isRetrying && !isStopping && !isStarting && activityStatus.phase === 'thinking';
 
   return (
     <div className={`flex items-center gap-1.5 py-1 ${isStopping ? 'px-2.5 rounded-full border border-warning/20 bg-warning/5 w-fit' : ''}`}>

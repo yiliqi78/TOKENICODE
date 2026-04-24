@@ -303,6 +303,11 @@ const messages: Record<Locale, Record<string, string>> = {
     'chat.tokenWarning': '上下文即将满载，建议 /compact',
     'chat.autoCompacting': '上下文接近上限，自动压缩中...',
     'chat.stallWarning': '任务仍在运行中，复杂任务可能需要较长时间。若界面持续无任何变化，可停止后重试',
+    'chat.apiRetryRateLimit': 'API 限流，正在重试{attempt}...',
+    'chat.apiRetryGeneric': '请求失败，正在重试{attempt}...',
+    'chat.apiRetryAttempt': '{attempt}/{max}',
+    'chat.apiRetryAttemptOnly': '第 {attempt} 次',
+    'chat.apiRetryDelay': '{delay} 秒后重试',
 
     // Agent panel
     'agents.title': '代理',
@@ -1030,6 +1035,11 @@ const messages: Record<Locale, Record<string, string>> = {
     'chat.tokenWarning': 'Context nearly full — try /compact',
     'chat.autoCompacting': 'Context near limit, auto-compacting...',
     'chat.stallWarning': 'Task still running — complex tasks may take a while. If no activity appears, try stopping and retrying',
+    'chat.apiRetryRateLimit': 'API rate limited, retrying{attempt}...',
+    'chat.apiRetryGeneric': 'Request failed, retrying{attempt}...',
+    'chat.apiRetryAttempt': '{attempt}/{max}',
+    'chat.apiRetryAttemptOnly': 'attempt {attempt}',
+    'chat.apiRetryDelay': 'retry in {delay}s',
 
     // Agent panel
     'agents.title': 'Agents',

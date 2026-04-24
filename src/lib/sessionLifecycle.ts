@@ -517,6 +517,7 @@ export function handleProcessExitFinalize(stdinId: string, isTimeout = false): v
     store.setSessionMeta(tabId, {
       stdinId: undefined,
       lastProgressAt: undefined,
+      apiRetry: undefined,
       teardownReason: undefined,
       pendingTurnMessageId: undefined,
       pendingTurnInput: undefined,

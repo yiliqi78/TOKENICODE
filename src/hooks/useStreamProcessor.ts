@@ -7,6 +7,7 @@ import { useCommandStore } from '../stores/commandStore';
 import { useFileStore } from '../stores/fileStore';
 import { bridge } from '../lib/tauri-bridge';
 import { envFingerprint, resolveModelForProvider, spawnConfigHash, getAutoCompactThreshold } from '../lib/api-provider';
+import { buildApiRetryStatus } from '../lib/api-retry';
 import { useProviderStore } from '../stores/providerStore';
 import { t } from '../lib/i18n';
 import {
@@ -181,6 +182,7 @@ function markStdinReady(tabId: string, stdinId: string | undefined, model: strin
         pendingTurnAttachments: undefined,
         turnStartTime: undefined,
         lastProgressAt: undefined,
+        apiRetry: undefined,
       });
       store.setSessionStatus(tabId, 'error');
       store.addMessage(tabId, {
@@ -574,6 +576,11 @@ export const __streamThinkingTesting = {
   finalizeBackgroundAssistantStreamingState,
 };
 
+export const __streamRetryTesting = {
+  recordApiRetry,
+  shouldClearApiRetryForEvent,
+};
+
 // --- File tree auto-refresh on file-mutating tool completions ---
 // Tools that may create/modify/delete files in the working directory.
 const FILE_MUTATING_TOOLS = new Set([
@@ -622,6 +629,33 @@ function isAssistantResumeEvidenceEvent(msg: any): boolean {
     || evtType === 'content_block_stop';
 }
 
+function shouldClearApiRetryForEvent(msg: any): boolean {
+  if (msg.type === 'system') {
+    return msg.subtype === 'init' || msg.subtype === 'error';
+  }
+  if (msg.type === 'stream_event') {
+    const evtType = msg.event?.type;
+    return evtType === 'message_start'
+      || evtType === 'message_delta'
+      || evtType === 'content_block_start'
+      || evtType === 'content_block_delta'
+      || evtType === 'content_block_stop';
+  }
+  return msg.type === 'assistant'
+    || msg.type === 'content_block_delta'
+    || msg.type === 'result'
+    || msg.type === 'process_exit'
+    || msg.type === 'tokenicode_permission_request'
+    || msg.type === 'tool_result';
+}
+
+function recordApiRetry(tabId: string, msg: any): void {
+  useChatStore.getState().setSessionMeta(tabId, {
+    apiRetry: buildApiRetryStatus(msg),
+    lastProgressAt: Date.now(),
+  });
+}
+
 /**
  * Configuration refs and callbacks that the stream processor needs
  * from the parent InputBar component.
@@ -659,10 +693,10 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
       || msg.type === 'content_block_delta';
     const now = Date.now();
     const last = lastProgressWriteRef.current[tabId] ?? 0;
-    if (isHighFrequencyDelta && now - last < 250) return;
-    lastProgressWriteRef.current[tabId] = now;
-
     const tab = useChatStore.getState().getTab(tabId);
+    const shouldClearApiRetry = shouldClearApiRetryForEvent(msg);
+    if (isHighFrequencyDelta && now - last < 250 && !(shouldClearApiRetry && tab?.sessionMeta.apiRetry)) return;
+    lastProgressWriteRef.current[tabId] = now;
     const shouldClearTurnMeta = msg.type !== 'system'
       && msg.type !== 'process_exit'
       && tab?.sessionStatus !== 'stopping';
@@ -671,6 +705,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
     useChatStore.getState().setSessionMeta(tabId, {
       lastProgressAt: now,
       ...(hasResumeEvidence ? { turnAcceptedForResume: true } : {}),
+      ...(shouldClearApiRetry ? { apiRetry: undefined } : {}),
       ...(shouldClearTurnMeta
         ? {
           pendingTurnMessageId: undefined,
@@ -1139,6 +1174,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               pendingReadyMessage: undefined,
               turnStartTime: undefined,
               lastProgressAt: undefined,
+              apiRetry: undefined,
             });
           }
           useSessionStore.getState().fetchSessions();
@@ -1180,6 +1216,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             totalOutputTokens: (prevMeta?.totalOutputTokens || 0) + (resultOutput - streamedOutput),
             turnStartTime: undefined,
             lastProgressAt: undefined,
+            apiRetry: undefined,
           });
         }
         if (typeof msg.result === 'string' && msg.result && !isCliPlaceholder(msg.result)) {
@@ -1400,6 +1437,8 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             content: formatErrorForUser(msg.message || msg.error || 'System error'),
             timestamp: Date.now(),
           });
+        } else if (msg.subtype === 'api_retry') {
+          recordApiRetry(tabId, msg);
         }
         break;
       default:
@@ -1460,6 +1499,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           pendingReadyMessage: undefined,
           turnStartTime: undefined,
           lastProgressAt: undefined,
+          apiRetry: undefined,
         });
         useSessionStore.getState().fetchSessions();
       }
@@ -1876,12 +1916,13 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             content: formatErrorForUser(rawError),
             timestamp: Date.now(),
           });
+        } else if (msg.subtype === 'api_retry') {
+          recordApiRetry(tabId, msg);
         } else if (
           msg.subtype === 'hook_started' ||
           msg.subtype === 'hook_progress' ||
           msg.subtype === 'hook_response' ||
-          msg.subtype === 'status' ||
-          msg.subtype === 'api_retry'
+          msg.subtype === 'status'
         ) {
           // Hook lifecycle + status events — silently ignore (no UI for these in TC)
         } else {
@@ -2342,6 +2383,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
               pendingReadyMessage: undefined,
               turnStartTime: undefined,
               lastProgressAt: undefined,
+              apiRetry: undefined,
             });
           }
           agentActions.completeAll('error');
@@ -2433,6 +2475,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
                 setSessionMeta({
                   turnStartTime: undefined,
                   lastProgressAt: undefined,
+                  apiRetry: undefined,
                   inputTokens: 0,
                   outputTokens: 0,
                   stdinReady: false,
@@ -2653,6 +2696,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             totalOutputTokens: (meta.totalOutputTokens || 0) + (resultOutput - streamedOutput),
             turnStartTime: undefined,
             lastProgressAt: undefined,
+            apiRetry: undefined,
           });
         }
         agentActions.completeAll(
@@ -2930,6 +2974,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
             stdinReady: false,
             pendingReadyMessage: undefined,
             lastProgressAt: undefined,
+            apiRetry: undefined,
           });
         }
 

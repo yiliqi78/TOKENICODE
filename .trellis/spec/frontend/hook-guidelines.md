@@ -291,6 +291,49 @@ const existingSessionId = hasResumableEvidence ? sessionMeta.sessionId : undefin
 
 Resume is gated by actual assistant-side stream evidence, including evidence that may not be displayed.
 
+## API Retry Indicator Contract
+
+### 1. Scope / Trigger
+
+This contract applies to CLI/provider retry events that arrive as `system.subtype === 'api_retry'`, including provider HTTP 429/rate-limit retries.
+
+### 2. Signatures
+
+- `ApiRetryStatus` in `src/lib/api-retry.ts`
+- `SessionMeta.apiRetry?: ApiRetryStatus`
+- `buildApiRetryStatus(message: unknown, now?: number): ApiRetryStatus`
+- `isRateLimitRetry(status?: ApiRetryStatus): boolean`
+- `formatRetryDelaySeconds(ms?: number): string | undefined`
+- `formatElapsedCompact(ms: number): string` in `src/lib/elapsed-time.ts`
+
+### 3. Contracts
+
+- `api_retry` must update one transient `sessionMeta.apiRetry` slot. Do not append chat bubbles for every retry attempt.
+- Foreground and background stream handlers must both preserve retry metadata.
+- Retry metadata must clear on normal assistant progress, `result`, `process_exit`, and system error/init events.
+- `rate_limit_event` remains separate from `api_retry`; do not regress `sessionMeta.rateLimits`.
+- Activity UI may display retry status while the turn is running, but it must not change provider retry policy or synthesize assistant text.
+- Elapsed-time formatting must clamp negative or non-finite durations to `0s`. UI clocks are display data, not evidence that a turn really started in the future.
+
+### 4. Validation & Error Matrix
+
+| Event sequence | Expected metadata | Expected UI |
+|----------------|-------------------|-------------|
+| `api_retry` attempt 1 | `sessionMeta.apiRetry.attempt === 1` | one retry indicator |
+| `api_retry` attempt 2 | same metadata slot updated | no duplicate messages |
+| 429/rate-limit retry | `isRateLimitRetry() === true` | rate-limit copy |
+| retry followed by `content_block_delta` | `apiRetry: undefined` | retry indicator clears |
+| retry followed by `result`/error/exit | `apiRetry: undefined` | terminal state/error owns UI |
+| future `turnStartTime` | elapsed formatter returns `0s` | never shows `-1s`/`-1 秒` |
+
+### 5. Tests Required
+
+- Parse direct and nested retry payload shapes.
+- Verify repeated retry events coalesce into one metadata slot.
+- Verify clear-boundary classification for content, assistant, result, and process exit.
+- Verify elapsed formatter clamps negative and non-finite durations.
+- Run an app-level `.test` that injects `api_retry` while a turn is active and asserts visible retry copy.
+
 ---
 
 ## Data Fetching

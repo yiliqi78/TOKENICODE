@@ -15,6 +15,7 @@ Common cross-layer bugs:
 - Runtime capability is inferred from a provider name/list instead of the actual protocol boundary, so new compatible providers lose streaming or feature support
 - Stream payload boundaries are confused with UI persistence boundaries, so partial thinking/text is committed too early or cleared before the final result path can persist it
 - Stop/resume recovery is inferred from visible messages only, so hidden thinking or late provider stop results can detach the next send into a new conversation
+- Retry/backoff events are logged at the stream boundary but never written into shared UI state, so users see a frozen turn while the provider is actively retrying
 
 ---
 
@@ -88,6 +89,7 @@ After implementation:
 - [ ] For provider/model routing, verified the protocol capability decision and the UI rendering path together
 - [ ] For streaming reasoning, verified thinking-only, text, tool/question, result-only, and process-exit event sequences separately
 - [ ] For stop/resume flows, verified stdin routing, recent-finalized cleanup, visible/hidden assistant evidence, and post-draft-promotion metadata writes together
+- [ ] For retry/backoff UI, verified event parsing, coalescing, clear boundaries, visible copy, and terminal error behavior together
 
 ---
 

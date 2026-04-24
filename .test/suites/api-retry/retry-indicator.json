@@ -1,0 +1,66 @@
+{
+  "tests": [
+    {
+      "name": "api_retry显示为单个可见重试状态",
+      "timeout": 90000,
+      "setup": [
+        {
+          "cmd": "new-session",
+          "flags": {
+            "cwd": "/tmp/tokenicode-test"
+          }
+        },
+        {
+          "cmd": "check-editor",
+          "assert": {
+            "hasEditor": true
+          }
+        }
+      ],
+      "steps": [
+        {
+          "cmd": "type",
+          "args": [
+            "请稍后只回复 OK。"
+          ]
+        },
+        {
+          "cmd": "send"
+        },
+        {
+          "cmd": "exec",
+          "args": [
+            "(function(){ window.__claudeStreamHandler({ type: 'system', subtype: 'api_retry', attempt: 3, max_retries: 10, retry_delay_ms: 5200, error_status: 429, error: 'rate_limit' }); return { injected: true }; })()"
+          ]
+        },
+        {
+          "cmd": "wait-for",
+          "flags": {
+            "text": "API 限流",
+            "timeout": "5000"
+          },
+          "timeout": 8000
+        },
+        {
+          "cmd": "exec",
+          "args": [
+            "(function(){ return !/(^|[^0-9])-1\\s*s|-1\\s*秒/.test(document.body.innerText || ''); })()"
+          ],
+          "assert": {
+            "result": true
+          }
+        }
+      ],
+      "teardown": [
+        {
+          "cmd": "stop",
+          "continueOnError": true
+        },
+        {
+          "cmd": "delete-session",
+          "continueOnError": true
+        }
+      ]
+    }
+  ]
+}
