@@ -1763,7 +1763,19 @@ async fn start_claude_session(
     args.push("stdio".to_string());
 
     // Extended thinking + effort level
+    // Haiku 4.5 has a narrower budget_tokens range (max 16384). Higher effort
+    // levels require more budget_tokens, causing API errors. Clamp to "low".
     let thinking_level = params.thinking_level.as_deref().unwrap_or("high");
+    let model_lower = params.model.as_deref().unwrap_or("").to_lowercase();
+    let thinking_level = if model_lower.contains("haiku") && thinking_level != "off" && thinking_level != "low" {
+        eprintln!(
+            "[TOKENICODE] Clamping effort level from '{}' to 'low' for haiku model",
+            thinking_level
+        );
+        "low"
+    } else {
+        thinking_level
+    };
     if thinking_level == "off" {
         // Explicitly disable thinking — CLI defaults to enabled, so we must pass false
         args.push("--settings".to_string());
