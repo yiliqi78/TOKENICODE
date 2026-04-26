@@ -772,7 +772,8 @@ export function InputBar() {
       text = text ? `${prefix.name} ${text}` : prefix.name;
     }
 
-    if (!text) return;
+    // Check if text is visually empty (strip invisible Unicode chars for the check only)
+    if (!text.replace(/[\u200B-\u200D\uFEFF\u00A0\u2060\u200E\u200F]/g, '').trim()) return;
 
     // Intercept immediate (built-in) commands even when submitted directly
     // (e.g. user types "/help" and presses Enter without using the popover)
