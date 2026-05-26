@@ -170,7 +170,25 @@ export const useFileStore = create<FileState>()((set, get) => ({
             set({ fileContent: content, isLoadingContent: false });
           }
         } catch {
-          if (get().selectedFile === path) {
+          // File read failed — might be a directory. Try common index files.
+          const dirPath = path.replace(/\/$/, '');
+          const candidates = ['SKILL.md', 'README.md', 'index.md', 'index.html', 'index.ts', 'index.tsx', 'index.js'];
+          let found = false;
+          for (const file of candidates) {
+            if (get().selectedFile !== path) break; // user navigated away
+            try {
+              const indexPath = `${dirPath}/${file}`;
+              const content = await bridge.readFileContent(indexPath);
+              if (get().selectedFile === path) {
+                set({ selectedFile: indexPath, fileContent: content, isLoadingContent: false });
+              }
+              found = true;
+              break;
+            } catch {
+              // try next candidate
+            }
+          }
+          if (!found && get().selectedFile === path) {
             set({ fileContent: '// Error loading file', isLoadingContent: false });
           }
         }

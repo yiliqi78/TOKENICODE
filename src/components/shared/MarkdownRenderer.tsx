@@ -221,11 +221,12 @@ const KNOWN_FILE_EXTENSIONS = new Set([
   'gif', 'svg', 'webp', 'ico', 'wasm', 'map',
 ]);
 
-/** Detect file paths in inline code — conservative regex to avoid false positives.
- *  Matches: path-prefixed files (/foo.ts, ./bar.md, src/baz.rs) AND
- *  bare filenames with known code/config extensions (CLAUDE.md, package.json). */
+/** Detect file paths in inline code.
+ *  FILE_PATH_RE: Prefix-based — recognized prefix means it's a path (extension optional).
+ *  Supports hidden dirs (.claude/, .github/), Unicode, and spaces.
+ *  KNOWN_EXT_RE: Extension-based — bare filenames with known extensions. */
 const KNOWN_EXT_RE = /^[\w][\w.-]*\.(?:md|mdx|ts|tsx|js|jsx|mjs|cjs|json|jsonl|toml|yaml|yml|py|pyi|rs|go|html|htm|css|scss|sass|less|vue|svelte|sh|bash|zsh|fish|env|conf|cfg|ini|xml|sql|graphql|gql|proto|lock|log|txt|csv|rb|php|java|kt|swift|c|cpp|h|hpp|cs|r|lua|zig|ex|exs|erl|ml|mli|tf|hcl|dockerfile|makefile)$/i;
-const FILE_PATH_RE = /^(?:\/|\.\/|\.\.\/|[a-zA-Z]:[/\\]|src\/|lib\/|components\/|stores\/|hooks\/|utils\/|tests\/|__tests__\/)[\w.@/-]+\.\w{1,10}$/;
+const FILE_PATH_RE = /^(?:\/|\.\/|\.\.\/|[a-zA-Z]:[/\\]|\.[a-zA-Z][\w.-]*\/|src\/|lib\/|components\/|stores\/|hooks\/|utils\/|tests\/|__tests__\/).+$/;
 
 /**
  * Pre-process markdown to wrap bare file paths in backticks so the existing
@@ -235,7 +236,7 @@ const FILE_PATH_RE = /^(?:\/|\.\/|\.\.\/|[a-zA-Z]:[/\\]|src\/|lib\/|components\/
  * Matches absolute paths (/..., C:\...), relative (./..., ../...), and
  * common project-relative paths (src/..., lib/..., etc.).
  */
-const BARE_PATH_RE = /(^|[^`\w:@#/])((?:(?:\/|\.\.?\/)[\w.@/+-]+\.\w{1,10}|(?:src|lib|components|stores|hooks|utils|tests|__tests__|app|pages|public|assets|styles|config)\/[\w.@/+-]+\.\w{1,10}))(?![`\w])/g;
+const BARE_PATH_RE = /(^|[^`\w:@#/])((?:(?:\/|\.\.?\/)[\w.@/+-]+\.\w{1,10}|(?:\.[a-zA-Z][\w.-]*|src|lib|components|stores|hooks|utils|tests|__tests__|app|pages|public|assets|styles|config)\/[\w.@/+-]+(?:\.\w{1,10})?))(?![`\w])/g;
 
 function wrapBareFilePaths(content: string): string {
   // Split by fenced code blocks (``` ... ```) — don't touch code blocks
@@ -254,9 +255,11 @@ function wrapBareFilePaths(content: string): string {
         // Don't wrap if preceded by ]( (markdown link)
         const before = str.slice(Math.max(0, pathStart - 2), pathStart);
         if (before.endsWith('](')) return match;
-        // TK-323: Only wrap if extension is a known code/config file type
+        // TK-323: Only wrap if extension is a known file type, OR path starts
+        // with a hidden dir (.claude/, .github/) where extension is optional
         const ext = path.split('.').pop()?.toLowerCase();
-        if (!ext || !KNOWN_FILE_EXTENSIONS.has(ext)) return match;
+        const isHiddenDirPath = /^\.[a-zA-Z][\w.-]*\//.test(path);
+        if (!isHiddenDirPath && (!ext || !KNOWN_FILE_EXTENSIONS.has(ext))) return match;
         return `${prefix}\`${path}\``;
       });
     }).join('');
@@ -528,7 +531,9 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
 
       const text = extractText(children).trim();
       const ext = text.split('.').pop()?.toLowerCase() ?? '';
-      if (((FILE_PATH_RE.test(text) || KNOWN_EXT_RE.test(text)) && KNOWN_FILE_EXTENSIONS.has(ext))) {
+      // FILE_PATH_RE: prefix-based, no extension check needed (path structure is enough)
+      // KNOWN_EXT_RE: extension-based, require known extension
+      if (FILE_PATH_RE.test(text) || (KNOWN_EXT_RE.test(text) && KNOWN_FILE_EXTENSIONS.has(ext))) {
         const resolved = text.startsWith('/') || /^[a-zA-Z]:[/\\]/.test(text)
           ? text
           : resolveBase ? `${resolveBase.replace(/\/$/, '')}/${text}` : text;

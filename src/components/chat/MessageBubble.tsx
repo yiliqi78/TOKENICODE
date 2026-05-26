@@ -58,8 +58,12 @@ function getFileExt(name: string): string {
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
 }
 
-/** Detect file paths in inline code — same regexes as MarkdownRenderer */
-const FILE_PATH_RE = /^(?:\/|\.\/|\.\.\/|[a-zA-Z]:[/\\]|src\/|lib\/|components\/|stores\/|hooks\/|utils\/|tests\/|__tests__\/)[\w.@/-]+\.\w{1,10}$/;
+/** Detect file paths in inline code — same regexes as MarkdownRenderer.
+ *  FILE_PATH_RE: Prefix-based detection — matches paths starting with /, ./, ../,
+ *  drive letters, hidden dirs (.claude/, .github/), or common project dirs.
+ *  Extension is optional when a recognized prefix is present.
+ *  Supports Unicode (CJK, accented chars) and spaces in path segments. */
+const FILE_PATH_RE = /^(?:\/|\.\/|\.\.\/|[a-zA-Z]:[/\\]|\.[a-zA-Z][\w.-]*\/|src\/|lib\/|components\/|stores\/|hooks\/|utils\/|tests\/|__tests__\/).+$/;
 const KNOWN_EXT_RE = /^[\w][\w.-]*\.(?:md|mdx|ts|tsx|js|jsx|mjs|cjs|json|jsonl|toml|yaml|yml|py|pyi|rs|go|html|htm|css|scss|sass|less|vue|svelte|sh|bash|zsh|fish|env|conf|cfg|ini|xml|sql|graphql|gql|proto|lock|log|txt|csv|rb|php|java|kt|swift|c|cpp|h|hpp|cs|r|lua|zig|ex|exs|erl|ml|mli|tf|hcl|dockerfile|makefile)$/i;
 
 /** Render a single backtick-inner segment: file path → clickable chip, else → inline code */

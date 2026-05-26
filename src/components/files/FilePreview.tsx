@@ -387,26 +387,11 @@ export function FilePreview() {
             }}
           />
         ) : previewMode === 'preview' && isHtml && fileContent !== null && selectedFile ? (
-          /* HTML preview — v3 Phase 3 §3.4: sandbox without allow-scripts.
-             The combination `allow-same-origin + allow-scripts` defeats the
-             sandbox entirely (scripts can touch the host app's storage).
-             We drop allow-scripts so the preview is static-only; users who
-             need scripts can open the file in their browser via the button. */
+          /* HTML live preview — local desktop files, full scripts allowed */
           <div className="w-full h-full flex flex-col bg-white">
-            <div className="flex items-center justify-between px-3 py-1.5
-              border-b border-border-subtle bg-bg-secondary text-xs text-text-muted">
-              <span>{t('filePreview.htmlStaticPreview') ?? 'Static HTML preview (scripts disabled)'}</span>
-              <button
-                onClick={() => bridge.openWithDefaultApp(selectedFile)}
-                className="px-2 py-0.5 rounded-md bg-accent/10 text-accent
-                  border border-accent/25 hover:bg-accent/20 transition-smooth"
-              >
-                {t('filePreview.openInBrowser') ?? 'Open in browser'}
-              </button>
-            </div>
             <iframe
               srcDoc={injectBaseTag(fileContent, selectedFile)}
-              sandbox="allow-same-origin"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
               className="flex-1 w-full bg-white border-0"
               title={fileName}
             />
