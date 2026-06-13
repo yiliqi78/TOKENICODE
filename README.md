@@ -2,7 +2,7 @@
 
 <img src="public/app-icon.png" alt="TOKENICODE Logo" width="120" />
 
-# TOKENICODE
+# NOVA
 
 ### A Beautiful Desktop Client for Claude Code
 
