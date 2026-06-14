@@ -32,6 +32,12 @@ const COLOR_THEMES: { id: ColorTheme; labelKey: string; preview: string; preview
     preview: '#57A64B',
     previewDark: '#6DBF62',
   },
+  {
+    id: 'red',
+    labelKey: 'settings.red',
+    preview: '#E2373A',
+    previewDark: '#F05A5C',
+  },
 ];
 
 /* Mini app preview — simplified chat interface thumbnail */

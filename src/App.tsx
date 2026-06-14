@@ -30,15 +30,22 @@ const THEME_ACCENT_COLORS: Record<ColorTheme, string> = {
   blue: '#4E80F7',
   purple: '#9169BF',
   green: '#57A64B',
+  red: '#E2373A',
 };
 
 /** Render the app icon SVG as base64 PNG for macOS Dock.
- *  Stable: black bg, white brackets, accent-colored slash.
+ *  Red theme: Her logo (red circle + white symbol).
+ *  Other themes: black bg, white brackets, accent-colored slash.
  *  Alpha: rainbow gradient bg, white brackets and slash. */
-function renderIconPng(accentColor: string): Promise<string> {
+function renderIconPng(accentColor: string, colorTheme?: ColorTheme): Promise<string> {
   return new Promise((resolve, reject) => {
     const size = 512;
-    const svg = IS_ALPHA
+    const svg = colorTheme === 'red'
+      ? `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 332 332">
+<rect width="332" height="332" rx="166" fill="#E2373A"/>
+<path d="M178.07 131.021C188.854 131.351 199.57 135.102 209.475 139.951C218.502 144.371 227.374 149.969 235.591 155.453C245.477 148.343 257.076 142.006 272.396 142.006C282.825 142.006 291.406 144.724 297.332 150.301C303.379 155.991 305.489 163.564 304.907 170.608C303.828 183.688 292.913 197.686 276.925 197.686C269.017 197.686 260.541 193.419 253.155 189.017C247.865 185.864 242.088 181.961 236.223 177.961C235.871 178.234 235.517 178.509 235.16 178.786C221.573 189.279 204.882 201 177.795 201C166.969 201 156.358 197.538 146.422 192.962C137.762 188.973 129.055 183.864 120.689 178.841C104.459 189.957 85.6339 201 64.709 201C52.5478 201 42.6757 197.679 35.9098 191.344C29.0487 184.92 26.3435 176.263 27.1328 167.887C28.6925 151.336 43.4887 136.512 64.709 136.512C75.7629 136.512 86.5531 139.945 96.6493 144.529C104.513 148.099 112.361 152.564 119.938 157.067C128.577 150.96 137.634 144.533 146.71 139.687C156.331 134.549 166.864 130.678 178.07 131.021ZM64.709 154.845C52.2213 154.845 45.8141 163.098 45.1991 169.625C44.9011 172.787 45.8655 175.669 48.2467 177.899C50.7233 180.217 55.6669 182.667 64.709 182.667C77.6398 182.667 90.0894 176.805 103.191 168.478C98.4521 165.795 93.8061 163.338 89.2104 161.251C80.2438 157.181 72.1403 154.845 64.709 154.845ZM177.521 149.346C170.786 149.14 163.512 151.451 155.192 155.894C149.33 159.025 143.39 162.961 137.118 167.325C142.879 170.683 148.462 173.753 153.951 176.281C162.806 180.359 170.68 182.667 177.795 182.667C196.577 182.667 208.704 175.737 220.196 167.209C213.971 163.197 207.733 159.47 201.56 156.448C192.742 152.132 184.679 149.566 177.521 149.346ZM272.396 160.339C264.565 160.339 258.299 162.667 251.942 166.538C255.613 169.003 259.08 171.261 262.377 173.227C269.908 177.715 274.503 179.353 276.925 179.353C281.597 179.353 286.36 174.678 286.822 169.084C287.011 166.792 286.357 165.028 284.962 163.716C283.447 162.29 279.909 160.339 272.396 160.339Z" fill="white"/>
+</svg>`
+      : IS_ALPHA
       ? `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="-20.75 -20.75 212.5 212.5">
 <defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
 <stop offset="0%" stop-color="#7B2FF7"/><stop offset="35%" stop-color="#4E80F7"/>
@@ -79,7 +86,7 @@ function renderIconPng(accentColor: string): Promise<string> {
 async function updateDockIcon(colorTheme: ColorTheme, _theme: Theme) {
   try {
     const accentColor = THEME_ACCENT_COLORS[colorTheme];
-    const pngBase64 = await renderIconPng(accentColor);
+    const pngBase64 = await renderIconPng(accentColor, colorTheme);
     await bridge.setDockIcon(pngBase64);
   } catch {
     // Silently ignore on non-macOS or errors
@@ -553,13 +560,15 @@ function App() {
   // Apply color theme class to document
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.remove('theme-blue', 'theme-purple', 'theme-green');
+    root.classList.remove('theme-blue', 'theme-purple', 'theme-green', 'theme-red');
     if (colorTheme === 'blue') {
       root.classList.add('theme-blue');
     } else if (colorTheme === 'purple') {
       root.classList.add('theme-purple');
     } else if (colorTheme === 'green') {
       root.classList.add('theme-green');
+    } else if (colorTheme === 'red') {
+      root.classList.add('theme-red');
     }
     // 'black' is the default — no class needed
   }, [colorTheme]);

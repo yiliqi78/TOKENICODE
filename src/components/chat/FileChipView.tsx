@@ -41,7 +41,7 @@ export function FileChipView({ node }: NodeViewProps) {
       <span
         ref={chipRef}
         contentEditable={false}
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5
+        className="file-chip inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5
           bg-accent/10 border border-accent/25 rounded-md
           text-xs text-accent font-medium cursor-pointer
           hover:bg-accent/20 hover:border-accent/40

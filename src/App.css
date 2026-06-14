@@ -283,6 +283,86 @@
   --color-icon-slash: var(--color-accent);
 }
 
+/* Red — light mode */
+.theme-red {
+  --color-bg-user-msg: #F5F5F7;
+  --color-bg-nav-active: rgba(226, 55, 58, 0.06);
+
+  --color-text-secondary: #D42D30;
+  --color-border-focus: #E2373A;
+
+  --color-accent: #E2373A;
+  --color-accent-light: #F05A5C;
+  --color-accent-hover: #D42D30;
+  --color-accent-glow: rgba(226, 55, 58, 0.10);
+  --color-success: #57A64B;
+
+  --color-gradient-start: #E2373A;
+  --color-gradient-mid: #F05A5C;
+  --color-gradient-end: #D42D30;
+
+  --color-syntax-string:   #0891B2;
+  --color-syntax-function: #7C3AED;
+
+  --shadow-glow: 0 0 20px rgba(226, 55, 58, 0.10);
+
+  --color-icon-slash: var(--color-accent);
+}
+
+/* Red — dark mode */
+.theme-red.dark,
+.dark.theme-red {
+  --color-bg-user-msg: #1C1C1E;
+
+  --color-text-secondary: #F05A5C;
+  --color-border-focus: #F05A5C;
+
+  --color-accent: #F05A5C;
+  --color-accent-light: #F7A0A1;
+  --color-accent-hover: #E2373A;
+  --color-accent-glow: rgba(240, 90, 92, 0.15);
+
+  --color-gradient-start: #E2373A;
+  --color-gradient-mid: #F05A5C;
+  --color-gradient-end: #D42D30;
+
+  --color-syntax-string:   #22D3EE;
+  --color-syntax-function: #A78BFA;
+
+  --shadow-glow: 0 0 20px rgba(240, 90, 92, 0.10);
+
+  --color-icon-slash: var(--color-accent);
+}
+
+/* Red theme — user bubble: gray bg needs dark text, no shadow */
+.theme-red .bg-bg-user-msg {
+  color: #333333;
+  box-shadow: none;
+}
+.theme-red.dark .bg-bg-user-msg,
+.dark.theme-red .bg-bg-user-msg {
+  color: #E0E0E0;
+  box-shadow: none;
+}
+
+/* Red theme — chat content & secondary panel use neutral accent (not red) */
+.theme-red [data-testid="chat-messages"],
+.theme-red .secondary-panel {
+  --color-accent: #555555;
+  --color-accent-light: #777777;
+  --color-accent-hover: #444444;
+  --color-accent-glow: rgba(0, 0, 0, 0.06);
+}
+.theme-red.dark [data-testid="chat-messages"],
+.dark.theme-red [data-testid="chat-messages"],
+.theme-red.dark .secondary-panel,
+.dark.theme-red .secondary-panel {
+  --color-accent: #AAAAAA;
+  --color-accent-light: #BBBBBB;
+  --color-accent-hover: #999999;
+  --color-accent-glow: rgba(255, 255, 255, 0.06);
+}
+
 /* ================================================================
    Solid backgrounds — all themes
    ================================================================ */
