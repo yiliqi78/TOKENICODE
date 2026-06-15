@@ -198,7 +198,7 @@ export function FilePreview() {
       <div className="flex items-center justify-between h-[68px] px-3 pt-[20px]
         border-b border-border-subtle bg-bg-secondary/50 flex-shrink-0 relative z-10">
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <FileIcon name={fileName} size={16} className="flex-shrink-0 text-text-muted" />
+          <FileIcon name={fileName} size={16} className="flex-shrink-0 text-accent" />
           <span className="text-[13px] font-medium text-text-primary truncate">
             {fileName}
           </span>
@@ -257,7 +257,7 @@ export function FilePreview() {
           <button
             onClick={reloadContent}
             className="p-2 rounded-lg hover:bg-bg-tertiary
-              text-text-tertiary transition-smooth cursor-pointer"
+              text-accent transition-smooth cursor-pointer"
             title={t('files.refresh')}
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"

@@ -151,16 +151,16 @@ function UserMsg({ message }: Props) {
         {copied ? t('msg.copied') : t('msg.copyText')}
       </button>
       <div className="max-w-[75%] px-3.5 py-2.5 rounded-2xl rounded-br-md
-        bg-bg-user-msg text-text-inverse
-        text-sm leading-relaxed shadow-md whitespace-pre-wrap">
+        bg-bg-user-msg text-text-primary border border-border
+        text-sm leading-relaxed whitespace-pre-wrap">
         {renderUserContent(displayContent)}
         {!expanded && isLong && (
-          <span className="text-white/60">…</span>
+          <span className="text-text-tertiary">…</span>
         )}
         {isLong && (
           <button
             onClick={() => setExpanded(!expanded)}
-            className="block mt-1.5 text-xs text-white/60 hover:text-white/90
+            className="block mt-1.5 text-xs text-text-tertiary hover:text-text-primary
               transition-smooth"
           >
             {expanded ? '▲ 收起' : '▼ 展开全部'}

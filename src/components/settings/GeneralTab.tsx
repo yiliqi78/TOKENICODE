@@ -15,24 +15,6 @@ const COLOR_THEMES: { id: ColorTheme; labelKey: string; preview: string; preview
     previewDark: '#D0D0D0',
   },
   {
-    id: 'blue',
-    labelKey: 'settings.blue',
-    preview: '#4E80F7',
-    previewDark: '#6B9AFF',
-  },
-  {
-    id: 'purple',
-    labelKey: 'settings.purple',
-    preview: '#9169BF',
-    previewDark: '#A684CC',
-  },
-  {
-    id: 'green',
-    labelKey: 'settings.green',
-    preview: '#57A64B',
-    previewDark: '#6DBF62',
-  },
-  {
     id: 'red',
     labelKey: 'settings.red',
     preview: '#E2373A',
@@ -191,10 +173,10 @@ export function GeneralTab() {
         />
       )}
 
-      {/* Theme Color — single row of 4 */}
+      {/* Theme Color — black / red only */}
       <div>
         <h3 className="text-[13px] font-medium text-text-primary mb-3">{t('settings.colorTheme')}</h3>
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           {COLOR_THEMES.map((ct) => (
             <button
               key={ct.id}

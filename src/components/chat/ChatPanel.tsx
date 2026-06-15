@@ -471,7 +471,7 @@ export function ChatPanel() {
     <div className="flex flex-col h-full">
       {/* Top Bar — with extra top padding for macOS traffic lights */}
       <div
-        className="flex items-center h-[68px] pt-[20px] px-5 border-b border-border-subtle
+        className="flex items-center h-[68px] pt-[20px] px-5
         flex-shrink-0 bg-bg-chat cursor-default">
         {/* Show sidebar toggle when sidebar is not visible:
             either user closed it, or it's hidden by file preview mode */}

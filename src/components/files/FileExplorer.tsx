@@ -788,7 +788,7 @@ export function FileExplorer() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={t('files.search')}
-            className="w-full pl-7 pr-7 py-1.5 text-[13px] bg-transparent
+            className="w-full pl-7 pr-7 py-1.5 text-[13px] text-center bg-transparent
               rounded-lg text-text-primary
               placeholder:text-text-tertiary outline-none
               hover:bg-bg-secondary focus:bg-bg-secondary

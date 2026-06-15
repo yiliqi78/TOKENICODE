@@ -334,15 +334,20 @@
   --color-icon-slash: var(--color-accent);
 }
 
-/* Red theme — user bubble: gray bg needs dark text, no shadow */
-.theme-red .bg-bg-user-msg {
-  color: #333333;
-  box-shadow: none;
+/* ── 用户输入气泡：全主题统一中性浅灰底，刻意不随主题色（边框走通用 --color-border）── */
+:root,
+.theme-blue,
+.theme-purple,
+.theme-green,
+.theme-red {
+  --color-bg-user-msg: #F2F2F4;
 }
-.theme-red.dark .bg-bg-user-msg,
-.dark.theme-red .bg-bg-user-msg {
-  color: #E0E0E0;
-  box-shadow: none;
+.dark,
+.theme-blue.dark, .dark.theme-blue,
+.theme-purple.dark, .dark.theme-purple,
+.theme-green.dark, .dark.theme-green,
+.theme-red.dark, .dark.theme-red {
+  --color-bg-user-msg: #2C2C2E;
 }
 
 /* Red theme — chat content & secondary panel use neutral accent (not red) */
@@ -377,16 +382,7 @@
   background: #1C1C1E;
 }
 
-/* ================================================================
-   User message bubble — subtle shadow
-   ================================================================ */
-.bg-bg-user-msg {
-  box-shadow: 0 2px 8px var(--color-accent-glow);
-}
-
-.dark .bg-bg-user-msg {
-  box-shadow: 0 2px 12px var(--color-accent-glow);
-}
+/* User message bubble — no shadow (flat, neutral gray) */
 
 /* Accent button treatment */
 .bg-accent {
