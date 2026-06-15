@@ -774,13 +774,15 @@ export function FileExplorer() {
       </div>{/* end data-file-tree wrapper */}
 
       {/* Search bar — moved to bottom, borderless */}
-      <div className="py-1.5">
-        <div className="relative">
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
+      <div className="px-3 py-1.5">
+        <div className="flex items-center gap-2 px-3 py-2 rounded-xl
+          bg-bg-secondary border border-border-subtle
+          focus-within:border-border-focus transition-smooth">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
             stroke="currentColor" strokeWidth="1.5"
-            className="absolute left-2 top-1/2 -translate-y-1/2 text-text-tertiary">
-            <circle cx="7" cy="7" r="5" />
-            <path d="M11 11l3 3" />
+            className="text-text-tertiary flex-shrink-0">
+            <circle cx="7" cy="7" r="4.5" />
+            <path d="M10.5 10.5L14 14" />
           </svg>
           <input
             ref={searchRef}
@@ -788,22 +790,18 @@ export function FileExplorer() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={t('files.search')}
-            className="w-full pl-7 pr-7 py-1.5 text-[13px] text-center bg-transparent
-              rounded-lg text-text-primary
-              placeholder:text-text-tertiary outline-none
-              hover:bg-bg-secondary focus:bg-bg-secondary
-              transition-smooth"
+            className="flex-1 min-w-0 bg-transparent text-xs text-text-primary
+              placeholder:text-text-tertiary outline-none"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2
-                p-0.5 rounded-lg text-text-tertiary hover:text-text-primary
-                transition-smooth"
+              className="flex-shrink-0 p-0.5 rounded text-text-tertiary
+                hover:text-text-primary transition-smooth"
             >
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
-                stroke="currentColor" strokeWidth="1.5">
-                <path d="M2 2l6 6M8 2l-6 6" />
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
+                stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M4 4l8 8M12 4l-8 8" />
               </svg>
             </button>
           )}
