@@ -16,8 +16,8 @@ import { showToast } from '../shared/Toast';
 function getChangeBadge(kind: FileChangeKind | undefined) {
   if (!kind) return null;
   const colors = {
-    created: 'bg-success',
-    modified: 'bg-success',
+    created: 'bg-accent',
+    modified: 'bg-accent',
     removed: 'bg-error',
   };
   const labels = { created: 'A', modified: 'M', removed: 'D' };
@@ -257,7 +257,7 @@ function SearchResultItem({
         ${isSelected
           ? 'bg-accent/10 text-accent'
           : changeKind
-            ? 'text-success'
+            ? 'text-accent'
             : 'text-text-muted hover:bg-bg-secondary hover:text-text-primary'
         }`}
     >
@@ -404,7 +404,7 @@ function TreeNode({
           ${isActive
             ? 'bg-accent/10 text-accent'
             : changeKind
-              ? 'text-success'
+              ? 'text-accent'
               : 'text-text-muted hover:bg-bg-secondary hover:text-text-primary'
           }`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
@@ -441,7 +441,7 @@ function TreeNode({
         )}
         {getChangeBadge(changeKind)}
         {!changeKind && hasChildChanges && (
-          <span className="ml-auto w-1.5 h-1.5 rounded-full bg-success
+          <span className="ml-auto w-1.5 h-1.5 rounded-full bg-accent
             flex-shrink-0" />
         )}
       </button>
@@ -691,7 +691,7 @@ export function FileExplorer() {
             </span>
           </div>
         )}
-        <div className="h-full overflow-y-auto py-1">
+        <div className="h-full overflow-y-auto py-1 px-2">
         {isLoading && filteredTree.length === 0 ? (
           <div className="flex items-center justify-center py-8">
             <div className="w-5 h-5 border-2 border-accent/30
@@ -774,7 +774,7 @@ export function FileExplorer() {
       </div>{/* end data-file-tree wrapper */}
 
       {/* Search bar — moved to bottom, borderless */}
-      <div className="px-3 py-1.5">
+      <div className="px-3 pt-1 pb-3">
         <div className="flex items-center gap-2 px-3 py-2 rounded-xl
           bg-bg-secondary border border-border-subtle
           focus-within:border-border-focus transition-smooth">

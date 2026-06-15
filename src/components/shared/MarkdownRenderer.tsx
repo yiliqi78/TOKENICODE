@@ -190,10 +190,9 @@ export function CopyButton({ text }: { text: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="absolute top-2 right-2 px-2 py-1 rounded-md text-[10px]
-        font-medium opacity-0 group-hover:opacity-100 transition-smooth
-        bg-bg-tertiary/80 text-text-muted hover:text-text-primary
-        hover:bg-bg-tertiary border border-border-subtle"
+      className="flex-shrink-0 px-2 py-0.5 rounded-md text-[10px]
+        font-medium text-text-tertiary hover:text-text-primary
+        hover:bg-bg-tertiary transition-smooth"
     >
       {copied ? t('msg.copied') : t('msg.copyCode')}
     </button>
@@ -206,6 +205,21 @@ function extractText(node: ReactNode): string {
   if (Array.isArray(node)) return node.map(extractText).join('');
   if (node && typeof node === 'object' && 'props' in node) {
     return extractText((node as any).props.children);
+  }
+  return '';
+}
+
+/** Extract language label from a fenced block's <code className="language-xxx"> */
+function extractLang(node: ReactNode): string {
+  if (Array.isArray(node)) {
+    for (const n of node) { const r = extractLang(n); if (r) return r; }
+    return '';
+  }
+  if (node && typeof node === 'object' && 'props' in node) {
+    const cn = (node as any).props?.className || '';
+    const m = /language-([\w-]+)/.exec(cn);
+    if (m) return m[1].toUpperCase();
+    return extractLang((node as any).props?.children);
   }
   return '';
 }
@@ -383,19 +397,19 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
   // Stable components object — only recreated if `t` or resolveBase changes
   const components = useMemo(() => ({
     table: ({ children }: { children?: ReactNode }) => (
-      <div className="my-3 overflow-x-auto rounded-lg border border-border-subtle">
-        <table className="w-full border-collapse text-xs">{children}</table>
+      <div className="my-4 overflow-hidden rounded-xl border border-border-subtle">
+        <table className="w-full border-collapse text-xs m-0">{children}</table>
       </div>
     ),
     thead: ({ children }: { children?: ReactNode }) => (
       <thead className="bg-bg-secondary">{children}</thead>
     ),
     th: ({ children }: { children?: ReactNode }) => (
-      <th className="px-3 py-2 text-left font-medium text-text-muted
-        border-b border-border-subtle text-[11px]">{children}</th>
+      <th className="px-4 py-2.5 text-center font-semibold text-text-secondary
+        border-b border-border-subtle text-[11px] whitespace-nowrap">{children}</th>
     ),
     td: ({ children }: { children?: ReactNode }) => (
-      <td className="px-3 py-2 text-text-primary border-b border-border-subtle
+      <td className="px-4 py-2.5 text-text-secondary border-b border-border-subtle
         text-xs">{children}</td>
     ),
     a: ({ href, children }: { href?: string; children?: ReactNode }) => {
@@ -498,11 +512,18 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
     },
     pre: ({ children }: { children?: ReactNode }) => {
       const codeText = extractText(children);
+      const lang = extractLang(children);
       return (
-        <div className="relative group my-3">
-          <CopyButton text={codeText} />
-          <pre className="bg-bg-secondary rounded-xl p-4
-            border border-border-subtle overflow-x-auto">
+        <div className="my-5 rounded-xl border border-border-subtle overflow-hidden bg-white dark:bg-bg-secondary">
+          <div className="flex items-center justify-between px-3 py-1.5
+            bg-bg-primary border-b border-border-subtle">
+            <span className="text-[11px] font-medium text-text-tertiary select-none">
+              {lang || 'CODE'}
+            </span>
+            <CopyButton text={codeText} />
+          </div>
+          <pre className="bg-white dark:bg-bg-secondary px-4 py-3 overflow-x-auto
+            text-[11px] leading-relaxed text-text-primary">
             {children}
           </pre>
         </div>
@@ -525,7 +546,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
             }}
             className="inline-flex items-center gap-1 px-2 py-0.5 mx-0.5
               bg-bg-secondary border border-accent/50 rounded-full
-              text-xs text-accent font-medium cursor-pointer
+              text-xs text-accent/70 font-medium cursor-pointer
               hover:bg-accent/10 hover:border-accent
               transition-all duration-150 select-none
               align-baseline leading-normal whitespace-nowrap"
@@ -544,9 +565,10 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
     <div className={`prose prose-sm max-w-none
       prose-code:bg-bg-secondary prose-code:px-1.5 prose-code:py-0.5
       prose-code:rounded-md prose-code:text-sm prose-code:text-accent
-      prose-pre:bg-bg-secondary prose-pre:rounded-xl prose-pre:p-4
-      prose-pre:border prose-pre:border-border-subtle
-      prose-headings:text-text-primary prose-a:text-accent
+      prose-p:leading-[1.85] prose-li:leading-[1.85]
+      prose-h1:text-lg prose-h2:text-[15px] prose-h3:text-sm prose-h4:text-[13px]
+      prose-headings:text-text-primary prose-headings:font-semibold
+      prose-headings:mt-4 prose-headings:mb-2 prose-a:text-accent
       prose-strong:text-text-primary ${className || ''}`}>
       <MarkdownErrorBoundary fallback={content}>
         <Markdown

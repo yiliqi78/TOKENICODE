@@ -193,7 +193,7 @@ export function FilePreview() {
   if (!selectedFile) return null;
 
   return (
-    <div className="flex flex-col h-full bg-bg-primary" onKeyDown={handleKeyDown}>
+    <div className="file-preview flex flex-col h-full bg-bg-primary" onKeyDown={handleKeyDown}>
       {/* Header bar — h-[68px]+pt-[20px] 与聊天顶栏完全一致，顶部分隔线对齐；z-10 above iframe content */}
       <div className="flex items-center justify-between h-[68px] px-3 pt-[20px]
         border-b border-border-subtle bg-bg-secondary/50 flex-shrink-0 relative z-10">

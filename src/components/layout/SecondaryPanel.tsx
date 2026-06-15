@@ -34,7 +34,7 @@ export function SecondaryPanel() {
     <div className="secondary-panel flex flex-col h-full">
       {/* Tab bar — extra top padding for macOS traffic lights */}
       <div
-        className="flex items-center justify-between px-2 pt-6 pb-2
+        className="flex items-center justify-between px-4 pt-4 pb-2
         cursor-default">
         <div className="flex gap-1 min-w-0 overflow-hidden">
           {tabs.map((tab) => (

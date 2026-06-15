@@ -40,7 +40,6 @@ export type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'max';
 // variant so users can pick the larger context window explicitly. The 1M id is
 // translated to the CLI's `[1m]` model name in api-provider.ts (CLI_MODEL_MAP).
 export const MODEL_OPTIONS: { id: ModelId; label: string; short: string }[] = [
-  { id: 'claude-fable-5-1m', label: 'Fable 5 (1M)', short: 'Fable 5 (1M)' },
   { id: 'claude-opus-4-8-1m', label: 'Opus 4.8 (1M)', short: 'Opus 4.8 (1M)' },
   { id: 'claude-opus-4-7-1m', label: 'Opus 4.7 (1M)', short: 'Opus 4.7 (1M)' },
   { id: 'claude-opus-4-6-1m', label: 'Opus 4.6 (1M)', short: 'Opus 4.6 (1M)' },

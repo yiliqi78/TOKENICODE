@@ -176,7 +176,7 @@ export function GeneralTab() {
       {/* Theme Color — black / red only */}
       <div>
         <h3 className="text-[13px] font-medium text-text-primary mb-3">{t('settings.colorTheme')}</h3>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-4 gap-3">
           {COLOR_THEMES.map((ct) => (
             <button
               key={ct.id}

@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
+@custom-variant dark (&:where(.dark, .dark *));
 
 /* ================================================================
    Default theme (Black) — light mode — clean solid
@@ -352,7 +353,8 @@
 
 /* Red theme — chat content & secondary panel use neutral accent (not red) */
 .theme-red [data-testid="chat-messages"],
-.theme-red .secondary-panel {
+.theme-red .secondary-panel,
+.theme-red .file-preview {
   --color-accent: #555555;
   --color-accent-light: #777777;
   --color-accent-hover: #444444;
@@ -361,7 +363,9 @@
 .theme-red.dark [data-testid="chat-messages"],
 .dark.theme-red [data-testid="chat-messages"],
 .theme-red.dark .secondary-panel,
-.dark.theme-red .secondary-panel {
+.dark.theme-red .secondary-panel,
+.theme-red.dark .file-preview,
+.dark.theme-red .file-preview {
   --color-accent: #AAAAAA;
   --color-accent-light: #BBBBBB;
   --color-accent-hover: #999999;
@@ -592,11 +596,22 @@ input, textarea, [contenteditable="true"],
   font-weight: 500;
 }
 
+/* Code block: inner <code> has no pill background — the white <pre> shows through */
+.prose :where(pre code) {
+  background: transparent !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  color: inherit !important;
+  font-size: inherit !important;
+  line-height: 2.2 !important;
+  font-family: 'SF Mono', ui-monospace, 'JetBrains Mono', Menlo, Monaco, Consolas, 'Courier New', monospace !important;
+}
+
 /* ================================================================
    highlight.js — theme-aware syntax highlighting (uses --syntax-* vars)
    ================================================================ */
 .hljs {
-  background: var(--color-bg-secondary) !important;
+  background: transparent !important;
   color: var(--color-text-primary) !important;
 }
 .hljs-comment,
