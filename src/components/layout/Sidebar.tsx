@@ -84,7 +84,7 @@ export function Sidebar() {
       </div>
 
       {/* Footer */}
-      <div className="pt-3 mt-3 border-t border-border-subtle px-3">
+      <div className="pt-2 px-3">
         <button onClick={toggleSettings}
           {...(import.meta.env.DEV && { 'data-testid': 'settings-button' })}
           className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl

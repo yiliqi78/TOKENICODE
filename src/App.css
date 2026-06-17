@@ -607,6 +607,14 @@ input, textarea, [contenteditable="true"],
   font-family: 'SF Mono', ui-monospace, 'JetBrains Mono', Menlo, Monaco, Consolas, 'Courier New', monospace !important;
 }
 
+/* Markdown table: hug the rounded container — kill prose's default 2em
+   block margin. The component's `m-0` class loses to the typography plugin
+   (same specificity, plugin CSS wins on source order), so it needs !important. */
+.prose :where(table):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
 /* ================================================================
    highlight.js — theme-aware syntax highlighting (uses --syntax-* vars)
    ================================================================ */

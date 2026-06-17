@@ -12,6 +12,7 @@ import { PermissionCard } from './PermissionCard';
 import { QuestionCard } from './QuestionCard';
 import { AiAvatar } from '../shared/AiAvatar';
 import { UserAvatar } from '../shared/UserAvatar';
+import { FileIcon } from '../shared/FileIcon';
 
 interface Props {
   message: ChatMessage;
@@ -53,10 +54,15 @@ export const MessageBubble = memo(function MessageBubble({ message, isFirstInGro
 /** Collapse threshold: messages longer than this are collapsed by default */
 const USER_MSG_COLLAPSE_LINES = 12;
 
-/** Extract file extension from a filename */
-function getFileExt(name: string): string {
+/** 文件名缩略：保留前 maxBase 个字 + 省略号 + 始终保留后缀（知识星球授权…​.pdf） */
+function truncateFileName(name: string, maxBase = 6): string {
   const dot = name.lastIndexOf('.');
-  return dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+  if (dot <= 0) {
+    return name.length > maxBase ? name.slice(0, maxBase) + '…' : name;
+  }
+  const base = name.slice(0, dot);
+  const ext = name.slice(dot);
+  return base.length > maxBase ? base.slice(0, maxBase) + '…' + ext : name;
 }
 
 /** Render a single backtick-inner segment: file path → clickable chip, else → inline code */
@@ -75,9 +81,9 @@ function renderCodeSegment(inner: string, key: number): ReactNode {
           useFileStore.getState().revealPath(resolved);
         }}
         className="inline-flex items-center gap-1 px-2 py-0.5 mx-0.5
-          bg-white/15 border border-white/40 rounded-full
+          bg-bg-card text-text-primary border border-border rounded-full
           text-xs font-medium cursor-pointer
-          hover:bg-white/25 hover:border-white/60
+          hover:bg-bg-secondary hover:border-accent/50
           transition-all duration-150 select-none
           align-baseline leading-normal whitespace-nowrap inline-block"
         title={resolved}
@@ -167,7 +173,7 @@ function UserMsg({ message }: Props) {
           </button>
         )}
         {attachments && attachments.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-2">
+          <div className="flex flex-wrap gap-1.5 mt-2 mb-1">
             {attachments.map((att, i) => (
               <button
                 key={i}
@@ -178,25 +184,16 @@ function UserMsg({ message }: Props) {
                     useFileStore.getState().selectFile(att.path);
                   }
                 }}
-                className="inline-flex items-center gap-2 px-2.5 py-1.5
-                  bg-white/10 hover:bg-white/20 rounded-lg border border-white/15
+                className="inline-flex items-center gap-1.5 p-2
+                  bg-bg-card text-text-primary hover:bg-bg-secondary rounded-lg border border-border
                   transition-smooth cursor-pointer text-left"
               >
                 {att.isImage && att.preview ? (
-                  <img src={att.preview} alt="" className="w-8 h-8 rounded object-cover" />
+                  <img src={att.preview} alt="" className="w-7 h-7 rounded object-cover flex-shrink-0" />
                 ) : (
-                  <span className="flex items-center justify-center w-8 h-8 rounded
-                    bg-white/10 text-[10px] font-mono font-semibold uppercase opacity-80">
-                    {getFileExt(att.name) || (
-                      <svg width="14" height="14" viewBox="0 0 12 12" fill="none"
-                        stroke="currentColor" strokeWidth="1.2">
-                        <path d="M7 1H3a1 1 0 00-1 1v8a1 1 0 001 1h6a1 1 0 001-1V4L7 1z" />
-                        <path d="M7 1v3h3" />
-                      </svg>
-                    )}
-                  </span>
+                  <FileIcon name={att.name} size={20} className="flex-shrink-0 text-accent" />
                 )}
-                <span className="text-xs truncate max-w-[180px]">{att.name}</span>
+                <span className="text-xs whitespace-nowrap">{truncateFileName(att.name)}</span>
               </button>
             ))}
           </div>
