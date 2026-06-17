@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyPathToken, computeRevealExpansions, findNodeByPath, normalizePath, reconcilePathToRoot, resolvePathToken } from '../fileReveal';
+import { classifyPathToken, computeRevealExpansions, findNodeByPath, findNodeBySuffix, normalizePath, reconcilePathToRoot, resolvePathToken } from '../fileReveal';
 import type { FileNode } from '../../lib/tauri-bridge';
 
 describe('normalizePath', () => {
@@ -94,6 +94,74 @@ describe('findNodeByPath（按绝对路径在树里找节点）', () => {
   });
 });
 
+// AI 在聊天里给的路径，极少是「从工作区根算起的完整相对路径」，更多是裸文件名
+// （brief_2026-06-06.md）或半截相对路径。这类 token 拼出来的绝对路径在树里不存在，
+// findNodeByPath 精确匹配会失败 → 这是「点了胶囊不展开不高亮」的主因。
+// findNodeBySuffix 兜底：按基名 + 共享结尾段数，在已加载的树里找回真实节点。
+describe('findNodeBySuffix（裸文件名 / 半截路径按后缀在树里兜底定位）', () => {
+  const tree: FileNode[] = [
+    { name: '00_专注区', path: '/root/00_专注区', is_dir: true, children: [
+      { name: 'brief_2026-06-06.md', path: '/root/00_专注区/brief_2026-06-06.md', is_dir: false, children: null },
+      { name: '参考资料', path: '/root/00_专注区/参考资料', is_dir: true, children: [] },
+    ] },
+    { name: '06_DEV', path: '/root/06_DEV', is_dir: true, children: [
+      { name: 'HANDOFF.md', path: '/root/06_DEV/HANDOFF.md', is_dir: false, children: null },
+      { name: '_本周.md', path: '/root/06_DEV/_本周.md', is_dir: false, children: null },
+    ] },
+    { name: '01_Her', path: '/root/01_Her', is_dir: true, children: [
+      { name: '_本周.md', path: '/root/01_Her/_本周.md', is_dir: false, children: null },
+    ] },
+  ];
+
+  it('裸文件名命中子文件夹里的真实节点', () => {
+    expect(findNodeBySuffix(tree, '/root/brief_2026-06-06.md')?.path)
+      .toBe('/root/00_专注区/brief_2026-06-06.md');
+  });
+
+  it('半截相对路径：按共享结尾段数命中对的那个同名文件', () => {
+    // 两个 _本周.md：给了 06_DEV/_本周.md → 应命中 06_DEV 下的，而不是 01_Her 下的
+    expect(findNodeBySuffix(tree, '/root/06_DEV/_本周.md')?.path)
+      .toBe('/root/06_DEV/_本周.md');
+  });
+
+  it('同名并列、信息不足时取路径最短（更靠近根，结果稳定）', () => {
+    // 只给裸 _本周.md，无从区分 → 两者结尾段数相同，取更短路径；这里长度相同则取先遇到的
+    const hit = findNodeBySuffix(tree, '/root/_本周.md');
+    expect(hit?.name).toBe('_本周.md');
+  });
+
+  it('文件夹也能按基名命中', () => {
+    expect(findNodeBySuffix(tree, '/root/参考资料')?.path)
+      .toBe('/root/00_专注区/参考资料');
+    expect(findNodeBySuffix(tree, '/root/参考资料')?.is_dir).toBe(true);
+  });
+
+  it('树里没有同名节点 → null', () => {
+    expect(findNodeBySuffix(tree, '/root/不存在.md')).toBe(null);
+  });
+});
+
+// 复现并锁死本次 bug：聊天里点「裸文件名」胶囊，过去按「根 + 文件名」精确匹配，
+// 而文件其实在子文件夹里 → 匹配不到 → 不展开不高亮。修复后应能定位到真实节点、
+// 算出要展开的祖先文件夹。
+describe('裸文件名定位回归（revealPath 纯逻辑链路）', () => {
+  const root = '/root';
+  const tree: FileNode[] = [
+    { name: '00_专注区', path: '/root/00_专注区', is_dir: true, children: [
+      { name: 'brief_2026-06-06.md', path: '/root/00_专注区/brief_2026-06-06.md', is_dir: false, children: null },
+    ] },
+  ];
+
+  it('裸文件名：精确匹配失败（旧 bug），后缀兜底命中并算出要展开 00_专注区', () => {
+    const resolved = resolvePathToken('brief_2026-06-06.md', root); // → /root/brief_2026-06-06.md
+    expect(findNodeByPath(tree, resolved)).toBe(null);              // 旧路径：精确匹配不到 = bug 现场
+    const node = findNodeByPath(tree, resolved) ?? findNodeBySuffix(tree, resolved);
+    expect(node?.path).toBe('/root/00_专注区/brief_2026-06-06.md'); // 新兜底：定位到真实节点
+    expect(computeRevealExpansions(node!.path, root, node!.is_dir))
+      .toEqual(['/root/00_专注区']);                                // 真实节点 → 正确的展开列表
+  });
+});
+
 // 聊天里反引号包的文本，要判断成 文件 / 文件夹 / 都不是。
 // 关键诉求：支持中文路径（旧规则只认英文前缀路径，中文一律漏判）。
 describe('classifyPathToken（判断反引号内是不是路径）', () => {
@@ -108,6 +176,14 @@ describe('classifyPathToken（判断反引号内是不是路径）', () => {
   });
   it('中文文件夹（末尾斜杠）→ folder', () => {
     expect(classifyPathToken('01_Her/02_创业系统/_增长线/')).toBe('folder');
+  });
+  // 本次修复核心：从文件区拖「顶层文件夹」（裸名、无多级前缀），序列化补尾斜杠后
+  // 才认得出是文件夹 → 渲染成 📁 胶囊。无斜杠时漏判成 null = 修复前的「又大又空白块」现场。
+  it('顶层裸文件夹名（末尾斜杠）→ folder', () => {
+    expect(classifyPathToken('08_收件箱/')).toBe('folder');
+  });
+  it('顶层裸文件夹名（无斜杠）→ null（修复前白块现场：认不出是文件夹）', () => {
+    expect(classifyPathToken('08_收件箱')).toBe(null);
   });
   it('普通行内代码 useState → null', () => {
     expect(classifyPathToken('useState')).toBe(null);

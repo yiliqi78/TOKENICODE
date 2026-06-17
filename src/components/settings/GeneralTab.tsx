@@ -7,7 +7,7 @@ import { UserAvatar } from '../shared/UserAvatar';
 import { AvatarCropModal } from './AvatarCropModal';
 import { getModelDisplayOptions, getSelectedModelOptionId } from '../../lib/api-provider';
 
-const COLOR_THEMES: { id: ColorTheme; labelKey: string; preview: string; previewDark: string }[] = [
+const COLOR_THEMES: { id: ColorTheme; labelKey: string; preview: string; previewDark: string; canvas?: string }[] = [
   {
     id: 'black',
     labelKey: 'settings.black',
@@ -15,29 +15,27 @@ const COLOR_THEMES: { id: ColorTheme; labelKey: string; preview: string; preview
     previewDark: '#D0D0D0',
   },
   {
-    id: 'blue',
-    labelKey: 'settings.blue',
-    preview: '#4E80F7',
-    previewDark: '#6B9AFF',
+    id: 'red',
+    labelKey: 'settings.red',
+    preview: '#E2373A',
+    previewDark: '#F05A5C',
   },
   {
-    id: 'purple',
-    labelKey: 'settings.purple',
-    preview: '#9169BF',
-    previewDark: '#A684CC',
-  },
-  {
-    id: 'green',
-    labelKey: 'settings.green',
-    preview: '#57A64B',
-    previewDark: '#6DBF62',
+    id: 'gray',
+    labelKey: 'settings.gray',
+    preview: '#8A8A8E',
+    previewDark: '#8A8A8E',
+    canvas: '#E8E8EA',
   },
 ];
 
 /* Mini app preview — simplified chat interface thumbnail */
-function ThemePreview({ color }: { color: string }) {
+function ThemePreview({ color, canvas }: { color: string; canvas?: string }) {
   return (
-    <div className="w-full aspect-[5/3] rounded-lg overflow-hidden border border-black/[0.06] bg-[#f5f5f5] dark:bg-[#1a1a1a] dark:border-white/[0.06] flex">
+    <div
+      className="w-full aspect-[5/3] rounded-lg overflow-hidden border border-black/[0.06] bg-[#f5f5f5] dark:bg-[#1a1a1a] dark:border-white/[0.06] flex"
+      style={canvas ? { background: canvas } : undefined}
+    >
       {/* Sidebar */}
       <div className="w-[22%] border-r border-black/[0.06] dark:border-white/[0.06] p-2 flex flex-col gap-1.5">
         <div className="w-full h-2 rounded-full bg-black/[0.07] dark:bg-white/[0.08]" />
@@ -185,7 +183,7 @@ export function GeneralTab() {
         />
       )}
 
-      {/* Theme Color — single row of 4 */}
+      {/* Theme Color — black / red only */}
       <div>
         <h3 className="text-[13px] font-medium text-text-primary mb-3">{t('settings.colorTheme')}</h3>
         <div className="grid grid-cols-4 gap-3">
@@ -200,7 +198,7 @@ export function GeneralTab() {
                   : 'hover:scale-[1.02] border border-border-subtle hover:border-black/10 dark:hover:border-white/10'
                 }`}
             >
-              <ThemePreview color={ct.preview} />
+              <ThemePreview color={ct.preview} canvas={ct.canvas} />
             </button>
           ))}
         </div>

@@ -9,13 +9,19 @@ const host = process.env.TAURI_DEV_HOST;
 // @ts-expect-error process is a nodejs global
 const edition = process.env.EDITION || 'stable';
 
+// 'seven' is the personal frozen edition (tokenicode-7) — see editions/seven/
+const editionAppNames: Record<string, string> = {
+  alpha: 'TCAlpha',
+  seven: 'tokenicode-7',
+};
+
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
 
   define: {
     __APP_EDITION__: JSON.stringify(edition),
-    __APP_NAME__: JSON.stringify(edition === 'alpha' ? 'TCAlpha' : 'TOKENICODE'),
+    __APP_NAME__: JSON.stringify(editionAppNames[edition] ?? 'TOKENICODE'),
   },
 
   test: {

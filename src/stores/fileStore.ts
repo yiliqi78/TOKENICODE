@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { bridge, FileNode, RecentProject } from '../lib/tauri-bridge';
-import { computeRevealExpansions, findNodeByPath, reconcilePathToRoot } from './fileReveal';
+import { computeRevealExpansions, findNodeByPath, findNodeBySuffix, reconcilePathToRoot } from './fileReveal';
 
 export type FileChangeKind = 'created' | 'modified' | 'removed';
 export type PreviewMode = 'preview' | 'source' | 'edit';
@@ -72,7 +72,7 @@ interface FileState {
   // 展开/折叠单个文件夹
   toggleFolder: (path: string) => void;
   // 定位到某路径：展开其所有父目录（文件夹则连自身）并高亮
-  revealPath: (path: string) => void;
+  revealPath: (path: string) => Promise<void>;
 }
 
 export const useFileStore = create<FileState>()((set, get) => ({
@@ -350,16 +350,33 @@ export const useFileStore = create<FileState>()((set, get) => ({
     set({ expandedFolders: next });
   },
 
-  revealPath: (path: string) => {
-    const { tree, rootPath, expandedFolders } = get();
+  revealPath: async (path: string) => {
+    const { rootPath } = get();
     // 容错：AI 给的绝对全路径前缀可能和真实文件系统不一致（iCloud 的
     // com~apple~CloudDocs 常被写成 com-apple-CloudDocs 或整段缺失）→ 按工作区名对齐回真实 rootPath。
-    const target = reconcilePathToRoot(path, rootPath);
-    // 判断目标是文件还是文件夹：先在已加载的树里查，查不到回退到「末尾斜杠」
-    const node = findNodeByPath(tree, target);
+    const reconciled = reconcilePathToRoot(path, rootPath);
+    // 先精确匹配；匹配不到（裸文件名 / 半截相对路径——AI 给的多是这种）再按基名/后缀
+    // 在已加载的树里兜底找回真实节点。这是修「过半点击不展开不高亮」的关键：
+    // 展开 + 高亮都必须用「树里真实节点的 path」，而不是拼出来、很可能对不上的 reconciled。
+    const locate = () => {
+      const tree = get().tree;
+      return findNodeByPath(tree, reconciled) ?? findNodeBySuffix(tree, reconciled);
+    };
+    let node = locate();
+    // 时序竞态兜底：流式对话里 AI 刚写出的文件，大概率还没进树快照——
+    // watcher / 工具完成触发的 refreshTree 是异步追赶的（大工作区全量扫描要数秒），
+    // 而胶囊随流式文本即时出现，点击必然跑在刷新前面。
+    // → 树里找不到时主动刷一次再定位，把「被动等树追上」变成「点击时对齐」。
+    if (!node) {
+      await get().refreshTree();
+      node = locate();
+    }
+    // 用真实节点的 path 原值（不再 normalize）：TreeNode 的高亮判断是
+    // revealTarget === node.path 原值精确相等，包一层规范化反而可能对不上。
+    const target = node ? node.path : reconciled;
     const isDir = node ? node.is_dir : /\/$/.test(path);
     const toExpand = computeRevealExpansions(target, rootPath, isDir);
-    const next = new Set(expandedFolders);
+    const next = new Set(get().expandedFolders);
     for (const p of toExpand) next.add(p);
     set({ expandedFolders: next, revealTarget: target });
   },

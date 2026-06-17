@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { IS_SEVEN } from '../lib/edition';
 import { useSettingsStore } from '../stores/settingsStore';
 
 const CHECK_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
@@ -38,6 +39,10 @@ async function doCheck(): Promise<void> {
  */
 export function useAutoUpdateCheck(): void {
   useEffect(() => {
+    // Frozen edition: stock endpoints would offer upstream builds that
+    // overwrite the personal app — never poll.
+    if (IS_SEVEN) return;
+
     // Initial check after 5s
     const startupTimer = setTimeout(doCheck, 5000);
 

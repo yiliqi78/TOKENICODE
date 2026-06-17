@@ -16,8 +16,8 @@ import { showToast } from '../shared/Toast';
 function getChangeBadge(kind: FileChangeKind | undefined) {
   if (!kind) return null;
   const colors = {
-    created: 'bg-success',
-    modified: 'bg-success',
+    created: 'bg-accent',
+    modified: 'bg-accent',
     removed: 'bg-error',
   };
   const labels = { created: 'A', modified: 'M', removed: 'D' };
@@ -257,7 +257,7 @@ function SearchResultItem({
         ${isSelected
           ? 'bg-accent/10 text-accent'
           : changeKind
-            ? 'text-success'
+            ? 'text-accent'
             : 'text-text-muted hover:bg-bg-secondary hover:text-text-primary'
         }`}
     >
@@ -382,9 +382,11 @@ function TreeNode({
                     })
                     .catch((err: unknown) => console.error('Failed to move file:', err));
                 } else if (!result.droppedInTree) {
-                  // Drop outside file tree → insert file chip in chat
+                  // Drop outside file tree → insert file/folder chip in chat
                   window.dispatchEvent(
-                    new CustomEvent('tokenicode:tree-file-inline', { detail: result.sourcePath }),
+                    new CustomEvent('tokenicode:tree-file-inline', {
+                      detail: { path: result.sourcePath, isDir: result.isDir },
+                    }),
                   );
                 }
               }
@@ -404,7 +406,7 @@ function TreeNode({
           ${isActive
             ? 'bg-accent/10 text-accent'
             : changeKind
-              ? 'text-success'
+              ? 'text-accent'
               : 'text-text-muted hover:bg-bg-secondary hover:text-text-primary'
           }`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
@@ -441,7 +443,7 @@ function TreeNode({
         )}
         {getChangeBadge(changeKind)}
         {!changeKind && hasChildChanges && (
-          <span className="ml-auto w-1.5 h-1.5 rounded-full bg-success
+          <span className="ml-auto w-1.5 h-1.5 rounded-full bg-accent
             flex-shrink-0" />
         )}
       </button>
@@ -691,7 +693,7 @@ export function FileExplorer() {
             </span>
           </div>
         )}
-        <div className="h-full overflow-y-auto py-1">
+        <div className="h-full overflow-y-auto py-1 px-2">
         {isLoading && filteredTree.length === 0 ? (
           <div className="flex items-center justify-center py-8">
             <div className="w-5 h-5 border-2 border-accent/30
@@ -774,13 +776,15 @@ export function FileExplorer() {
       </div>{/* end data-file-tree wrapper */}
 
       {/* Search bar — moved to bottom, borderless */}
-      <div className="py-1.5">
-        <div className="relative">
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
+      <div className="px-3 pt-1 pb-3">
+        <div className="flex items-center gap-2 px-3 py-2 rounded-xl
+          bg-bg-secondary border border-border-subtle
+          focus-within:border-border-focus transition-smooth">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
             stroke="currentColor" strokeWidth="1.5"
-            className="absolute left-2 top-1/2 -translate-y-1/2 text-text-tertiary">
-            <circle cx="7" cy="7" r="5" />
-            <path d="M11 11l3 3" />
+            className="text-text-tertiary flex-shrink-0">
+            <circle cx="7" cy="7" r="4.5" />
+            <path d="M10.5 10.5L14 14" />
           </svg>
           <input
             ref={searchRef}
@@ -788,22 +792,18 @@ export function FileExplorer() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={t('files.search')}
-            className="w-full pl-7 pr-7 py-1.5 text-[13px] bg-transparent
-              rounded-lg text-text-primary
-              placeholder:text-text-tertiary outline-none
-              hover:bg-bg-secondary focus:bg-bg-secondary
-              transition-smooth"
+            className="flex-1 min-w-0 bg-transparent text-xs text-text-primary
+              placeholder:text-text-tertiary outline-none"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2
-                p-0.5 rounded-lg text-text-tertiary hover:text-text-primary
-                transition-smooth"
+              className="flex-shrink-0 p-0.5 rounded text-text-tertiary
+                hover:text-text-primary transition-smooth"
             >
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
-                stroke="currentColor" strokeWidth="1.5">
-                <path d="M2 2l6 6M8 2l-6 6" />
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
+                stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M4 4l8 8M12 4l-8 8" />
               </svg>
             </button>
           )}

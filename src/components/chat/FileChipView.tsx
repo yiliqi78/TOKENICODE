@@ -10,7 +10,7 @@ import { type NodeViewProps, NodeViewWrapper } from '@tiptap/react';
 import { useCallback, useRef, useState } from 'react';
 
 export function FileChipView({ node }: NodeViewProps) {
-  const { fullPath, label } = node.attrs as { fullPath: string; label: string };
+  const { fullPath, label, isDir } = node.attrs as { fullPath: string; label: string; isDir?: boolean };
   const [tooltip, setTooltip] = useState<{ x: number; y: number } | null>(null);
   const chipRef = useRef<HTMLSpanElement>(null);
 
@@ -33,7 +33,6 @@ export function FileChipView({ node }: NodeViewProps) {
 
   const handleMouseLeave = useCallback(() => setTooltip(null), []);
 
-  const isDir = fullPath.endsWith('/');
   const icon = isDir ? '📁' : '📄';
 
   return (
@@ -41,7 +40,7 @@ export function FileChipView({ node }: NodeViewProps) {
       <span
         ref={chipRef}
         contentEditable={false}
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5
+        className="file-chip inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5
           bg-accent/10 border border-accent/25 rounded-md
           text-xs text-accent font-medium cursor-pointer
           hover:bg-accent/20 hover:border-accent/40

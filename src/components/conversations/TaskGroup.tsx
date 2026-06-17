@@ -120,13 +120,13 @@ export function TaskGroup({
           title="拖动调整组的顺序"
           aria-label="拖动调整组的顺序"
         >
-          <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor" aria-hidden>
-            <circle cx="2" cy="2" r="1.3" />
-            <circle cx="8" cy="2" r="1.3" />
-            <circle cx="2" cy="7" r="1.3" />
-            <circle cx="8" cy="7" r="1.3" />
-            <circle cx="2" cy="12" r="1.3" />
-            <circle cx="8" cy="12" r="1.3" />
+          <svg width="8" height="12" viewBox="0 0 8 12" fill="currentColor" aria-hidden>
+            <circle cx="2" cy="2" r="1" />
+            <circle cx="6" cy="2" r="1" />
+            <circle cx="2" cy="6" r="1" />
+            <circle cx="6" cy="6" r="1" />
+            <circle cx="2" cy="10" r="1" />
+            <circle cx="6" cy="10" r="1" />
           </svg>
         </span>
 

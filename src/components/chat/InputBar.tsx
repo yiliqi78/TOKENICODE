@@ -352,7 +352,10 @@ export function InputBar() {
   // Inline file insertion: drop or drag → insert a file chip at cursor
   useEffect(() => {
     const onTreeFileInline = (e: Event) => {
-      const fullPath = (e as CustomEvent<string>).detail;
+      // detail may be a bare path string (legacy) or { path, isDir } (current)
+      const detail = (e as CustomEvent<{ path: string; isDir?: boolean } | string>).detail;
+      const fullPath = typeof detail === 'string' ? detail : detail?.path;
+      const isDir = typeof detail === 'string' ? false : !!detail?.isDir;
       if (!fullPath || !textareaRef.current) return;
 
       // Convert to path relative to working directory for readability
@@ -362,7 +365,7 @@ export function InputBar() {
         displayPath = fullPath.slice(cwd.length).replace(/^[\\/]/, '');
       }
 
-      textareaRef.current.insertFileChip({ fullPath, label: displayPath });
+      textareaRef.current.insertFileChip({ fullPath, label: displayPath, isDir });
     };
     window.addEventListener('tokenicode:tree-file-inline', onTreeFileInline);
     return () => window.removeEventListener('tokenicode:tree-file-inline', onTreeFileInline);
@@ -1472,7 +1475,7 @@ export function InputBar() {
   }, []);
 
   return (
-    <div className="px-4 pt-4 pb-2 relative">
+    <div className="px-5 pt-4 pb-2 relative">
       <div className="max-w-3xl mx-auto">
         {/* Rewind Panel — positioned above the input area */}
         {showRewindPanel && (
@@ -1632,8 +1635,9 @@ export function InputBar() {
           </div>
         </div>
 
-        {/* Tool row: upload, mode, model */}
-        <div className="flex items-center gap-2 mt-2">
+        {/* Tool row: upload, mode, model — negative inset cancels the first/last
+            buttons' padding so the icons line up with the input box's outer edge */}
+        <div className="flex items-center gap-2 mt-2 -mx-1.5">
           {/* Upload button */}
           <button
             onClick={() => fileInputRef.current?.click()}

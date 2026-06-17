@@ -107,6 +107,60 @@ export function findNodeByPath(tree: FileNode[], path: string): FileNode | null 
 }
 
 /**
+ * 兜底：按「路径后缀」在已加载的树里找最匹配的节点。
+ *
+ * findNodeByPath 要求绝对路径精确相等，但 AI 在聊天里给的路径极少是「从工作区
+ * 根算起的完整相对路径」——更多是裸文件名（brief_2026-06-06.md）或半截相对路径。
+ * 这类 token 经 resolvePathToken 拼成的绝对路径（当成就在根下）在树里根本不存在，
+ * 精确匹配必然 null → 点了胶囊不展开不高亮。这是该功能「过半点击没反应」的主因。
+ *
+ * 策略：取 targetPath 的基名（最后一段），收集树里所有同名节点；
+ * - 唯一 → 直接用；
+ * - 多个同名 → 按「与 targetPath 共享的结尾路径段数」打分取最高（让
+ *   06_DEV/_本周.md 命中 06_DEV 下那个而非别处同名文件），并列再取路径最短者
+ *   （更靠近根，结果稳定可预测）。
+ * 没有同名节点 → null（调用方维持原行为，不误定位）。
+ *
+ * 纯函数：遍历入参树、不改动它，便于在 node 环境直接单测。
+ */
+export function findNodeBySuffix(tree: FileNode[], targetPath: string): FileNode | null {
+  const targetSegs = normalizePath(targetPath).split('/').filter(Boolean);
+  const baseName = targetSegs[targetSegs.length - 1];
+  if (!baseName) return null;
+
+  const candidates: FileNode[] = [];
+  const walk = (nodes: FileNode[]) => {
+    for (const n of nodes) {
+      const segs = normalizePath(n.path).split('/').filter(Boolean);
+      if (segs[segs.length - 1] === baseName) candidates.push(n);
+      if (n.children) walk(n.children);
+    }
+  };
+  walk(tree);
+
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0];
+
+  // 与 target 从末尾往前共享多少段，段数越多越可能是用户指的那个
+  const sharedTail = (p: string): number => {
+    const segs = normalizePath(p).split('/').filter(Boolean);
+    let i = 0;
+    while (
+      i < segs.length &&
+      i < targetSegs.length &&
+      segs[segs.length - 1 - i] === targetSegs[targetSegs.length - 1 - i]
+    ) i++;
+    return i;
+  };
+
+  return candidates.slice().sort((a, b) => {
+    const byTail = sharedTail(b.path) - sharedTail(a.path);
+    if (byTail !== 0) return byTail;
+    return normalizePath(a.path).length - normalizePath(b.path).length;
+  })[0];
+}
+
+/**
  * 容错：把前缀可能不准的绝对路径«对齐»回真实 rootPath 下。
  *
  * AI 在聊天里给的绝对全路径，前缀常和真实文件系统不一致——iCloud 的

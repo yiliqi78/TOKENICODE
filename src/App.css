@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
+@custom-variant dark (&:where(.dark, .dark *));
 
 /* ================================================================
    Default theme (Black) — light mode — clean solid
@@ -283,6 +284,154 @@
   --color-icon-slash: var(--color-accent);
 }
 
+/* Red — light mode */
+.theme-red {
+  --color-bg-user-msg: #F5F5F7;
+  --color-bg-nav-active: rgba(226, 55, 58, 0.06);
+
+  --color-text-secondary: #D42D30;
+  --color-border-focus: #E2373A;
+
+  --color-accent: #E2373A;
+  --color-accent-light: #F05A5C;
+  --color-accent-hover: #D42D30;
+  --color-accent-glow: rgba(226, 55, 58, 0.10);
+  --color-success: #57A64B;
+
+  --color-gradient-start: #E2373A;
+  --color-gradient-mid: #F05A5C;
+  --color-gradient-end: #D42D30;
+
+  --color-syntax-string:   #0891B2;
+  --color-syntax-function: #7C3AED;
+
+  --shadow-glow: 0 0 20px rgba(226, 55, 58, 0.10);
+
+  --color-icon-slash: var(--color-accent);
+}
+
+/* Red — dark mode */
+.theme-red.dark,
+.dark.theme-red {
+  --color-bg-user-msg: #1C1C1E;
+
+  --color-text-secondary: #F05A5C;
+  --color-border-focus: #F05A5C;
+
+  --color-accent: #F05A5C;
+  --color-accent-light: #F7A0A1;
+  --color-accent-hover: #E2373A;
+  --color-accent-glow: rgba(240, 90, 92, 0.15);
+
+  --color-gradient-start: #E2373A;
+  --color-gradient-mid: #F05A5C;
+  --color-gradient-end: #D42D30;
+
+  --color-syntax-string:   #22D3EE;
+  --color-syntax-function: #A78BFA;
+
+  --shadow-glow: 0 0 20px rgba(240, 90, 92, 0.10);
+
+  --color-icon-slash: var(--color-accent);
+}
+
+/* ── 用户输入气泡：全主题统一中性浅灰底，刻意不随主题色（边框走通用 --color-border）── */
+:root,
+.theme-blue,
+.theme-purple,
+.theme-green,
+.theme-red {
+  --color-bg-user-msg: #F2F2F4;
+}
+.dark,
+.theme-blue.dark, .dark.theme-blue,
+.theme-purple.dark, .dark.theme-purple,
+.theme-green.dark, .dark.theme-green,
+.theme-red.dark, .dark.theme-red {
+  --color-bg-user-msg: #2C2C2E;
+}
+
+/* Red theme — chat content & secondary panel use neutral accent (not red) */
+.theme-red [data-testid="chat-messages"],
+.theme-red .secondary-panel,
+.theme-red .file-preview {
+  --color-accent: #555555;
+  --color-accent-light: #777777;
+  --color-accent-hover: #444444;
+  --color-accent-glow: rgba(0, 0, 0, 0.06);
+}
+.theme-red.dark [data-testid="chat-messages"],
+.dark.theme-red [data-testid="chat-messages"],
+.theme-red.dark .secondary-panel,
+.dark.theme-red .secondary-panel,
+.theme-red.dark .file-preview,
+.dark.theme-red .file-preview {
+  --color-accent: #AAAAAA;
+  --color-accent-light: #BBBBBB;
+  --color-accent-hover: #999999;
+  --color-accent-glow: rgba(255, 255, 255, 0.06);
+}
+
+/* ================================================================
+   Gray — a complete light-family theme with a soft grey canvas.
+   Sits in the "color theme" group (next to black/red) but, unlike
+   them, repaints the whole background layer. Declared here — after
+   .dark and every color theme — as a FULL palette, so selecting gray
+   wins even in dark mode (dark + gray = light grey, never light-on-
+   light). White is reserved for attention zones: input box + cards.
+   ================================================================ */
+.theme-gray {
+  /* One unified canvas across all three columns (sidebar / chat / files). */
+  --color-bg-primary: #F2F2F4;
+  --color-bg-secondary: #EAEAEC;
+  --color-bg-tertiary: #E2E2E4;
+  --color-bg-chat: #F2F2F4;
+  --color-bg-sidebar: #F2F2F4;
+  --color-bg-input: #FFFFFF;
+  --color-bg-user-msg: #E8E8EA;
+  --color-bg-assistant-msg: #F2F2F4;
+  --color-bg-tool: #EAEAEC;
+  --color-bg-thinking: #EAEAEC;
+  --color-bg-card: #FFFFFF;
+  --color-bg-nav-active: rgba(0, 0, 0, 0.05);
+
+  --color-text-primary: #1A1A1A;
+  --color-text-secondary: #555555;
+  --color-text-tertiary: #888888;
+  --color-text-inverse: #FFFFFF;
+  --color-text-muted: #777777;
+
+  --color-border: #D6D6DB;
+  --color-border-subtle: #DEDEE2;
+  --color-border-focus: #333333;
+
+  --color-accent: #333333;
+  --color-accent-light: #555555;
+  --color-accent-hover: #1A1A1A;
+  --color-accent-glow: rgba(0, 0, 0, 0.06);
+
+  --color-gradient-start: #333333;
+  --color-gradient-mid: #444444;
+  --color-gradient-end: #555555;
+
+  --color-syntax-keyword:  #7C3AED;
+  --color-syntax-string:   #059669;
+  --color-syntax-number:   #D97706;
+  --color-syntax-function: #2563EB;
+  --color-syntax-comment:  #9CA3AF;
+  --color-syntax-type:     #0891B2;
+  --color-syntax-builtin:  #6366F1;
+  --color-syntax-delete:   #DC2626;
+  --color-syntax-meta:     #78716C;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06), 0 2px 4px rgba(0, 0, 0, 0.03);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08), 0 4px 8px rgba(0, 0, 0, 0.04);
+  --shadow-glow: 0 0 20px rgba(0, 0, 0, 0.06);
+
+  --color-icon-slash: white;
+}
+
 /* ================================================================
    Solid backgrounds — all themes
    ================================================================ */
@@ -297,16 +446,7 @@
   background: #1C1C1E;
 }
 
-/* ================================================================
-   User message bubble — subtle shadow
-   ================================================================ */
-.bg-bg-user-msg {
-  box-shadow: 0 2px 8px var(--color-accent-glow);
-}
-
-.dark .bg-bg-user-msg {
-  box-shadow: 0 2px 12px var(--color-accent-glow);
-}
+/* User message bubble — no shadow (flat, neutral gray) */
 
 /* Accent button treatment */
 .bg-accent {
@@ -516,11 +656,30 @@ input, textarea, [contenteditable="true"],
   font-weight: 500;
 }
 
+/* Code block: inner <code> has no pill background — the white <pre> shows through */
+.prose :where(pre code) {
+  background: transparent !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  color: inherit !important;
+  font-size: inherit !important;
+  line-height: 2.2 !important;
+  font-family: 'SF Mono', ui-monospace, 'JetBrains Mono', Menlo, Monaco, Consolas, 'Courier New', monospace !important;
+}
+
+/* Markdown table: hug the rounded container — kill prose's default 2em
+   block margin. The component's `m-0` class loses to the typography plugin
+   (same specificity, plugin CSS wins on source order), so it needs !important. */
+.prose :where(table):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
 /* ================================================================
    highlight.js — theme-aware syntax highlighting (uses --syntax-* vars)
    ================================================================ */
 .hljs {
-  background: var(--color-bg-secondary) !important;
+  background: transparent !important;
   color: var(--color-text-primary) !important;
 }
 .hljs-comment,

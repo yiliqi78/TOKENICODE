@@ -1,0 +1,16 @@
+{
+  "identifier": "com.tinyzhuang.tokenicode-7-dev",
+  "app": {
+    "windows": [
+      {
+        "title": "tokenicode-7 DEV",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
+      }
+    ]
+  }
+}

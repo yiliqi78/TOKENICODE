@@ -14,6 +14,8 @@ export interface FileChipAttrs {
   fullPath: string;
   /** Short display label (filename or relative path) */
   label: string;
+  /** Whether this chip references a directory (serialized with a trailing slash) */
+  isDir?: boolean;
 }
 
 export const FileChipExtension = Node.create({
@@ -28,6 +30,7 @@ export const FileChipExtension = Node.create({
     return {
       fullPath: { default: '' },
       label: { default: '' },
+      isDir: { default: false },
     };
   },
 

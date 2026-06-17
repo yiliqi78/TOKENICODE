@@ -1,6 +1,7 @@
 import { useSettingsStore, SecondaryPanelTab } from '../../stores/settingsStore';
 import { FileExplorer } from '../files/FileExplorer';
 import { SkillsPanel } from '../skills/SkillsPanel';
+import { useFileStore } from '../../stores/fileStore';
 import { useT } from '../../lib/i18n';
 
 const tabs: { id: SecondaryPanelTab; labelKey: string; vb: string; d: string[] }[] = [
@@ -30,20 +31,24 @@ export function SecondaryPanel() {
   // Window dragging handled via CSS -webkit-app-region: drag on the top strip
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="secondary-panel flex flex-col h-full">
       {/* Tab bar — extra top padding for macOS traffic lights */}
       <div
-        className="flex items-center justify-between px-2 pt-6 pb-2
-        border-b border-border-subtle cursor-default">
+        className="flex items-center justify-between px-4 pt-4 pb-2
+        cursor-default">
         <div className="flex gap-1 min-w-0 overflow-hidden">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setTab(tab.id)}
+              onDoubleClick={() => {
+                // Double-click the files tab → refresh the whole file tree
+                if (tab.id === 'files') useFileStore.getState().refreshTree();
+              }}
               className={`px-2.5 py-1.5 rounded-lg text-[13px] font-medium
                 transition-smooth flex items-center gap-1.5 whitespace-nowrap flex-shrink-0
                 ${activeTab === tab.id
-                  ? 'bg-accent/10 text-accent'
+                  ? 'bg-bg-card text-text-primary shadow-sm'
                   : 'text-text-muted hover:bg-bg-secondary hover:text-text-primary'
                 }`}
             >

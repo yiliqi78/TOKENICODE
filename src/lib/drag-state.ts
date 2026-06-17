@@ -13,6 +13,7 @@
  * onDragDropEvent listener can skip internal drags.
  */
 let _pendingTreeDragPath: string | null = null;
+let _pendingTreeDragIsDir = false;
 let _treeDragActive = false;
 let _lastDragX = 0;
 let _lastDragY = 0;
@@ -49,11 +50,12 @@ function removeGhost() {
   document.querySelectorAll('#tree-drag-ghost').forEach((el) => el.remove());
 }
 
-export function startTreeDrag(path: string, _isDir = false) {
+export function startTreeDrag(path: string, isDir = false) {
   // Clean up any lingering ghost from a previous drag
   removeGhost();
 
   _pendingTreeDragPath = path;
+  _pendingTreeDragIsDir = isDir;
   _treeDragActive = true;
 
   // Create ghost element
@@ -114,10 +116,13 @@ export interface TreeDragResult {
   targetFolder: string | null;
   /** Whether the drop point is inside the file tree area */
   droppedInTree: boolean;
+  /** Whether the dragged source is a directory */
+  isDir: boolean;
 }
 
 export function endTreeDrag(): TreeDragResult | null {
   const path = _pendingTreeDragPath;
+  const isDir = _pendingTreeDragIsDir;
   _pendingTreeDragPath = null;
 
   // ALWAYS remove ghost first — this is the #1 priority
@@ -151,7 +156,7 @@ export function endTreeDrag(): TreeDragResult | null {
     _treeDragActive = false;
   }
 
-  return path ? { sourcePath: path, targetFolder, droppedInTree } : null;
+  return path ? { sourcePath: path, targetFolder, droppedInTree, isDir } : null;
 }
 
 export function isTreeDragActive(): boolean {

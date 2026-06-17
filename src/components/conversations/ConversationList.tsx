@@ -495,6 +495,10 @@ export function ConversationList() {
     if (session.path) bridge.revealInFinder(session.path).catch(() => {});
   }, []);
 
+  const handleCopyPath = useCallback((session: SessionListItem) => {
+    if (session.path) navigator.clipboard.writeText(session.path).catch(() => {});
+  }, []);
+
   const handleExportMarkdown = useCallback(async (session: SessionListItem) => {
     if (!session.path) return;
     const outputPath = await save({
@@ -865,6 +869,7 @@ export function ConversationList() {
           session={contextMenu.session}
           onRename={handleRenameFromMenu}
           onRevealInFinder={handleRevealInFinder}
+          onCopyPath={handleCopyPath}
           onExport={handleExportMarkdown}
           onDelete={handleDeleteSingle}
           onPin={handleTogglePin}

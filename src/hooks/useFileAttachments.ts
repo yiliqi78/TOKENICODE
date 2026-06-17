@@ -331,9 +331,10 @@ export function useFileAttachments() {
               addFilePaths(imagePaths, ownerTabId);
             }
 
-            // Non-images → inline file chips
+            // Non-images → inline file chips. OS-dropped paths carry no dir flag,
+            // so treat them as files (dropping a folder from the OS is an edge case).
             for (const p of otherPaths) {
-              window.dispatchEvent(new CustomEvent('tokenicode:tree-file-inline', { detail: p }));
+              window.dispatchEvent(new CustomEvent('tokenicode:tree-file-inline', { detail: { path: p, isDir: false } }));
             }
           }
         })();
