@@ -346,7 +346,6 @@ export function ChatPanel() {
   });
   const selectedSessionId = useSessionStore((s) => s.selectedSessionId);
   const sessions = useSessionStore((s) => s.sessions);
-  const isFilePreviewMode = !!useFileStore((s) => s.selectedFile);
 
   // Agent activity for floating button badge
   const agents = useAgentStore((s) => s.agents);
@@ -474,9 +473,8 @@ export function ChatPanel() {
         className="w-full h-[58px] pt-[14px] px-5
         flex-shrink-0 bg-bg-chat cursor-default">
         <div className="w-full h-full flex items-center">
-          {/* Show sidebar toggle when sidebar is not visible:
-              either user closed it, or it's hidden by file preview mode */}
-          {(!sidebarOpen || isFilePreviewMode) && (
+          {/* Show sidebar toggle when sidebar is not visible */}
+          {!sidebarOpen && (
             <button onClick={toggleSidebar}
               className="p-1.5 rounded-lg hover:bg-bg-tertiary text-text-tertiary
                 transition-smooth mr-3" title={t('chat.showSidebar')}>

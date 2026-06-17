@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect, useState } from 'react';
+import { useCallback, useRef, useEffect } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useFileStore } from '../../stores/fileStore';
 import { FilePreview } from '../files/FilePreview';
@@ -18,75 +18,31 @@ const MIN_SIDEBAR_WIDTH = 180;
 const MAX_SIDEBAR_WIDTH = 450;
 const SIDEBAR_COLLAPSE_THRESHOLD = 100;
 
-/* Preview panel width constants */
-const MIN_PREVIEW_WIDTH = 300;
-const MAX_PREVIEW_WIDTH = 1200;
-
 export function AppShell({ sidebar, main, secondary }: AppShellProps) {
   const sidebarOpen = useSettingsStore((s) => s.sidebarOpen);
   const sidebarWidth = useSettingsStore((s) => s.sidebarWidth);
-  const toggleSidebar = useSettingsStore((s) => s.toggleSidebar);
   const secondaryPanelOpen = useSettingsStore((s) => s.secondaryPanelOpen);
   const secondaryPanelWidth = useSettingsStore((s) => s.secondaryPanelWidth);
-  const toggleSecondaryPanel = useSettingsStore((s) => s.toggleSecondaryPanel);
 
-  /* File preview state — when a file is selected, we enter "preview mode" */
+  /* File preview state — selected files open as a floating overlay over chat */
   const selectedFile = useFileStore((s) => s.selectedFile);
   const isFilePreviewMode = !!selectedFile;
 
-  // --- Right-side panel dragging (secondary + preview) ---
+  // --- Right-side panel dragging (secondary) ---
   const isRightDragging = useRef(false);
   const rightStartX = useRef(0);
   const rightStartWidth = useRef(0);
 
-  /* Preview panel resizable width — default to 50% of window */
-  const [previewWidth, setPreviewWidth] = useState(() =>
-    Math.round(window.innerWidth * 0.5)
-  );
-
-  /* Remember panel states before entering preview mode so we can restore them on exit */
-  const panelStateBeforePreview = useRef<{ sidebar: boolean; secondary: boolean } | null>(null);
-
-  /* Re-calculate default when entering preview mode */
-  const prevPreviewMode = useRef(false);
-  useEffect(() => {
-    if (isFilePreviewMode && !prevPreviewMode.current) {
-      // Entering preview mode — save current panel state and collapse them
-      setPreviewWidth(Math.round(window.innerWidth * 0.5));
-      panelStateBeforePreview.current = {
-        sidebar: sidebarOpen,
-        secondary: secondaryPanelOpen,
-      };
-      if (sidebarOpen) toggleSidebar();
-      if (secondaryPanelOpen) toggleSecondaryPanel();
-    } else if (!isFilePreviewMode && prevPreviewMode.current) {
-      // Exiting preview mode — restore panels to their previous state
-      const saved = panelStateBeforePreview.current;
-      if (saved) {
-        if (saved.sidebar && !sidebarOpen) toggleSidebar();
-        if (saved.secondary && !secondaryPanelOpen) toggleSecondaryPanel();
-        panelStateBeforePreview.current = null;
-      }
-    }
-    prevPreviewMode.current = isFilePreviewMode;
-  }, [isFilePreviewMode, sidebarOpen, toggleSidebar, secondaryPanelOpen, toggleSecondaryPanel]);
-
   // Refs to avoid re-registering global listeners when these values change
-  const isFilePreviewModeRef = useRef(isFilePreviewMode);
-  isFilePreviewModeRef.current = isFilePreviewMode;
   const secondaryPanelWidthRef = useRef(secondaryPanelWidth);
   secondaryPanelWidthRef.current = secondaryPanelWidth;
-  const previewWidthRef = useRef(previewWidth);
-  previewWidthRef.current = previewWidth;
 
   const handleRightMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     isRightDragging.current = true;
     rightStartX.current = e.clientX;
-    rightStartWidth.current = isFilePreviewModeRef.current
-      ? previewWidthRef.current
-      : secondaryPanelWidthRef.current;
+    rightStartWidth.current = secondaryPanelWidthRef.current;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   }, []);
@@ -97,30 +53,17 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
       const delta = rightStartX.current - e.clientX;
       const newWidth = rightStartWidth.current + delta;
 
-      if (isFilePreviewModeRef.current) {
-        if (newWidth < COLLAPSE_THRESHOLD) {
-          isRightDragging.current = false;
-          document.body.style.cursor = '';
-          document.body.style.userSelect = '';
-          useFileStore.getState().closePreview();
-          return;
-        }
-        setPreviewWidth(
-          Math.max(MIN_PREVIEW_WIDTH, Math.min(MAX_PREVIEW_WIDTH, newWidth))
-        );
-      } else {
-        if (newWidth < COLLAPSE_THRESHOLD) {
-          isRightDragging.current = false;
-          document.body.style.cursor = '';
-          document.body.style.userSelect = '';
-          const settings = useSettingsStore.getState();
-          if (settings.secondaryPanelOpen) settings.toggleSecondaryPanel();
-          return;
-        }
-        useSettingsStore.getState().setSecondaryPanelWidth(
-          Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, newWidth))
-        );
+      if (newWidth < COLLAPSE_THRESHOLD) {
+        isRightDragging.current = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        const settings = useSettingsStore.getState();
+        if (settings.secondaryPanelOpen) settings.toggleSecondaryPanel();
+        return;
       }
+      useSettingsStore.getState().setSecondaryPanelWidth(
+        Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, newWidth))
+      );
     };
 
     const handleMouseUp = () => {
@@ -197,12 +140,8 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
     };
   }, []);
 
-  /* Compute sidebar visibility: hidden when file preview is active (reclaim space) */
-  const showSidebar = sidebarOpen && !isFilePreviewMode;
-  const showFloatingSidebar = sidebarOpen && isFilePreviewMode;
-  /* Secondary panel: normal mode when no preview, floating overlay when preview is active */
-  const showSecondary = secondaryPanelOpen && !isFilePreviewMode;
-  const showFloatingSecondary = secondaryPanelOpen && isFilePreviewMode;
+  const showSidebar = sidebarOpen;
+  const showSecondary = secondaryPanelOpen;
 
   return (
     <div className="flex h-full w-full overflow-hidden gradient-bg">
@@ -212,7 +151,7 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
         className="fixed top-0 left-0 right-0 h-[28px] z-50"
       />
 
-      {/* Sidebar — animates to w-0 when hidden or preview mode */}
+      {/* Sidebar — animates to w-0 when hidden */}
       <div
         className="flex-shrink-0 transition-all duration-300 ease-out overflow-hidden"
         style={{ width: showSidebar ? `${sidebarWidth}px` : '0px' }}
@@ -237,30 +176,18 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
       )}
 
       {/* Main Panel — full-height, separated by vertical border lines */}
-      <div className="flex-1 min-w-0 flex flex-col bg-bg-chat overflow-hidden">
+      <div className="flex-1 min-w-0 flex flex-col bg-bg-chat overflow-hidden relative">
         {main}
-      </div>
-
-      {/* File Preview resize handle — w-px 分隔线本体 + 悬浮热区，与侧栏手柄一致，避免 7px 透明缝隙露出背景 */}
-      {isFilePreviewMode && (
-        <div
-          onMouseDown={handleRightMouseDown}
-          className="w-px h-full flex-shrink-0 relative cursor-col-resize z-10
-            bg-bg-chat hover:bg-accent/40 transition-colors group"
-        >
-          {/* 拖拽热区：向两侧各扩 4px，绝对定位不占布局宽度 */}
-          <div className="absolute inset-y-0 -left-1 -right-1 cursor-col-resize" />
-        </div>
-      )}
-      {/* File Preview Panel — animates in/out */}
-      <div
-        className="flex-shrink-0 overflow-hidden transition-all duration-300 ease-out"
-        style={{ width: isFilePreviewMode ? `${previewWidth}px` : '0px' }}
-      >
-        <div className="h-full overflow-hidden flex flex-col bg-bg-chat"
-          style={{ width: `${previewWidth}px` }}>
-          <FilePreview />
-        </div>
+        {isFilePreviewMode && (
+          <div className="absolute inset-4 z-30 pointer-events-none animate-fade-in">
+            <div
+              className="absolute top-0 right-0 bottom-0 pointer-events-auto"
+              style={{ width: 'min(960px, max(62%, min(520px, calc(100% - 32px))))' }}
+            >
+              <FilePreview />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Secondary Panel resize handle — 同上：w-px 分隔线本体 + 悬浮热区，三处分隔线统一 */}
@@ -274,7 +201,7 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
           <div className="absolute inset-y-0 -left-1 -right-1 cursor-col-resize" />
         </div>
       )}
-      {/* Secondary Panel — animates to w-0 when hidden or preview mode */}
+      {/* Secondary Panel — animates to w-0 when hidden */}
       {secondary && (
         <div
           className="flex-shrink-0 transition-all duration-300 ease-out overflow-hidden"
@@ -289,45 +216,6 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
         </div>
       )}
 
-      {/* Floating Sidebar — overlay when file preview is active */}
-      {showFloatingSidebar && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/10"
-            onClick={toggleSidebar}
-          />
-          <div
-            className="fixed top-0 left-0 h-full z-50 flex animate-in slide-in-from-left duration-200"
-            style={{ width: `${sidebarWidth}px` }}
-          >
-            <div className="flex-1 h-full overflow-y-auto bg-bg-sidebar
-              border-r border-border-subtle shadow-lg">
-              {sidebar}
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Floating Secondary Panel — overlay when file preview is active */}
-      {secondary && showFloatingSecondary && (
-        <>
-          {/* Backdrop — click to dismiss */}
-          <div
-            className="fixed inset-0 z-40 bg-black/10"
-            onClick={toggleSecondaryPanel}
-          />
-          {/* Floating panel — anchored to right edge */}
-          <div
-            className="fixed top-0 right-0 h-full z-50 flex animate-in slide-in-from-right duration-200"
-            style={{ width: `${secondaryPanelWidth}px` }}
-          >
-            <div className="flex-1 h-full overflow-y-auto overflow-x-hidden bg-bg-sidebar
-              border-l border-border-subtle shadow-lg">
-              {secondary}
-            </div>
-          </div>
-        </>
-      )}
     </div>
   );
 }

@@ -388,10 +388,14 @@ export function FilePreview() {
   if (!selectedFile) return null;
 
   return (
-    <div className="file-preview flex flex-col h-full bg-bg-primary" onKeyDown={handleKeyDown}>
-      {/* Header bar — h-[68px]+pt-[20px] 与聊天顶栏完全一致，顶部分隔线对齐；z-10 above iframe content */}
-      <div className="flex items-center justify-between h-[68px] px-3 pt-[20px]
-        border-b border-border-subtle bg-bg-secondary/50 flex-shrink-0 relative z-10">
+    <div
+      className="file-preview flex flex-col h-full rounded-lg bg-bg-card
+        shadow-[0_18px_50px_rgba(0,0,0,0.16)] dark:shadow-[0_18px_50px_rgba(0,0,0,0.46)]
+        overflow-hidden"
+      onKeyDown={handleKeyDown}
+    >
+      <div className="flex items-center justify-between h-12 px-3
+        bg-bg-card flex-shrink-0 relative z-10">
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <FileIcon name={fileName} size={16} className="flex-shrink-0 text-accent" />
           <span className="text-[13px] font-medium text-text-primary truncate">
@@ -410,8 +414,8 @@ export function FilePreview() {
             <div className="flex items-center gap-1 animate-fade-in">
               <button
                 onClick={discardEdits}
-                className="px-2.5 py-1 rounded-lg text-xs font-medium
-                  text-text-muted hover:text-text-primary hover:bg-bg-tertiary
+                className="px-2.5 py-1 rounded-md text-xs font-medium
+                  text-text-muted hover:text-text-primary hover:bg-accent/10
                   transition-smooth"
               >
                 {t('files.discard')}
@@ -419,7 +423,7 @@ export function FilePreview() {
               <button
                 onClick={saveFile}
                 disabled={isSaving}
-                className="px-2.5 py-1 rounded-lg text-xs font-medium
+                className="px-2.5 py-1 rounded-md text-xs font-medium
                   bg-accent text-text-inverse hover:bg-accent-hover
                   transition-smooth disabled:opacity-50"
               >
@@ -430,16 +434,16 @@ export function FilePreview() {
 
           {/* Mode toggle tabs */}
           {modeTabs.length > 0 && (
-            <div className="flex gap-0.5 bg-bg-tertiary/50 rounded-xl p-1">
+            <div className="flex items-center gap-0.5">
               {modeTabs.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setPreviewMode(tab.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium
+                  className={`px-2.5 py-1.5 rounded-md text-xs font-medium
                     transition-smooth cursor-pointer
                     ${previewMode === tab.id
-                      ? 'bg-bg-card text-accent shadow-sm'
-                      : 'text-text-muted hover:text-text-primary hover:bg-bg-card/50'
+                      ? 'text-accent bg-accent/10'
+                      : 'text-text-muted hover:text-text-primary hover:bg-accent/10'
                     }`}
                 >
                   {tab.label}
@@ -451,7 +455,7 @@ export function FilePreview() {
           {/* Refresh button */}
           <button
             onClick={reloadContent}
-            className="p-2 rounded-lg hover:bg-bg-tertiary
+            className="p-2 rounded-md hover:bg-accent/10
               text-accent transition-smooth cursor-pointer"
             title={t('files.refresh')}
           >
@@ -465,7 +469,7 @@ export function FilePreview() {
           {/* Close button — larger hit area for easy clicking */}
           <button
             onClick={closePreview}
-            className="p-2 rounded-lg hover:bg-bg-tertiary
+            className="p-2 rounded-md hover:bg-accent/10
               text-text-tertiary transition-smooth cursor-pointer"
             title={t('files.closePreview')}
           >
@@ -478,7 +482,7 @@ export function FilePreview() {
       </div>
 
       {/* Content area */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden bg-bg-card">
         {isLoadingContent ? (
           <div className="flex items-center justify-center h-full">
             <div className="flex items-center gap-2 text-text-muted text-xs">
