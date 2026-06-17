@@ -471,38 +471,38 @@ export function ChatPanel() {
     <div className="flex flex-col h-full">
       {/* Top Bar — with extra top padding for macOS traffic lights */}
       <div
-        className="h-[58px] pt-[14px] px-5
+        className="w-full h-[58px] pt-[14px] px-5
         flex-shrink-0 bg-bg-chat cursor-default">
-        <div className="max-w-3xl mx-auto w-full h-full flex items-center">
-        {/* Show sidebar toggle when sidebar is not visible:
-            either user closed it, or it's hidden by file preview mode */}
-        {(!sidebarOpen || isFilePreviewMode) && (
-          <button onClick={toggleSidebar}
-            className="p-1.5 rounded-lg hover:bg-bg-tertiary text-text-tertiary
-              transition-smooth mr-3" title={t('chat.showSidebar')}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
-              stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-              <path d="M2 4h12M2 8h12M2 12h12" />
-            </svg>
-          </button>
-        )}
-        {/* Left: model name + project hint */}
-        <div className="flex items-center gap-3 pointer-events-none">
-          {sessionMeta.model && (
-            <span className="text-sm font-medium text-text-muted">
-              {getModelDisplayName(sessionMeta.model)}
-            </span>
+        <div className="w-full h-full flex items-center">
+          {/* Show sidebar toggle when sidebar is not visible:
+              either user closed it, or it's hidden by file preview mode */}
+          {(!sidebarOpen || isFilePreviewMode) && (
+            <button onClick={toggleSidebar}
+              className="p-1.5 rounded-lg hover:bg-bg-tertiary text-text-tertiary
+                transition-smooth mr-3" title={t('chat.showSidebar')}>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+                stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                <path d="M2 4h12M2 8h12M2 12h12" />
+              </svg>
+            </button>
           )}
-          {workingDirectory && (
-            <span className="text-[10px] text-text-tertiary truncate max-w-[160px]"
-              title={workingDirectory}>
-              {workingDirectory.split(/[\\/]/).pop()}
-            </span>
-          )}
-        </div>
+          {/* Left: model name + project hint */}
+          <div className="flex items-center gap-3 pointer-events-none min-w-0 flex-shrink-0">
+            {sessionMeta.model && (
+              <span className="text-sm font-medium text-text-muted">
+                {getModelDisplayName(sessionMeta.model)}
+              </span>
+            )}
+            {workingDirectory && (
+              <span className="text-[10px] text-text-tertiary truncate max-w-[160px]"
+                title={workingDirectory}>
+                {workingDirectory.split(/[\\/]/).pop()}
+              </span>
+            )}
+          </div>
 
         {/* Integrated status: Agent + API route — left-aligned with color dots */}
-        <div className="relative flex items-center gap-3 ml-3">
+        <div className="relative flex items-center gap-3 ml-3 min-w-0">
           {/* Agent status — clickable dot + label → opens AgentPanel */}
           <button onClick={toggleAgentPanel}
             className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded-lg
@@ -555,18 +555,19 @@ export function ChatPanel() {
         </div>
 
         {/* Spacer + right-side actions */}
-        <div className="ml-auto flex items-center" />
-        <UpdateButton />
-        <ExportMenu sessionPath={currentSessionPath} />
-        <button onClick={toggleSecondaryPanel}
-          className="p-1.5 rounded-lg hover:bg-bg-tertiary text-text-tertiary
-            transition-smooth" title={t('chat.toggleFiles')}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
-            stroke="currentColor" strokeWidth="1.5">
-            <rect x="1" y="2" width="14" height="12" rx="2" />
-            <path d="M10 2v12" />
-          </svg>
-        </button>
+          <div className="ml-auto flex items-center gap-1 flex-shrink-0">
+            <UpdateButton />
+            <ExportMenu sessionPath={currentSessionPath} />
+            <button onClick={toggleSecondaryPanel}
+              className="p-1.5 rounded-lg hover:bg-bg-tertiary text-text-tertiary
+                transition-smooth" title={t('chat.toggleFiles')}>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+                stroke="currentColor" strokeWidth="1.5">
+                <rect x="1" y="2" width="14" height="12" rx="2" />
+                <path d="M10 2v12" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 

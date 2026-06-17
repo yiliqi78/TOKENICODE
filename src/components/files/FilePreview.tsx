@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useEffect, useRef } from 'react';
+import { useMemo, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import DOMPurify from 'dompurify';
 import CodeMirror from '@uiw/react-codemirror';
@@ -29,6 +29,7 @@ import { MarkdownRenderer } from '../shared/MarkdownRenderer';
 import { FileIcon } from '../shared/FileIcon';
 import { tokenicodeTheme, tokenicodeHighlight } from '../../lib/codemirror-theme';
 import { useT } from '../../lib/i18n';
+import { showToast } from '../shared/Toast';
 
 /* ================================================================
    Helpers
@@ -100,6 +101,147 @@ const BINARY_EXTS = new Set(['zip', 'tar', 'gz', 'rar', '7z', 'exe', 'dmg', 'pkg
   'woff', 'woff2', 'ttf', 'otf', 'eot',
   'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'db', 'sqlite']);
 
+type HighlightColor = 'red' | 'yellow' | 'green' | 'purple';
+
+const HIGHLIGHT_OPTIONS: Array<{ id: HighlightColor; label: string; className: string }> = [
+  { id: 'red', label: '红色', className: 'bg-red-500' },
+  { id: 'yellow', label: '黄色', className: 'bg-amber-400' },
+  { id: 'green', label: '绿色', className: 'bg-emerald-500' },
+  { id: 'purple', label: '紫色', className: 'bg-purple-500' },
+];
+
+interface HighlightMenuState {
+  x: number;
+  y: number;
+  text: string;
+  existing: boolean;
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function replaceExistingHighlight(
+  content: string,
+  text: string,
+  color: HighlightColor | null,
+): string | null {
+  const markRe = /<mark\s+class=["']hltr-(red|yellow|green|purple)["']>([\s\S]*?)<\/mark>/g;
+  let match: RegExpExecArray | null;
+  while ((match = markRe.exec(content))) {
+    if (match[2] !== text) continue;
+    const next = color ? `<mark class="hltr-${color}">${match[2]}</mark>` : match[2];
+    return content.slice(0, match.index) + next + content.slice(match.index + match[0].length);
+  }
+  return null;
+}
+
+function applyHighlightToContent(
+  content: string,
+  text: string,
+  color: HighlightColor | null,
+  existing: boolean,
+): string | null {
+  const selected = text.trim();
+  if (!selected) return null;
+
+  if (existing) {
+    const replaced = replaceExistingHighlight(content, selected, color);
+    if (replaced) return replaced;
+  }
+
+  if (!color) return null;
+  const markRe = new RegExp(
+    `<mark\\s+class=["']hltr-(red|yellow|green|purple)["']>${escapeRegExp(selected)}</mark>`,
+  );
+  if (markRe.test(content)) {
+    return content.replace(markRe, `<mark class="hltr-${color}">${selected}</mark>`);
+  }
+
+  const index = content.indexOf(selected);
+  if (index === -1) return null;
+  return `${content.slice(0, index)}<mark class="hltr-${color}">${selected}</mark>${content.slice(index + selected.length)}`;
+}
+
+function HighlightMenu({
+  menu,
+  onApply,
+  onRemove,
+  onClose,
+}: {
+  menu: HighlightMenuState;
+  onApply: (color: HighlightColor) => void;
+  onRemove: () => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ x: menu.x, y: menu.y });
+
+  useEffect(() => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let x = menu.x;
+    let y = menu.y;
+    if (x + rect.width > vw - 8) x = vw - rect.width - 8;
+    if (y + rect.height > vh - 8) y = vh - rect.height - 8;
+    setPos({ x: Math.max(8, x), y: Math.max(8, y) });
+  }, [menu.x, menu.y]);
+
+  useEffect(() => {
+    const handleDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('mousedown', handleDown);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleDown);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      ref={ref}
+      className="fixed z-[10000] min-w-[156px] py-1.5 rounded-xl border border-border-subtle
+        bg-bg-card shadow-xl animate-fade-in"
+      style={{ left: pos.x, top: pos.y }}
+    >
+      <div className="px-3 pb-1.5 text-[10px] text-text-tertiary select-none">
+        高亮
+      </div>
+      {HIGHLIGHT_OPTIONS.map((option) => (
+        <button
+          key={option.id}
+          onClick={() => onApply(option.id)}
+          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs
+            text-text-primary hover:bg-bg-secondary transition-smooth"
+        >
+          <span className={`w-3 h-3 rounded-full ${option.className}`} />
+          {option.label}
+        </button>
+      ))}
+      {menu.existing && (
+        <>
+          <div className="my-1 border-t border-border-subtle" />
+          <button
+            onClick={onRemove}
+            className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs
+              text-text-muted hover:text-text-primary hover:bg-bg-secondary transition-smooth"
+          >
+            取消高亮
+          </button>
+        </>
+      )}
+    </div>,
+    document.body,
+  );
+}
+
 /* ================================================================
    FilePreview component
    ================================================================ */
@@ -122,6 +264,8 @@ export function FilePreview() {
   const confirmDiscard = useFileStore((s) => s.confirmDiscard);
   const confirmSaveAndSwitch = useFileStore((s) => s.confirmSaveAndSwitch);
   const cancelNavigation = useFileStore((s) => s.cancelNavigation);
+  const [highlightMenu, setHighlightMenu] = useState<HighlightMenuState | null>(null);
+  const markdownPreviewRef = useRef<HTMLDivElement>(null);
 
   // Auto-refresh preview when the selected file is modified externally
   const reloadRef = useRef(reloadContent);
@@ -163,6 +307,57 @@ export function FilePreview() {
       if (isDirty) saveFile();
     }
   }, [isDirty, saveFile]);
+
+  const handleMarkdownContextMenu = useCallback((e: React.MouseEvent) => {
+    if (!isMarkdown || previewMode !== 'preview') return;
+    const container = markdownPreviewRef.current;
+    if (!container) return;
+
+    const target = e.target as HTMLElement;
+    const existingMark = target.closest('mark[class^="hltr-"], mark[class*=" hltr-"]');
+    const selection = window.getSelection();
+    const selectedText = selection
+      && !selection.isCollapsed
+      && selection.anchorNode
+      && selection.focusNode
+      && container.contains(selection.anchorNode)
+      && container.contains(selection.focusNode)
+      ? selection.toString().trim()
+      : '';
+    const text = existingMark?.textContent?.trim() || selectedText;
+    if (!text) return;
+
+    e.preventDefault();
+    setHighlightMenu({
+      x: e.clientX,
+      y: e.clientY,
+      text,
+      existing: !!existingMark,
+    });
+  }, [isMarkdown, previewMode]);
+
+  const updateHighlight = useCallback(async (color: HighlightColor | null) => {
+    if (!selectedFile || fileContent === null || !highlightMenu) return;
+    const next = applyHighlightToContent(
+      fileContent,
+      highlightMenu.text,
+      color,
+      highlightMenu.existing,
+    );
+    if (!next || next === fileContent) {
+      showToast('未能在源文件中定位这段文字', 'error');
+      setHighlightMenu(null);
+      return;
+    }
+    try {
+      await bridge.writeFileContent(selectedFile, next);
+      await reloadContent();
+    } catch (err) {
+      showToast(`高亮写入失败: ${err}`, 'error');
+    } finally {
+      setHighlightMenu(null);
+    }
+  }, [selectedFile, fileContent, highlightMenu, reloadContent]);
 
   /* Mode tabs for the header */
   const modeTabs = useMemo(() => {
@@ -411,7 +606,11 @@ export function FilePreview() {
           </div>
         ) : previewMode === 'preview' && isMarkdown && fileContent !== null ? (
           /* Markdown preview: rendered */
-          <div className="overflow-auto h-full p-4">
+          <div
+            ref={markdownPreviewRef}
+            onContextMenu={handleMarkdownContextMenu}
+            className="overflow-auto h-full p-4 file-preview-markdown"
+          >
             <div className="text-sm leading-relaxed selectable max-w-3xl mx-auto">
               {(() => {
                 // Extract YAML frontmatter if present
@@ -499,6 +698,14 @@ export function FilePreview() {
           </div>
         </div>,
         document.body,
+      )}
+      {highlightMenu && (
+        <HighlightMenu
+          menu={highlightMenu}
+          onApply={(color) => updateHighlight(color)}
+          onRemove={() => updateHighlight(null)}
+          onClose={() => setHighlightMenu(null)}
+        />
       )}
     </div>
   );
