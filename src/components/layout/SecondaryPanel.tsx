@@ -1,4 +1,5 @@
 import { useSettingsStore, SecondaryPanelTab } from '../../stores/settingsStore';
+import { useFileStore } from '../../stores/fileStore';
 import { FileExplorer } from '../files/FileExplorer';
 import { SkillsPanel } from '../skills/SkillsPanel';
 import { useT } from '../../lib/i18n';
@@ -26,6 +27,8 @@ export function SecondaryPanel() {
   const activeTab = useSettingsStore((s) => s.secondaryPanelTab);
   const setTab = useSettingsStore((s) => s.setSecondaryTab);
   const togglePanel = useSettingsStore((s) => s.toggleSecondaryPanel);
+  const refreshTree = useFileStore((s) => s.refreshTree);
+  const clearChangedFiles = useFileStore((s) => s.clearChangedFiles);
 
   // Window dragging handled via CSS -webkit-app-region: drag on the top strip
 
@@ -40,6 +43,11 @@ export function SecondaryPanel() {
             <button
               key={tab.id}
               onClick={() => setTab(tab.id)}
+              onDoubleClick={() => {
+                if (tab.id !== 'files') return;
+                refreshTree();
+                clearChangedFiles();
+              }}
               className={`px-2.5 py-1.5 rounded-lg text-[13px] font-medium
                 transition-smooth flex items-center gap-1.5 whitespace-nowrap flex-shrink-0
                 ${activeTab === tab.id

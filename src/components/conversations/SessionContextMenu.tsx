@@ -293,6 +293,7 @@ interface GroupContextMenuProps {
   y: number;
   groupId: string;
   onRename: (groupId: string) => void;
+  onExport?: (groupId: string) => void;
   onDelete: (groupId: string) => void;
   onClose: () => void;
 }
@@ -302,6 +303,7 @@ export function GroupContextMenu({
   y,
   groupId,
   onRename,
+  onExport,
   onDelete,
   onClose,
 }: GroupContextMenuProps) {
@@ -336,6 +338,17 @@ export function GroupContextMenu({
         </svg>
         重命名任务组
       </button>
+
+      {onExport && (
+        <button onClick={() => { onClose(); onExport(groupId); }} className={itemCls}>
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
+            stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <path d="M4 14h8M8 2v8M5 7l3 3 3-3" />
+            <path d="M3 4h2M11 4h2" />
+          </svg>
+          导出整组 Session
+        </button>
+      )}
 
       <div className="my-1 border-t border-border-subtle" />
 

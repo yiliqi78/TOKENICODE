@@ -52,6 +52,11 @@ export interface SessionListItem {
   cliResumeId: string | null;
 }
 
+export interface SessionZipItem {
+  path: string;
+  name?: string;
+}
+
 export interface ContentSearchResult {
   session_id: string;
   snippet: string;
@@ -292,6 +297,9 @@ export const bridge = {
 
   exportSessionJson: (path: string, outputPath: string) =>
     invoke<void>('export_session_json', { path, outputPath }),
+
+  exportSessionGroupZip: (groupLabel: string, sessions: SessionZipItem[], outputPath: string) =>
+    invoke<void>('export_session_group_zip', { groupLabel, sessions, outputPath }),
 
   listRecentProjects: () =>
     invoke<RecentProject[]>('list_recent_projects'),

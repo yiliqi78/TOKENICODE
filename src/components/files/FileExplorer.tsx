@@ -252,7 +252,7 @@ function SearchResultItem({
     <button
       onClick={() => { if (!node.is_dir) selectFile(node.path); }}
       onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, node.path, node.is_dir); }}
-      className={`w-full flex items-center gap-1.5 py-1.5 px-3 rounded-md
+      className={`w-full flex items-center gap-1.5 py-1.5 px-3 rounded-xl
         text-left text-[13px] transition-smooth group
         ${isSelected
           ? 'bg-accent/10 text-accent'
@@ -399,7 +399,7 @@ function TreeNode({
           onContextMenu(e, node.path, node.is_dir);
         }}
         {...(node.is_dir ? { 'data-dir-path': node.path } : {})}
-        className={`w-full flex items-center gap-1.5 py-1.5 px-2 rounded-md
+        className={`w-full flex items-center gap-1.5 py-1.5 px-2 rounded-xl
           text-left text-[13px] transition-smooth group
           ${isActive
             ? 'bg-accent/10 text-accent'
@@ -434,7 +434,7 @@ function TreeNode({
             onBlur={onRenameCancel}
             onClick={(e) => e.stopPropagation()}
             className="flex-1 min-w-0 text-[13px] bg-bg-input border border-border-focus
-              rounded-lg px-1.5 py-0.5 outline-none text-text-primary"
+              rounded-xl px-1.5 py-0.5 outline-none text-text-primary"
           />
         ) : (
           <span className="truncate">{node.name}</span>
@@ -465,7 +465,7 @@ function TreeNode({
                 onBlur={onCreateCancel}
                 placeholder={creatingIn.type === 'folder' ? 'folder name' : 'file name'}
                 className="flex-1 min-w-0 text-[13px] bg-bg-input border border-border-focus
-                  rounded-lg px-1.5 py-0.5 outline-none text-text-primary"
+                  rounded-xl px-1.5 py-0.5 outline-none text-text-primary"
               />
             </div>
           )}
@@ -740,7 +740,7 @@ export function FileExplorer() {
                     onBlur={handleCreateCancel}
                     placeholder={creatingIn.type === 'file' ? t('files.newFile') : t('files.newFolder')}
                     className="flex-1 min-w-0 text-[13px] bg-bg-input border border-border-focus
-                      rounded-lg px-1.5 py-0.5 outline-none text-text-primary
+                      rounded-xl px-1.5 py-0.5 outline-none text-text-primary
                       placeholder:text-text-tertiary"
                   />
                 </div>
@@ -789,9 +789,10 @@ export function FileExplorer() {
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={t('files.search')}
             className="w-full pl-7 pr-7 py-1.5 text-[13px] bg-transparent
-              rounded-lg text-text-primary
+              border border-transparent rounded-xl text-text-primary
               placeholder:text-text-tertiary outline-none
               hover:bg-bg-secondary focus:bg-bg-secondary
+              focus:border-focus-soft
               transition-smooth"
           />
           {searchQuery && (

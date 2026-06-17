@@ -262,6 +262,7 @@ interface Props {
 // Sanitize schema: GitHub defaults + className on all elements (needed for highlight.js)
 const SANITIZE_SCHEMA = {
   ...defaultSchema,
+  tagNames: [...(defaultSchema.tagNames || []), 'mark'],
   attributes: {
     ...defaultSchema.attributes,
     '*': [...(defaultSchema.attributes?.['*'] || []), 'className'],

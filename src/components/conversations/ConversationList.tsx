@@ -506,6 +506,32 @@ export function ConversationList() {
     }
   }, []);
 
+  const handleExportGroupZip = useCallback(async (groupId: string) => {
+    const group = useGroupStore.getState().groups.find((g) => g.id === groupId);
+    if (!group) return;
+    const allSessions = useSessionStore.getState().sessions;
+    const groupSessions = group.sessionIds
+      .map((id) => allSessions.find((s) => s.id === id))
+      .filter((s): s is SessionListItem => !!s?.path);
+    if (groupSessions.length === 0) return;
+
+    const safeLabel = group.label.replace(/[\\/:*?"<>|]/g, '_').trim() || 'sessions';
+    const outputPath = await save({
+      defaultPath: `${safeLabel}.zip`,
+      filters: [{ name: 'Zip', extensions: ['zip'] }],
+    });
+    if (outputPath) {
+      bridge.exportSessionGroupZip(
+        group.label,
+        groupSessions.map((session) => ({
+          path: session.path,
+          name: customPreviews[session.id] || session.preview || session.id,
+        })),
+        outputPath,
+      ).catch(() => {});
+    }
+  }, [customPreviews]);
+
   const handleNewSessionInProject = useCallback((projectKey: string) => {
     const suffix = projectKey.replace(/^~/, '');
     const allSessions = useSessionStore.getState().sessions;
@@ -681,7 +707,7 @@ export function ConversationList() {
         <div className="flex items-center gap-2">
           <div className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 rounded-xl
             bg-bg-secondary border border-border-subtle
-            focus-within:border-border-focus transition-smooth">
+            focus-within:border-focus-soft transition-smooth">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
               stroke="currentColor" strokeWidth="1.5"
               className="text-text-tertiary flex-shrink-0">
@@ -902,6 +928,7 @@ export function ConversationList() {
           y={groupMenu.y}
           groupId={groupMenu.groupId}
           onRename={(id) => setRenamingGroupId(id)}
+          onExport={handleExportGroupZip}
           onDelete={handleDeleteGroup}
           onClose={() => setGroupMenu(null)}
         />
