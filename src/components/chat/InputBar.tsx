@@ -1635,8 +1635,9 @@ export function InputBar() {
           </div>
         </div>
 
-        {/* Tool row: upload, mode, model */}
-        <div className="flex items-center gap-2 mt-2">
+        {/* Tool row: upload, mode, model — negative inset cancels the first/last
+            buttons' padding so the icons line up with the input box's outer edge */}
+        <div className="flex items-center gap-2 mt-2 -mx-1.5">
           {/* Upload button */}
           <button
             onClick={() => fileInputRef.current?.click()}

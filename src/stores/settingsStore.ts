@@ -5,7 +5,7 @@ import { settingsEvents } from '../lib/settingsEvents';
 // --- Types ---
 
 export type Theme = 'light' | 'dark' | 'system';
-export type ColorTheme = 'black' | 'red';
+export type ColorTheme = 'black' | 'red' | 'gray';
 export type SecondaryPanelTab = 'files' | 'skills';
 export type ModelId =
   | 'claude-fable-5'

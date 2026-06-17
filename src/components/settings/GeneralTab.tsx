@@ -7,7 +7,7 @@ import { UserAvatar } from '../shared/UserAvatar';
 import { AvatarCropModal } from './AvatarCropModal';
 import { getModelDisplayOptions, getSelectedModelOptionId } from '../../lib/api-provider';
 
-const COLOR_THEMES: { id: ColorTheme; labelKey: string; preview: string; previewDark: string }[] = [
+const COLOR_THEMES: { id: ColorTheme; labelKey: string; preview: string; previewDark: string; canvas?: string }[] = [
   {
     id: 'black',
     labelKey: 'settings.black',
@@ -20,12 +20,22 @@ const COLOR_THEMES: { id: ColorTheme; labelKey: string; preview: string; preview
     preview: '#E2373A',
     previewDark: '#F05A5C',
   },
+  {
+    id: 'gray',
+    labelKey: 'settings.gray',
+    preview: '#8A8A8E',
+    previewDark: '#8A8A8E',
+    canvas: '#E8E8EA',
+  },
 ];
 
 /* Mini app preview — simplified chat interface thumbnail */
-function ThemePreview({ color }: { color: string }) {
+function ThemePreview({ color, canvas }: { color: string; canvas?: string }) {
   return (
-    <div className="w-full aspect-[5/3] rounded-lg overflow-hidden border border-black/[0.06] bg-[#f5f5f5] dark:bg-[#1a1a1a] dark:border-white/[0.06] flex">
+    <div
+      className="w-full aspect-[5/3] rounded-lg overflow-hidden border border-black/[0.06] bg-[#f5f5f5] dark:bg-[#1a1a1a] dark:border-white/[0.06] flex"
+      style={canvas ? { background: canvas } : undefined}
+    >
       {/* Sidebar */}
       <div className="w-[22%] border-r border-black/[0.06] dark:border-white/[0.06] p-2 flex flex-col gap-1.5">
         <div className="w-full h-2 rounded-full bg-black/[0.07] dark:bg-white/[0.08]" />
@@ -188,7 +198,7 @@ export function GeneralTab() {
                   : 'hover:scale-[1.02] border border-border-subtle hover:border-black/10 dark:hover:border-white/10'
                 }`}
             >
-              <ThemePreview color={ct.preview} />
+              <ThemePreview color={ct.preview} canvas={ct.canvas} />
             </button>
           ))}
         </div>

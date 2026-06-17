@@ -229,7 +229,7 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
         <div
           onMouseDown={handleSidebarMouseDown}
           className="w-px h-full flex-shrink-0 relative cursor-col-resize z-20
-            bg-border-subtle hover:bg-accent/40 transition-colors group"
+            bg-bg-chat hover:bg-accent/40 transition-colors group"
         >
           {/* 拖拽热区：向两侧各扩 4px，绝对定位不占布局宽度 → 侧栏紧贴聊天区，只留 1px 分隔线 */}
           <div className="absolute inset-y-0 -left-1 -right-1 cursor-col-resize" />
@@ -246,7 +246,7 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
         <div
           onMouseDown={handleRightMouseDown}
           className="w-px h-full flex-shrink-0 relative cursor-col-resize z-10
-            bg-border-subtle hover:bg-accent/40 transition-colors group"
+            bg-bg-chat hover:bg-accent/40 transition-colors group"
         >
           {/* 拖拽热区：向两侧各扩 4px，绝对定位不占布局宽度 */}
           <div className="absolute inset-y-0 -left-1 -right-1 cursor-col-resize" />
@@ -268,7 +268,7 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
         <div
           onMouseDown={handleRightMouseDown}
           className="w-px h-full flex-shrink-0 relative cursor-col-resize z-10
-            bg-border-subtle hover:bg-accent/40 transition-colors group"
+            bg-bg-chat hover:bg-accent/40 transition-colors group"
         >
           {/* 拖拽热区：向两侧各扩 4px，绝对定位不占布局宽度 */}
           <div className="absolute inset-y-0 -left-1 -right-1 cursor-col-resize" />

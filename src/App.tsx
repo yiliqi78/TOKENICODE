@@ -28,6 +28,7 @@ import './App.css';
 const THEME_ACCENT_COLORS: Record<ColorTheme, string> = {
   black: '#FFFFFF',
   red: '#E2373A',
+  gray: '#8A8A8E',
 };
 
 /** Render the app icon SVG as base64 PNG for macOS Dock.
@@ -563,9 +564,11 @@ function App() {
   // Apply color theme class to document
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.remove('theme-blue', 'theme-purple', 'theme-green', 'theme-red');
+    root.classList.remove('theme-blue', 'theme-purple', 'theme-green', 'theme-red', 'theme-gray');
     if (colorTheme === 'red') {
       root.classList.add('theme-red');
+    } else if (colorTheme === 'gray') {
+      root.classList.add('theme-gray');
     }
     // 'black' is the default — no class needed
   }, [colorTheme]);
