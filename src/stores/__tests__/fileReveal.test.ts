@@ -177,6 +177,14 @@ describe('classifyPathToken（判断反引号内是不是路径）', () => {
   it('中文文件夹（末尾斜杠）→ folder', () => {
     expect(classifyPathToken('01_Her/02_创业系统/_增长线/')).toBe('folder');
   });
+  // 本次修复核心：从文件区拖「顶层文件夹」（裸名、无多级前缀），序列化补尾斜杠后
+  // 才认得出是文件夹 → 渲染成 📁 胶囊。无斜杠时漏判成 null = 修复前的「又大又空白块」现场。
+  it('顶层裸文件夹名（末尾斜杠）→ folder', () => {
+    expect(classifyPathToken('08_收件箱/')).toBe('folder');
+  });
+  it('顶层裸文件夹名（无斜杠）→ null（修复前白块现场：认不出是文件夹）', () => {
+    expect(classifyPathToken('08_收件箱')).toBe(null);
+  });
   it('普通行内代码 useState → null', () => {
     expect(classifyPathToken('useState')).toBe(null);
   });

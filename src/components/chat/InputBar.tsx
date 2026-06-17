@@ -352,7 +352,10 @@ export function InputBar() {
   // Inline file insertion: drop or drag → insert a file chip at cursor
   useEffect(() => {
     const onTreeFileInline = (e: Event) => {
-      const fullPath = (e as CustomEvent<string>).detail;
+      // detail may be a bare path string (legacy) or { path, isDir } (current)
+      const detail = (e as CustomEvent<{ path: string; isDir?: boolean } | string>).detail;
+      const fullPath = typeof detail === 'string' ? detail : detail?.path;
+      const isDir = typeof detail === 'string' ? false : !!detail?.isDir;
       if (!fullPath || !textareaRef.current) return;
 
       // Convert to path relative to working directory for readability
@@ -362,7 +365,7 @@ export function InputBar() {
         displayPath = fullPath.slice(cwd.length).replace(/^[\\/]/, '');
       }
 
-      textareaRef.current.insertFileChip({ fullPath, label: displayPath });
+      textareaRef.current.insertFileChip({ fullPath, label: displayPath, isDir });
     };
     window.addEventListener('tokenicode:tree-file-inline', onTreeFileInline);
     return () => window.removeEventListener('tokenicode:tree-file-inline', onTreeFileInline);

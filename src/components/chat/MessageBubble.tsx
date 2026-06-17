@@ -89,7 +89,7 @@ function renderCodeSegment(inner: string, key: number): ReactNode {
         title={resolved}
       >
         <span className="text-[10px] leading-none">{kind === 'folder' ? '📁' : '📄'}</span>
-        <span className="max-w-[240px] truncate">{inner}</span>
+        <span className="max-w-[240px] truncate">{kind === 'folder' ? inner.replace(/\/+$/, '') : inner}</span>
       </button>
     );
   }

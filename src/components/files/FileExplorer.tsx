@@ -382,9 +382,11 @@ function TreeNode({
                     })
                     .catch((err: unknown) => console.error('Failed to move file:', err));
                 } else if (!result.droppedInTree) {
-                  // Drop outside file tree → insert file chip in chat
+                  // Drop outside file tree → insert file/folder chip in chat
                   window.dispatchEvent(
-                    new CustomEvent('tokenicode:tree-file-inline', { detail: result.sourcePath }),
+                    new CustomEvent('tokenicode:tree-file-inline', {
+                      detail: { path: result.sourcePath, isDir: result.isDir },
+                    }),
                   );
                 }
               }

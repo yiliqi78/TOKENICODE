@@ -84,7 +84,10 @@ function editorToPlainText(editor: ReturnType<typeof useEditor>): string {
     for (const node of (block.content ?? []) as any[]) {
       if (node.type === 'fileChip') {
         const displayPath = node.attrs?.label ?? node.attrs?.fullPath ?? '';
-        lineParts.push(`\`${displayPath}\``);
+        // Folders get a trailing slash so the receiver (classifyPathToken) renders
+        // them as a 📁 chip instead of a generic inline-code block.
+        const suffix = node.attrs?.isDir && !displayPath.endsWith('/') ? '/' : '';
+        lineParts.push(`\`${displayPath}${suffix}\``);
       } else if (node.type === 'text') {
         lineParts.push(node.text ?? '');
       } else if (node.type === 'hardBreak') {
