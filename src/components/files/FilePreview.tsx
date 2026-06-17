@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useEffect, useRef } from 'react';
+import { useMemo, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import DOMPurify from 'dompurify';
 import CodeMirror from '@uiw/react-codemirror';
@@ -29,6 +29,7 @@ import { MarkdownRenderer } from '../shared/MarkdownRenderer';
 import { FileIcon } from '../shared/FileIcon';
 import { tokenicodeTheme, tokenicodeHighlight } from '../../lib/codemirror-theme';
 import { useT } from '../../lib/i18n';
+import { showToast } from '../shared/Toast';
 
 /* ================================================================
    Helpers
@@ -100,6 +101,181 @@ const BINARY_EXTS = new Set(['zip', 'tar', 'gz', 'rar', '7z', 'exe', 'dmg', 'pkg
   'woff', 'woff2', 'ttf', 'otf', 'eot',
   'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'db', 'sqlite']);
 
+type HighlightColor = 'red' | 'yellow' | 'green' | 'purple';
+
+const HIGHLIGHT_OPTIONS: Array<{ id: HighlightColor; label: string; className: string }> = [
+  { id: 'red', label: '红色', className: 'tc-highlight-swatch-red' },
+  { id: 'yellow', label: '黄色', className: 'tc-highlight-swatch-yellow' },
+  { id: 'green', label: '绿色', className: 'tc-highlight-swatch-green' },
+  { id: 'purple', label: '紫色', className: 'tc-highlight-swatch-purple' },
+];
+
+interface HighlightMenuState {
+  x: number;
+  y: number;
+  text: string | null;
+  existing: boolean;
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function replaceExistingHighlight(
+  content: string,
+  text: string,
+  color: HighlightColor | null,
+): string | null {
+  const markRe = /<mark\s+class=["']hltr-(red|yellow|green|purple)["']>([\s\S]*?)<\/mark>/g;
+  let match: RegExpExecArray | null;
+  while ((match = markRe.exec(content))) {
+    if (match[2] !== text) continue;
+    const next = color ? `<mark class="hltr-${color}">${match[2]}</mark>` : match[2];
+    return content.slice(0, match.index) + next + content.slice(match.index + match[0].length);
+  }
+  return null;
+}
+
+function applyHighlightToContent(
+  content: string,
+  text: string,
+  color: HighlightColor | null,
+  existing: boolean,
+): string | null {
+  const selected = text.trim();
+  if (!selected) return null;
+
+  if (existing) {
+    const replaced = replaceExistingHighlight(content, selected, color);
+    if (replaced) return replaced;
+  }
+
+  if (!color) return null;
+  const markRe = new RegExp(
+    `<mark\\s+class=["']hltr-(red|yellow|green|purple)["']>${escapeRegExp(selected)}</mark>`,
+  );
+  if (markRe.test(content)) {
+    return content.replace(markRe, `<mark class="hltr-${color}">${selected}</mark>`);
+  }
+
+  const index = content.indexOf(selected);
+  if (index === -1) return null;
+  return `${content.slice(0, index)}<mark class="hltr-${color}">${selected}</mark>${content.slice(index + selected.length)}`;
+}
+
+function stripHighlightTags(content: string): string {
+  return content.replace(
+    /<mark\s+class=["']hltr-(red|yellow|green|purple)["']>([\s\S]*?)<\/mark>/g,
+    '$2',
+  );
+}
+
+function HighlightMenu({
+  menu,
+  onApply,
+  onRemove,
+  onCopyAll,
+  onClearAll,
+  onClose,
+}: {
+  menu: HighlightMenuState;
+  onApply: (color: HighlightColor) => void;
+  onRemove: () => void;
+  onCopyAll: () => void;
+  onClearAll: () => void;
+  onClose: () => void;
+}) {
+  const t = useT();
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ x: menu.x, y: menu.y });
+
+  useEffect(() => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let x = menu.x;
+    let y = menu.y;
+    if (x + rect.width > vw - 8) x = vw - rect.width - 8;
+    if (y + rect.height > vh - 8) y = vh - rect.height - 8;
+    setPos({ x: Math.max(8, x), y: Math.max(8, y) });
+  }, [menu.x, menu.y]);
+
+  useEffect(() => {
+    const handleDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('mousedown', handleDown);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleDown);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      ref={ref}
+      className="tc-context-menu z-[10000] min-w-[196px] animate-fade-in"
+      style={{ left: pos.x, top: pos.y }}
+    >
+      {menu.text && (
+        <>
+          <div className="tc-context-menu-label">
+            {t('files.highlight')}
+          </div>
+          {HIGHLIGHT_OPTIONS.map((option) => (
+            <button
+              key={option.id}
+              onClick={() => onApply(option.id)}
+              className="tc-context-menu-item"
+            >
+              <span className={`tc-highlight-swatch ${option.className}`} />
+              {t(`files.highlight.${option.id}`)}
+            </button>
+          ))}
+          {menu.existing && (
+            <button
+              onClick={onRemove}
+              className="tc-context-menu-item"
+            >
+              {t('files.removeHighlight')}
+            </button>
+          )}
+          <div className="tc-context-menu-separator" />
+        </>
+      )}
+      <button
+        onClick={onCopyAll}
+        className="tc-context-menu-item"
+      >
+        {t('files.copyAll')}
+      </button>
+      <button
+        onClick={onClearAll}
+        className="tc-context-menu-item"
+      >
+        {t('files.clearHighlights')}
+      </button>
+      {menu.text && !menu.existing && (
+        <>
+          <div className="tc-context-menu-separator" />
+          <button
+            onClick={onClose}
+            className="tc-context-menu-item"
+          >
+            {t('common.cancel')}
+          </button>
+        </>
+      )}
+    </div>,
+    document.body,
+  );
+}
+
 /* ================================================================
    FilePreview component
    ================================================================ */
@@ -122,6 +298,8 @@ export function FilePreview() {
   const confirmDiscard = useFileStore((s) => s.confirmDiscard);
   const confirmSaveAndSwitch = useFileStore((s) => s.confirmSaveAndSwitch);
   const cancelNavigation = useFileStore((s) => s.cancelNavigation);
+  const [highlightMenu, setHighlightMenu] = useState<HighlightMenuState | null>(null);
+  const markdownPreviewRef = useRef<HTMLDivElement>(null);
 
   // Auto-refresh preview when the selected file is modified externally
   const reloadRef = useRef(reloadContent);
@@ -164,6 +342,87 @@ export function FilePreview() {
     }
   }, [isDirty, saveFile]);
 
+  const handleMarkdownContextMenu = useCallback((e: React.MouseEvent) => {
+    if (!isMarkdown || previewMode !== 'preview') return;
+    const container = markdownPreviewRef.current;
+    if (!container) return;
+
+    const target = e.target as HTMLElement;
+    const existingMark = target.closest('mark[class^="hltr-"], mark[class*=" hltr-"]');
+    const selection = window.getSelection();
+    const selectedText = selection
+      && !selection.isCollapsed
+      && selection.anchorNode
+      && selection.focusNode
+      && container.contains(selection.anchorNode)
+      && container.contains(selection.focusNode)
+      ? selection.toString().trim()
+      : '';
+    const text = existingMark?.textContent?.trim() || selectedText;
+
+    e.preventDefault();
+    setHighlightMenu({
+      x: e.clientX,
+      y: e.clientY,
+      text: text || null,
+      existing: !!existingMark,
+    });
+  }, [isMarkdown, previewMode]);
+
+  const updateHighlight = useCallback(async (color: HighlightColor | null) => {
+    if (!selectedFile || fileContent === null || !highlightMenu?.text) return;
+    const next = applyHighlightToContent(
+      fileContent,
+      highlightMenu.text,
+      color,
+      highlightMenu.existing,
+    );
+    if (!next || next === fileContent) {
+      showToast('未能在源文件中定位这段文字', 'error');
+      setHighlightMenu(null);
+      return;
+    }
+    try {
+      await bridge.writeFileContent(selectedFile, next);
+      await reloadContent();
+    } catch (err) {
+      showToast(`高亮写入失败: ${err}`, 'error');
+    } finally {
+      setHighlightMenu(null);
+    }
+  }, [selectedFile, fileContent, highlightMenu, reloadContent]);
+
+  const handleCopyAll = useCallback(async () => {
+    if (fileContent === null) return;
+    try {
+      await navigator.clipboard.writeText(stripHighlightTags(fileContent));
+      showToast(t('files.copiedAll'), 'success');
+    } catch (err) {
+      showToast(`${t('files.copyFailed')}: ${err}`, 'error');
+    } finally {
+      setHighlightMenu(null);
+    }
+  }, [fileContent, t]);
+
+  const handleClearAllHighlights = useCallback(async () => {
+    if (!selectedFile || fileContent === null) return;
+    const next = stripHighlightTags(fileContent);
+    if (next === fileContent) {
+      showToast(t('files.noHighlights'), 'success');
+      setHighlightMenu(null);
+      return;
+    }
+    try {
+      await bridge.writeFileContent(selectedFile, next);
+      await reloadContent();
+      showToast(t('files.highlightsCleared'), 'success');
+    } catch (err) {
+      showToast(`${t('files.clearHighlightsFailed')}: ${err}`, 'error');
+    } finally {
+      setHighlightMenu(null);
+    }
+  }, [selectedFile, fileContent, reloadContent, t]);
+
   /* Mode tabs for the header */
   const modeTabs = useMemo(() => {
     if (isMarkdown) {
@@ -193,10 +452,16 @@ export function FilePreview() {
   if (!selectedFile) return null;
 
   return (
-    <div className="file-preview flex flex-col h-full bg-bg-primary" onKeyDown={handleKeyDown}>
-      {/* Header bar — h-[68px]+pt-[20px] 与聊天顶栏完全一致，顶部分隔线对齐；z-10 above iframe content */}
-      <div className="flex items-center justify-between h-[68px] px-3 pt-[20px]
-        border-b border-border-subtle bg-bg-secondary/50 flex-shrink-0 relative z-10">
+    <div
+      className="file-preview flex flex-col h-full rounded-lg bg-bg-card
+        border border-black/[0.055] dark:border-white/[0.075]
+        shadow-[0_1px_2px_rgba(0,0,0,0.022),0_3px_8px_rgba(0,0,0,0.028)]
+        dark:shadow-[0_1px_2px_rgba(0,0,0,0.022),0_3px_8px_rgba(0,0,0,0.028)]
+        overflow-hidden"
+      onKeyDown={handleKeyDown}
+    >
+      <div className="flex items-center justify-between h-12 px-3
+        bg-bg-card flex-shrink-0 relative z-10">
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <FileIcon name={fileName} size={16} className="flex-shrink-0 text-accent" />
           <span className="text-[13px] font-medium text-text-primary truncate">
@@ -215,8 +480,8 @@ export function FilePreview() {
             <div className="flex items-center gap-1 animate-fade-in">
               <button
                 onClick={discardEdits}
-                className="px-2.5 py-1 rounded-lg text-xs font-medium
-                  text-text-muted hover:text-text-primary hover:bg-bg-tertiary
+                className="px-2.5 py-1 rounded-md text-xs font-medium
+                  text-text-muted hover:text-text-primary hover:bg-accent/10
                   transition-smooth"
               >
                 {t('files.discard')}
@@ -224,7 +489,7 @@ export function FilePreview() {
               <button
                 onClick={saveFile}
                 disabled={isSaving}
-                className="px-2.5 py-1 rounded-lg text-xs font-medium
+                className="px-2.5 py-1 rounded-md text-xs font-medium
                   bg-accent text-text-inverse hover:bg-accent-hover
                   transition-smooth disabled:opacity-50"
               >
@@ -235,16 +500,16 @@ export function FilePreview() {
 
           {/* Mode toggle tabs */}
           {modeTabs.length > 0 && (
-            <div className="flex gap-0.5 bg-bg-tertiary/50 rounded-xl p-1">
+            <div className="flex items-center gap-0.5">
               {modeTabs.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setPreviewMode(tab.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium
+                  className={`px-2.5 py-1.5 rounded-md text-xs font-medium
                     transition-smooth cursor-pointer
                     ${previewMode === tab.id
-                      ? 'bg-bg-card text-accent shadow-sm'
-                      : 'text-text-muted hover:text-text-primary hover:bg-bg-card/50'
+                      ? 'text-accent bg-accent/10'
+                      : 'text-text-muted hover:text-text-primary hover:bg-accent/10'
                     }`}
                 >
                   {tab.label}
@@ -256,7 +521,7 @@ export function FilePreview() {
           {/* Refresh button */}
           <button
             onClick={reloadContent}
-            className="p-2 rounded-lg hover:bg-bg-tertiary
+            className="p-2 rounded-md hover:bg-accent/10
               text-accent transition-smooth cursor-pointer"
             title={t('files.refresh')}
           >
@@ -270,7 +535,7 @@ export function FilePreview() {
           {/* Close button — larger hit area for easy clicking */}
           <button
             onClick={closePreview}
-            className="p-2 rounded-lg hover:bg-bg-tertiary
+            className="p-2 rounded-md hover:bg-accent/10
               text-text-tertiary transition-smooth cursor-pointer"
             title={t('files.closePreview')}
           >
@@ -283,7 +548,7 @@ export function FilePreview() {
       </div>
 
       {/* Content area */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden bg-bg-card">
         {isLoadingContent ? (
           <div className="flex items-center justify-center h-full">
             <div className="flex items-center gap-2 text-text-muted text-xs">
@@ -411,7 +676,11 @@ export function FilePreview() {
           </div>
         ) : previewMode === 'preview' && isMarkdown && fileContent !== null ? (
           /* Markdown preview: rendered */
-          <div className="overflow-auto h-full p-4">
+          <div
+            ref={markdownPreviewRef}
+            onContextMenu={handleMarkdownContextMenu}
+            className="overflow-auto h-full p-4 file-preview-markdown"
+          >
             <div className="text-sm leading-relaxed selectable max-w-3xl mx-auto">
               {(() => {
                 // Extract YAML frontmatter if present
@@ -499,6 +768,16 @@ export function FilePreview() {
           </div>
         </div>,
         document.body,
+      )}
+      {highlightMenu && (
+        <HighlightMenu
+          menu={highlightMenu}
+          onApply={(color) => updateHighlight(color)}
+          onRemove={() => updateHighlight(null)}
+          onCopyAll={handleCopyAll}
+          onClearAll={handleClearAllHighlights}
+          onClose={() => setHighlightMenu(null)}
+        />
       )}
     </div>
   );

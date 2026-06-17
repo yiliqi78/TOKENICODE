@@ -8,7 +8,7 @@ import { SettingsPanel } from './components/settings/SettingsPanel';
 import { ImageLightbox } from './components/shared/ImageLightbox';
 import { ChangelogModal } from './components/shared/ChangelogModal';
 import { Toast } from './components/shared/Toast';
-import { useSettingsStore } from './stores/settingsStore';
+import { normalizeTheme, useSettingsStore } from './stores/settingsStore';
 import { useProviderStore } from './stores/providerStore';
 import type { ColorTheme, Theme } from './stores/settingsStore';
 import { useFileStore } from './stores/fileStore';
@@ -106,9 +106,11 @@ function App() {
   const lastSeenVersion = useSettingsStore((s) => s.lastSeenVersion);
   const setLastSeenVersion = useSettingsStore((s) => s.setLastSeenVersion);
   const selectedSessionId = useSessionStore((s) => s.selectedSessionId);
+  const sessions = useSessionStore((s) => s.sessions);
   const loadTree = useFileStore((s) => s.loadTree);
   const refreshTree = useFileStore((s) => s.refreshTree);
   const markFileChanged = useFileStore((s) => s.markFileChanged);
+  const rootPath = useFileStore((s) => s.rootPath);
   const prevDirRef = useRef<string | null>(null);
 
   const t = useT();
@@ -545,9 +547,10 @@ function App() {
   // Apply dark/light mode class to document
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === 'dark') {
+    const resolvedTheme = normalizeTheme(theme);
+    if (resolvedTheme === 'dark') {
       root.classList.add('dark');
-    } else if (theme === 'light') {
+    } else if (resolvedTheme === 'light') {
       root.classList.remove('dark');
     } else {
       const mq = window.matchMedia('(prefers-color-scheme: dark)');
@@ -672,6 +675,38 @@ function App() {
       bridge.unwatchDirectory(workingDirectory).catch(() => {});
     };
   }, [workingDirectory]);
+
+  useEffect(() => {
+    if (workingDirectory || !selectedSessionId) return;
+    if (rootPath) {
+      useSettingsStore.getState().setWorkingDirectory(rootPath);
+      return;
+    }
+
+    const session = sessions.find((item) => item.id === selectedSessionId);
+    const projectPath = session?.project || session?.projectDir;
+    if (!projectPath) return;
+
+    const useDirectly = projectPath.startsWith('/')
+      || /^[A-Za-z]:[/\\]/.test(projectPath)
+      || projectPath.startsWith('~/');
+    if (useDirectly) {
+      useSettingsStore.getState().setWorkingDirectory(projectPath);
+      return;
+    }
+
+    let cancelled = false;
+    bridge.decodeProjectDir(projectPath)
+      .then((decoded) => {
+        if (!cancelled) useSettingsStore.getState().setWorkingDirectory(decoded);
+      })
+      .catch(() => {
+        if (!cancelled) useSettingsStore.getState().setWorkingDirectory(projectPath);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workingDirectory, rootPath, selectedSessionId, sessions]);
 
   // Listen for file change events from the watcher
   // Debounce tree refresh for created/removed events (structure changes)

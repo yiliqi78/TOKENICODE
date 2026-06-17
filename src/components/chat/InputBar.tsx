@@ -1518,7 +1518,7 @@ export function InputBar() {
           />
           <div
             className={`flex items-center gap-2 bg-bg-input border rounded-2xl px-4 py-2.5
-              focus-within:border-border-focus focus-within:shadow-glow
+              focus-within:border-focus-soft focus-within:shadow-glow
               transition-smooth group/input
               ${isDragging
                 ? 'border-accent bg-accent/5 shadow-glow'

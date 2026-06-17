@@ -4236,6 +4236,79 @@ async fn export_session_json(path: String, output_path: String) -> Result<(), St
     Ok(())
 }
 
+#[derive(Deserialize)]
+struct SessionZipItem {
+    path: String,
+    name: Option<String>,
+}
+
+fn sanitize_zip_segment(input: &str) -> String {
+    let cleaned: String = input
+        .chars()
+        .map(|ch| match ch {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            ch if ch.is_control() => '_',
+            ch => ch,
+        })
+        .collect();
+    let trimmed = cleaned.trim().trim_matches('.').trim();
+    if trimmed.is_empty() {
+        "session".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+#[tauri::command]
+async fn export_session_group_zip(
+    group_label: String,
+    sessions: Vec<SessionZipItem>,
+    output_path: String,
+) -> Result<(), String> {
+    use std::io::{Read, Write};
+    use zip::write::SimpleFileOptions;
+
+    if sessions.is_empty() {
+        return Err("No sessions to export".to_string());
+    }
+
+    let out = std::fs::File::create(&output_path)
+        .map_err(|e| format!("Failed to create zip: {}", e))?;
+    let mut zip = zip::ZipWriter::new(out);
+    let options = SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .unix_permissions(0o644);
+    let folder = sanitize_zip_segment(&group_label);
+
+    zip.add_directory(format!("{}/", folder), options)
+        .map_err(|e| format!("Failed to create zip folder: {}", e))?;
+
+    for (idx, item) in sessions.iter().enumerate() {
+        let source_path = std::path::Path::new(&item.path);
+        let mut source = std::fs::File::open(source_path)
+            .map_err(|e| format!("Failed to open session {}: {}", item.path, e))?;
+        let fallback = source_path
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .unwrap_or("session");
+        let base_name = sanitize_zip_segment(item.name.as_deref().unwrap_or(fallback));
+        let entry_name = format!("{}/{:02}_{}.jsonl", folder, idx + 1, base_name);
+
+        zip.start_file(entry_name, options)
+            .map_err(|e| format!("Failed to add zip entry: {}", e))?;
+        let mut buf = Vec::new();
+        source
+            .read_to_end(&mut buf)
+            .map_err(|e| format!("Failed to read session {}: {}", item.path, e))?;
+        zip.write_all(&buf)
+            .map_err(|e| format!("Failed to write zip entry: {}", e))?;
+    }
+
+    zip.finish()
+        .map_err(|e| format!("Failed to finish zip: {}", e))?;
+    Ok(())
+}
+
 /// List recent projects by scanning ~/.claude/projects/ directory names
 #[tauri::command]
 async fn list_recent_projects() -> Result<Vec<Value>, String> {
@@ -8111,6 +8184,7 @@ pub fn run() {
             share_to_wechat,
             export_session_markdown,
             export_session_json,
+            export_session_group_zip,
             list_recent_projects,
             watch_directory,
             unwatch_directory,

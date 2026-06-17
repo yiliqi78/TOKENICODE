@@ -43,9 +43,9 @@ export function showToast(
 // --- Toast UI ---
 
 const VARIANT_STYLES: Record<ToastVariant, string> = {
-  success: 'border-green-500/30 text-green-400',
-  error: 'border-red-500/30 text-red-400',
-  info: 'border-accent/30 text-accent',
+  success: 'bg-accent text-text-inverse border-transparent shadow-[0_14px_40px_var(--color-accent-glow)]',
+  error: 'bg-red-500 text-white border-transparent shadow-[0_14px_40px_rgba(239,68,68,0.22)]',
+  info: 'bg-accent text-text-inverse border-transparent shadow-[0_14px_40px_var(--color-accent-glow)]',
 };
 
 const VARIANT_ICONS: Record<ToastVariant, React.ReactNode> = {
@@ -91,21 +91,20 @@ function ToastItem({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => vo
 
   return (
     <div
-      className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl
-        bg-bg-card/95 backdrop-blur-lg border shadow-lg
-        text-xs font-medium
+      className={`flex items-center justify-start gap-2.5 min-w-[180px]
+        max-w-[min(520px,calc(100vw-48px))] px-4 py-2.5 rounded-xl
+        border text-left text-xs font-semibold
         transition-all duration-200 ease-out
         ${VARIANT_STYLES[toast.variant]}
-        ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}
+        ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}
     >
       <span className="flex-shrink-0">{VARIANT_ICONS[toast.variant]}</span>
-      <span className="text-text-primary">{toast.message}</span>
+      <span className="min-w-0 flex-1 text-left leading-5">{toast.message}</span>
       {toast.action && (
         <button
           onClick={() => { toast.action!.onClick(); dismiss(); }}
           className="ml-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold
-            bg-accent text-text-inverse hover:bg-accent-hover
-            shadow-sm transition-smooth"
+            bg-white/20 text-inherit hover:bg-white/30 shadow-sm transition-smooth"
         >
           {toast.action.label}
         </button>
@@ -114,7 +113,7 @@ function ToastItem({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => vo
   );
 }
 
-/** Mount once in App.tsx — renders at bottom center */
+/** Mount once in App.tsx — renders at top center below the title bar */
 export function Toast() {
   const toasts = useToastStore((s) => s.toasts);
   const remove = useToastStore((s) => s.remove);
@@ -122,7 +121,7 @@ export function Toast() {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9998]
+    <div className="fixed top-14 left-1/2 -translate-x-1/2 z-[9998]
       flex flex-col items-center gap-2 pointer-events-auto">
       {toasts.map((t) => (
         <ToastItem key={t.id} toast={t} onDismiss={() => remove(t.id)} />

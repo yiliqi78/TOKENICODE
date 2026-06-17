@@ -22,6 +22,13 @@ export type SessionMode = 'code' | 'ask' | 'plan' | 'bypass';
 /** CLI permission mode for the SDK control protocol */
 export type CliPermissionMode = 'acceptEdits' | 'default' | 'plan' | 'bypassPermissions';
 export type Locale = 'zh' | 'en';
+export type PreviewLayout = 'keep-list' | 'focus';
+
+const VALID_THEMES: readonly Theme[] = ['light', 'dark', 'system'];
+
+export function normalizeTheme(value: unknown): Theme {
+  return VALID_THEMES.includes(value as Theme) ? (value as Theme) : 'light';
+}
 
 /** Map frontend session mode to CLI permission mode */
 export function mapSessionModeToPermissionMode(mode: SessionMode): CliPermissionMode {
@@ -89,6 +96,10 @@ interface SettingsState {
   userDisplayName: string;
   /** Whether to show dotfiles (hidden files) in the file tree */
   showHiddenFiles: boolean;
+  /** File preview layout: keep the file list visible or focus on preview only */
+  previewLayout: PreviewLayout;
+  /** File preview panel width in px */
+  previewPanelWidth: number;
 
   toggleTheme: () => void;
   setTheme: (theme: Theme) => void;
@@ -120,6 +131,8 @@ interface SettingsState {
   setUserAvatarUrl: (url: string) => void;
   setUserDisplayName: (name: string) => void;
   toggleHiddenFiles: () => void;
+  setPreviewLayout: (layout: PreviewLayout) => void;
+  setPreviewPanelWidth: (width: number) => void;
 }
 
 // --- Theme cycle order ---
@@ -127,7 +140,7 @@ interface SettingsState {
 const themeCycle: Theme[] = ['light', 'dark', 'system'];
 
 function nextTheme(current: Theme): Theme {
-  const idx = themeCycle.indexOf(current);
+  const idx = themeCycle.indexOf(normalizeTheme(current));
   return themeCycle[(idx + 1) % themeCycle.length];
 }
 
@@ -162,11 +175,13 @@ export const useSettingsStore = create<SettingsState>()(
       userAvatarUrl: '',
       userDisplayName: '',
       showHiddenFiles: false,
+      previewLayout: 'keep-list',
+      previewPanelWidth: 760,
 
       toggleTheme: () =>
         set((state) => ({ theme: nextTheme(state.theme) })),
 
-      setTheme: (theme) => set(() => ({ theme })),
+      setTheme: (theme) => set(() => ({ theme: normalizeTheme(theme) })),
 
       setColorTheme: (colorTheme) => set(() => ({ colorTheme })),
 
@@ -262,10 +277,14 @@ export const useSettingsStore = create<SettingsState>()(
         set(() => ({ userDisplayName: name.slice(0, 20) })),
       toggleHiddenFiles: () =>
         set((state) => ({ showHiddenFiles: !state.showHiddenFiles })),
+      setPreviewLayout: (layout) =>
+        set(() => ({ previewLayout: layout })),
+      setPreviewPanelWidth: (width) =>
+        set(() => ({ previewPanelWidth: Math.max(420, Math.min(1040, width)) })),
     }),
     {
       name: 'tokenicode-settings',
-      version: 8,
+      version: 11,
       migrate: (persistedState: unknown, version: number) => {
         const persisted = persistedState as Record<string, unknown>;
         if (version === 0) {
@@ -325,6 +344,15 @@ export const useSettingsStore = create<SettingsState>()(
             persisted.selectedModel = opusUpgradeMap[current];
           }
         }
+        if (version < 9) {
+          persisted.previewLayout = 'keep-list';
+        }
+        if (version < 10) {
+          persisted.theme = normalizeTheme(persisted.theme);
+        }
+        if (version < 11 || typeof persisted.previewPanelWidth !== 'number') {
+          persisted.previewPanelWidth = 760;
+        }
         return persisted;
       },
       partialize: (state) => ({
@@ -347,6 +375,8 @@ export const useSettingsStore = create<SettingsState>()(
         userAvatarUrl: state.userAvatarUrl,
         userDisplayName: state.userDisplayName,
         showHiddenFiles: state.showHiddenFiles,
+        previewLayout: state.previewLayout,
+        previewPanelWidth: state.previewPanelWidth,
       }),
     },
   ),

@@ -33,8 +33,7 @@ interface SessionContextMenuProps {
 }
 
 const itemCls =
-  'w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text-primary ' +
-  'hover:bg-bg-secondary transition-smooth';
+  'tc-context-menu-item';
 
 export function SessionContextMenu({
   x,
@@ -80,8 +79,7 @@ export function SessionContextMenu({
   return createPortal(
     <div
       ref={menuRef}
-      className="fixed z-[9999] min-w-[180px] py-1.5 rounded-xl
-        bg-bg-card border border-border-subtle shadow-xl animate-fade-in
+      className="tc-context-menu z-[9999] min-w-[200px] animate-fade-in
         max-h-[70vh] overflow-y-auto"
       style={{ left: x, top: y }}
     >
@@ -105,7 +103,7 @@ export function SessionContextMenu({
       )}
 
       {/* --- Session grouping --- */}
-      {showGrouping && <div className="my-1 border-t border-border-subtle" />}
+      {showGrouping && <div className="tc-context-menu-separator" />}
 
       {onCreateGroupWithSession && (
         <button onClick={() => { onClose(); onCreateGroupWithSession(session); }} className={itemCls}>
@@ -120,7 +118,7 @@ export function SessionContextMenu({
 
       {availableGroups && availableGroups.length > 0 && onAddToGroup && (
         <>
-          <div className="px-3 pt-1.5 pb-0.5 text-[10px] text-text-tertiary select-none">
+          <div className="tc-context-menu-label">
             加入任务组
           </div>
           {availableGroups.map((g) => (
@@ -150,7 +148,7 @@ export function SessionContextMenu({
         </button>
       )}
 
-      {(session.path || true) && <div className="my-1 border-t border-border-subtle" />}
+      {(session.path || true) && <div className="tc-context-menu-separator" />}
 
       {session.path && (
         <button onClick={() => { onClose(); onRevealInFinder(session); }} className={itemCls}>
@@ -183,12 +181,11 @@ export function SessionContextMenu({
         </button>
       )}
 
-      <div className="my-1 border-t border-border-subtle" />
+      <div className="tc-context-menu-separator" />
 
       <button
         onClick={() => { onClose(); onDelete(session); }}
-        className="w-full flex items-center gap-2.5 px-3 py-1.5
-          text-xs text-red-500 hover:bg-red-500/10 transition-smooth"
+        className="tc-context-menu-item tc-context-menu-item-danger"
       >
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
           stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -246,8 +243,7 @@ export function ProjectContextMenu({
   return createPortal(
     <div
       ref={menuRef}
-      className="fixed z-[9999] min-w-[170px] py-1.5 rounded-xl
-        bg-bg-card border border-border-subtle shadow-xl animate-fade-in"
+      className="tc-context-menu z-[9999] min-w-[190px] animate-fade-in"
       style={{ left: x, top: y }}
     >
       <button onClick={() => { onClose(); onNewSession(project); }} className={itemCls}>
@@ -282,12 +278,11 @@ export function ProjectContextMenu({
         </button>
       )}
 
-      <div className="my-1 border-t border-border-subtle" />
+      <div className="tc-context-menu-separator" />
 
       <button
         onClick={() => { onClose(); onDeleteAll(project); }}
-        className="w-full flex items-center gap-2.5 px-3 py-1.5
-          text-xs text-red-500 hover:bg-red-500/10 transition-smooth"
+        className="tc-context-menu-item tc-context-menu-item-danger"
       >
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
           stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -306,6 +301,7 @@ interface GroupContextMenuProps {
   y: number;
   groupId: string;
   onRename: (groupId: string) => void;
+  onExport?: (groupId: string) => void;
   onDelete: (groupId: string) => void;
   onClose: () => void;
 }
@@ -315,6 +311,7 @@ export function GroupContextMenu({
   y,
   groupId,
   onRename,
+  onExport,
   onDelete,
   onClose,
 }: GroupContextMenuProps) {
@@ -338,8 +335,7 @@ export function GroupContextMenu({
   return createPortal(
     <div
       ref={menuRef}
-      className="fixed z-[9999] min-w-[150px] py-1.5 rounded-xl
-        bg-bg-card border border-border-subtle shadow-xl animate-fade-in"
+      className="tc-context-menu z-[9999] min-w-[180px] animate-fade-in"
       style={{ left: x, top: y }}
     >
       <button onClick={() => { onClose(); onRename(groupId); }} className={itemCls}>
@@ -350,12 +346,22 @@ export function GroupContextMenu({
         重命名任务组
       </button>
 
-      <div className="my-1 border-t border-border-subtle" />
+      {onExport && (
+        <button onClick={() => { onClose(); onExport(groupId); }} className={itemCls}>
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
+            stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <path d="M4 14h8M8 2v8M5 7l3 3 3-3" />
+            <path d="M3 4h2M11 4h2" />
+          </svg>
+          导出整组 Session
+        </button>
+      )}
+
+      <div className="tc-context-menu-separator" />
 
       <button
         onClick={() => { onClose(); onDelete(groupId); }}
-        className="w-full flex items-center gap-2.5 px-3 py-1.5
-          text-xs text-red-500 hover:bg-red-500/10 transition-smooth"
+        className="tc-context-menu-item tc-context-menu-item-danger"
       >
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
           stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">

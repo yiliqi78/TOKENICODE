@@ -172,32 +172,24 @@ function ContextMenu({ menu, onClose, callbacks }: {
         }, 100);
       },
     },
-    {
-      label: t('files.openVscodeShort'),
-      icon: <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M4 3l8 5-8 5V3z" /></svg>,
-      action: () => { bridge.openInVscode(menu.path); onClose(); },
-    },
   ];
 
   return createPortal(
     <div
       ref={ref}
-      className="fixed z-[9999] min-w-[200px] py-1 rounded-xl border border-border-subtle
-        bg-bg-card shadow-lg animate-fade-in whitespace-nowrap"
+      className="tc-context-menu z-[9999] min-w-[220px] animate-fade-in whitespace-nowrap"
       style={{ left: pos.x, top: pos.y }}
     >
       {items.map((item, i) =>
         item === 'separator' ? (
-          <div key={i} className="my-1 border-t border-border-subtle" />
+          <div key={i} className="tc-context-menu-separator" />
         ) : (
           <button
             key={i}
             onClick={item.action}
-            className={`w-full flex items-center gap-2 px-3 py-2 text-[13px]
-              hover:bg-bg-secondary transition-smooth text-left cursor-pointer
-              ${item.danger ? 'text-error hover:bg-error/10' : 'text-text-primary'}`}
+            className={`tc-context-menu-item ${item.danger ? 'tc-context-menu-item-danger' : ''}`}
           >
-            <span className={`flex-shrink-0 ${item.danger ? 'text-error/60' : 'text-text-tertiary'}`}>
+            <span className="tc-context-menu-icon">
               {item.icon}
             </span>
             {item.label}
@@ -252,7 +244,7 @@ function SearchResultItem({
     <button
       onClick={() => { if (!node.is_dir) selectFile(node.path); }}
       onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, node.path, node.is_dir); }}
-      className={`w-full flex items-center gap-1.5 py-1.5 px-3 rounded-md
+      className={`w-full flex items-center gap-1.5 py-1.5 px-3 rounded-xl
         text-left text-[13px] transition-smooth group
         ${isSelected
           ? 'bg-accent/10 text-accent'
@@ -401,7 +393,7 @@ function TreeNode({
           onContextMenu(e, node.path, node.is_dir);
         }}
         {...(node.is_dir ? { 'data-dir-path': node.path } : {})}
-        className={`w-full flex items-center gap-1.5 py-1.5 px-2 rounded-md
+        className={`w-full flex items-center gap-1.5 py-1.5 px-2 rounded-xl
           text-left text-[13px] transition-smooth group
           ${isActive
             ? 'bg-accent/10 text-accent'
@@ -436,7 +428,7 @@ function TreeNode({
             onBlur={onRenameCancel}
             onClick={(e) => e.stopPropagation()}
             className="flex-1 min-w-0 text-[13px] bg-bg-input border border-border-focus
-              rounded-lg px-1.5 py-0.5 outline-none text-text-primary"
+              rounded-xl px-1.5 py-0.5 outline-none text-text-primary"
           />
         ) : (
           <span className="truncate">{node.name}</span>
@@ -467,7 +459,7 @@ function TreeNode({
                 onBlur={onCreateCancel}
                 placeholder={creatingIn.type === 'folder' ? 'folder name' : 'file name'}
                 className="flex-1 min-w-0 text-[13px] bg-bg-input border border-border-focus
-                  rounded-lg px-1.5 py-0.5 outline-none text-text-primary"
+                  rounded-xl px-1.5 py-0.5 outline-none text-text-primary"
               />
             </div>
           )}
@@ -742,7 +734,7 @@ export function FileExplorer() {
                     onBlur={handleCreateCancel}
                     placeholder={creatingIn.type === 'file' ? t('files.newFile') : t('files.newFolder')}
                     className="flex-1 min-w-0 text-[13px] bg-bg-input border border-border-focus
-                      rounded-lg px-1.5 py-0.5 outline-none text-text-primary
+                      rounded-xl px-1.5 py-0.5 outline-none text-text-primary
                       placeholder:text-text-tertiary"
                   />
                 </div>
@@ -779,7 +771,7 @@ export function FileExplorer() {
       <div className="px-3 pt-1 pb-3">
         <div className="flex items-center gap-2 px-3 py-2 rounded-xl
           bg-bg-secondary border border-border-subtle
-          focus-within:border-border-focus transition-smooth">
+          focus-within:border-focus-soft transition-smooth">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
             stroke="currentColor" strokeWidth="1.5"
             className="text-text-tertiary flex-shrink-0">
