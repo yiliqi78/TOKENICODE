@@ -1,5 +1,5 @@
 import { useRef, useCallback, useState } from 'react';
-import { useSettingsStore, ColorTheme } from '../../stores/settingsStore';
+import { useSettingsStore, ColorTheme, PreviewLayout } from '../../stores/settingsStore';
 import { useProviderStore } from '../../stores/providerStore';
 import { useT } from '../../lib/i18n';
 import { AiAvatar } from '../shared/AiAvatar';
@@ -27,6 +27,11 @@ const COLOR_THEMES: { id: ColorTheme; labelKey: string; preview: string; preview
     previewDark: '#8A8A8E',
     canvas: '#E8E8EA',
   },
+];
+
+const PREVIEW_LAYOUTS: { id: PreviewLayout; labelKey: string }[] = [
+  { id: 'keep-list', labelKey: 'settings.previewLayoutKeepList' },
+  { id: 'focus', labelKey: 'settings.previewLayoutFocus' },
 ];
 
 /* Mini app preview — simplified chat interface thumbnail */
@@ -71,11 +76,13 @@ export function GeneralTab() {
   const locale = useSettingsStore((s) => s.locale);
   const selectedModel = useSettingsStore((s) => s.selectedModel);
   const fontSize = useSettingsStore((s) => s.fontSize);
+  const previewLayout = useSettingsStore((s) => s.previewLayout);
   const setTheme = useSettingsStore((s) => s.setTheme);
   const setColorTheme = useSettingsStore((s) => s.setColorTheme);
   const setLocale = useSettingsStore((s) => s.setLocale);
   const setSelectedModel = useSettingsStore((s) => s.setSelectedModel);
   const setFontSize = useSettingsStore((s) => s.setFontSize);
+  const setPreviewLayout = useSettingsStore((s) => s.setPreviewLayout);
   const aiAvatarUrl = useSettingsStore((s) => s.aiAvatarUrl);
   const setAiAvatarUrl = useSettingsStore((s) => s.setAiAvatarUrl);
   const userAvatarUrl = useSettingsStore((s) => s.userAvatarUrl);
@@ -222,6 +229,27 @@ export function GeneralTab() {
                   }`}
               >
                 {t(`settings.${m}`)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* File Preview Layout */}
+        <div>
+          <h3 className="text-[13px] font-medium text-text-primary mb-2">{t('settings.previewLayout')}</h3>
+          <div className="inline-flex rounded-lg border border-border-subtle overflow-hidden">
+            {PREVIEW_LAYOUTS.map((layout) => (
+              <button
+                key={layout.id}
+                onClick={() => setPreviewLayout(layout.id)}
+                className={`py-1.5 px-3 text-[13px] font-medium transition-smooth
+                  border-r border-border-subtle last:border-r-0 whitespace-nowrap
+                  ${previewLayout === layout.id
+                    ? 'bg-accent/10 text-accent'
+                    : 'text-text-muted hover:bg-bg-secondary'
+                  }`}
+              >
+                {t(layout.labelKey)}
               </button>
             ))}
           </div>

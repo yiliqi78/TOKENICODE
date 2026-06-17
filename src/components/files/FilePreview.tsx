@@ -104,16 +104,16 @@ const BINARY_EXTS = new Set(['zip', 'tar', 'gz', 'rar', '7z', 'exe', 'dmg', 'pkg
 type HighlightColor = 'red' | 'yellow' | 'green' | 'purple';
 
 const HIGHLIGHT_OPTIONS: Array<{ id: HighlightColor; label: string; className: string }> = [
-  { id: 'red', label: '红色', className: 'bg-red-500' },
-  { id: 'yellow', label: '黄色', className: 'bg-amber-400' },
-  { id: 'green', label: '绿色', className: 'bg-emerald-500' },
-  { id: 'purple', label: '紫色', className: 'bg-purple-500' },
+  { id: 'red', label: '红色', className: 'tc-highlight-swatch-red' },
+  { id: 'yellow', label: '黄色', className: 'tc-highlight-swatch-yellow' },
+  { id: 'green', label: '绿色', className: 'tc-highlight-swatch-green' },
+  { id: 'purple', label: '紫色', className: 'tc-highlight-swatch-purple' },
 ];
 
 interface HighlightMenuState {
   x: number;
   y: number;
-  text: string;
+  text: string | null;
   existing: boolean;
 }
 
@@ -163,17 +163,29 @@ function applyHighlightToContent(
   return `${content.slice(0, index)}<mark class="hltr-${color}">${selected}</mark>${content.slice(index + selected.length)}`;
 }
 
+function stripHighlightTags(content: string): string {
+  return content.replace(
+    /<mark\s+class=["']hltr-(red|yellow|green|purple)["']>([\s\S]*?)<\/mark>/g,
+    '$2',
+  );
+}
+
 function HighlightMenu({
   menu,
   onApply,
   onRemove,
+  onCopyAll,
+  onClearAll,
   onClose,
 }: {
   menu: HighlightMenuState;
   onApply: (color: HighlightColor) => void;
   onRemove: () => void;
+  onCopyAll: () => void;
+  onClearAll: () => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x: menu.x, y: menu.y });
 
@@ -207,33 +219,55 @@ function HighlightMenu({
   return createPortal(
     <div
       ref={ref}
-      className="fixed z-[10000] min-w-[156px] py-1.5 rounded-xl border border-border-subtle
-        bg-bg-card shadow-xl animate-fade-in"
+      className="tc-context-menu z-[10000] min-w-[196px] animate-fade-in"
       style={{ left: pos.x, top: pos.y }}
     >
-      <div className="px-3 pb-1.5 text-[10px] text-text-tertiary select-none">
-        高亮
-      </div>
-      {HIGHLIGHT_OPTIONS.map((option) => (
-        <button
-          key={option.id}
-          onClick={() => onApply(option.id)}
-          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs
-            text-text-primary hover:bg-bg-secondary transition-smooth"
-        >
-          <span className={`w-3 h-3 rounded-full ${option.className}`} />
-          {option.label}
-        </button>
-      ))}
-      {menu.existing && (
+      {menu.text && (
         <>
-          <div className="my-1 border-t border-border-subtle" />
+          <div className="tc-context-menu-label">
+            {t('files.highlight')}
+          </div>
+          {HIGHLIGHT_OPTIONS.map((option) => (
+            <button
+              key={option.id}
+              onClick={() => onApply(option.id)}
+              className="tc-context-menu-item"
+            >
+              <span className={`tc-highlight-swatch ${option.className}`} />
+              {t(`files.highlight.${option.id}`)}
+            </button>
+          ))}
+          {menu.existing && (
+            <button
+              onClick={onRemove}
+              className="tc-context-menu-item"
+            >
+              {t('files.removeHighlight')}
+            </button>
+          )}
+          <div className="tc-context-menu-separator" />
+        </>
+      )}
+      <button
+        onClick={onCopyAll}
+        className="tc-context-menu-item"
+      >
+        {t('files.copyAll')}
+      </button>
+      <button
+        onClick={onClearAll}
+        className="tc-context-menu-item"
+      >
+        {t('files.clearHighlights')}
+      </button>
+      {menu.text && !menu.existing && (
+        <>
+          <div className="tc-context-menu-separator" />
           <button
-            onClick={onRemove}
-            className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs
-              text-text-muted hover:text-text-primary hover:bg-bg-secondary transition-smooth"
+            onClick={onClose}
+            className="tc-context-menu-item"
           >
-            取消高亮
+            {t('common.cancel')}
           </button>
         </>
       )}
@@ -325,19 +359,18 @@ export function FilePreview() {
       ? selection.toString().trim()
       : '';
     const text = existingMark?.textContent?.trim() || selectedText;
-    if (!text) return;
 
     e.preventDefault();
     setHighlightMenu({
       x: e.clientX,
       y: e.clientY,
-      text,
+      text: text || null,
       existing: !!existingMark,
     });
   }, [isMarkdown, previewMode]);
 
   const updateHighlight = useCallback(async (color: HighlightColor | null) => {
-    if (!selectedFile || fileContent === null || !highlightMenu) return;
+    if (!selectedFile || fileContent === null || !highlightMenu?.text) return;
     const next = applyHighlightToContent(
       fileContent,
       highlightMenu.text,
@@ -358,6 +391,37 @@ export function FilePreview() {
       setHighlightMenu(null);
     }
   }, [selectedFile, fileContent, highlightMenu, reloadContent]);
+
+  const handleCopyAll = useCallback(async () => {
+    if (fileContent === null) return;
+    try {
+      await navigator.clipboard.writeText(stripHighlightTags(fileContent));
+      showToast(t('files.copiedAll'), 'success');
+    } catch (err) {
+      showToast(`${t('files.copyFailed')}: ${err}`, 'error');
+    } finally {
+      setHighlightMenu(null);
+    }
+  }, [fileContent, t]);
+
+  const handleClearAllHighlights = useCallback(async () => {
+    if (!selectedFile || fileContent === null) return;
+    const next = stripHighlightTags(fileContent);
+    if (next === fileContent) {
+      showToast(t('files.noHighlights'), 'success');
+      setHighlightMenu(null);
+      return;
+    }
+    try {
+      await bridge.writeFileContent(selectedFile, next);
+      await reloadContent();
+      showToast(t('files.highlightsCleared'), 'success');
+    } catch (err) {
+      showToast(`${t('files.clearHighlightsFailed')}: ${err}`, 'error');
+    } finally {
+      setHighlightMenu(null);
+    }
+  }, [selectedFile, fileContent, reloadContent, t]);
 
   /* Mode tabs for the header */
   const modeTabs = useMemo(() => {
@@ -390,7 +454,9 @@ export function FilePreview() {
   return (
     <div
       className="file-preview flex flex-col h-full rounded-lg bg-bg-card
-        shadow-[0_18px_50px_rgba(0,0,0,0.16)] dark:shadow-[0_18px_50px_rgba(0,0,0,0.46)]
+        border border-black/[0.055] dark:border-white/[0.075]
+        shadow-[0_1px_2px_rgba(0,0,0,0.022),0_3px_8px_rgba(0,0,0,0.028)]
+        dark:shadow-[0_1px_2px_rgba(0,0,0,0.022),0_3px_8px_rgba(0,0,0,0.028)]
         overflow-hidden"
       onKeyDown={handleKeyDown}
     >
@@ -708,6 +774,8 @@ export function FilePreview() {
           menu={highlightMenu}
           onApply={(color) => updateHighlight(color)}
           onRemove={() => updateHighlight(null)}
+          onCopyAll={handleCopyAll}
+          onClearAll={handleClearAllHighlights}
           onClose={() => setHighlightMenu(null)}
         />
       )}

@@ -477,6 +477,127 @@
   border-color: var(--color-border-focus-soft);
 }
 
+.tc-context-menu {
+  position: fixed;
+  padding: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  border-radius: 17px;
+  background: rgba(247, 247, 248, 0.96);
+  color: var(--color-text-primary);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.92),
+    0 18px 42px rgba(0, 0, 0, 0.18),
+    0 3px 10px rgba(0, 0, 0, 0.08);
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+}
+
+.dark .tc-context-menu {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(38, 38, 40, 0.96);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.10),
+    0 22px 48px rgba(0, 0, 0, 0.46),
+    0 3px 10px rgba(0, 0, 0, 0.24);
+}
+
+.tc-context-menu-item {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 520;
+  line-height: 20px;
+  letter-spacing: 0;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.tc-context-menu-item:hover {
+  background: rgba(0, 0, 0, 0.055);
+}
+
+.dark .tc-context-menu-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.tc-context-menu-item > svg,
+.tc-context-menu-icon {
+  width: 15px;
+  height: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+  transform: translateY(1px);
+}
+
+.tc-context-menu-icon > svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+
+.tc-context-menu-item-danger {
+  color: var(--color-error);
+}
+
+.tc-context-menu-item-danger:hover {
+  background: color-mix(in srgb, var(--color-error) 10%, transparent);
+}
+
+.tc-context-menu-separator {
+  height: 1px;
+  margin: 7px 12px;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.dark .tc-context-menu-separator {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.tc-context-menu-label {
+  padding: 5px 12px 3px;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  letter-spacing: 0;
+  user-select: none;
+}
+
+.tc-highlight-swatch {
+  width: 28px;
+  height: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 999px 5px 5px 999px;
+  flex-shrink: 0;
+}
+
+.tc-highlight-swatch-red {
+  background: #f8d0d0;
+}
+
+.tc-highlight-swatch-yellow {
+  background: #f8e0c0;
+}
+
+.tc-highlight-swatch-green {
+  background: #c8e8e0;
+}
+
+.tc-highlight-swatch-purple {
+  background: #e6d7f2;
+}
+
 .file-preview-markdown ::selection {
   background: var(--color-selection);
   color: inherit;
@@ -488,27 +609,54 @@
 }
 
 .file-preview-markdown mark[class^="hltr-"],
-.file-preview-markdown mark[class*=" hltr-"] {
+.file-preview-markdown mark[class*=" hltr-"],
+.file-preview-markdown .prose mark[class^="hltr-"],
+.file-preview-markdown .prose mark[class*=" hltr-"] {
   border-radius: 0.22em;
   padding: 0.05em 0.14em;
+  color: #111827 !important;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
 
-.file-preview-markdown .hltr-red {
-  background: rgba(239, 68, 68, 0.24);
+.file-preview-markdown mark.hltr-red,
+.file-preview-markdown .prose mark.hltr-red {
+  background-color: #f8d0d0 !important;
 }
 
-.file-preview-markdown .hltr-yellow {
-  background: rgba(245, 158, 11, 0.28);
+.file-preview-markdown mark.hltr-yellow,
+.file-preview-markdown .prose mark.hltr-yellow {
+  background-color: #f8e0c0 !important;
 }
 
-.file-preview-markdown .hltr-green {
-  background: rgba(16, 185, 129, 0.24);
+.file-preview-markdown mark.hltr-green,
+.file-preview-markdown .prose mark.hltr-green {
+  background-color: #c8e8e0 !important;
 }
 
-.file-preview-markdown .hltr-purple {
-  background: rgba(145, 105, 191, 0.26);
+.file-preview-markdown mark.hltr-purple,
+.file-preview-markdown .prose mark.hltr-purple {
+  background-color: #e6d7f2 !important;
+}
+
+.dark .file-preview-markdown mark.hltr-red,
+.dark .file-preview-markdown .prose mark.hltr-red {
+  background-color: rgba(251, 113, 133, 0.82) !important;
+}
+
+.dark .file-preview-markdown mark.hltr-yellow,
+.dark .file-preview-markdown .prose mark.hltr-yellow {
+  background-color: rgba(250, 204, 21, 0.88) !important;
+}
+
+.dark .file-preview-markdown mark.hltr-green,
+.dark .file-preview-markdown .prose mark.hltr-green {
+  background-color: rgba(52, 211, 153, 0.82) !important;
+}
+
+.dark .file-preview-markdown mark.hltr-purple,
+.dark .file-preview-markdown .prose mark.hltr-purple {
+  background-color: rgba(216, 180, 254, 0.84) !important;
 }
 
 /* ================================================================

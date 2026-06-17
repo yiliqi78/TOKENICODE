@@ -75,8 +75,12 @@ export function SecondaryPanel() {
 
       {/* Content */}
       <div className="flex-1 overflow-hidden">
-        {activeTab === 'files' && <FileExplorer />}
-        {activeTab === 'skills' && <SkillsPanel />}
+        <div className={activeTab === 'files' ? 'h-full' : 'hidden h-full'}>
+          <FileExplorer />
+        </div>
+        <div className={activeTab === 'skills' ? 'h-full' : 'hidden h-full'}>
+          <SkillsPanel />
+        </div>
       </div>
     </div>
   );

@@ -172,32 +172,24 @@ function ContextMenu({ menu, onClose, callbacks }: {
         }, 100);
       },
     },
-    {
-      label: t('files.openVscodeShort'),
-      icon: <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M4 3l8 5-8 5V3z" /></svg>,
-      action: () => { bridge.openInVscode(menu.path); onClose(); },
-    },
   ];
 
   return createPortal(
     <div
       ref={ref}
-      className="fixed z-[9999] min-w-[200px] py-1 rounded-xl border border-border-subtle
-        bg-bg-card shadow-lg animate-fade-in whitespace-nowrap"
+      className="tc-context-menu z-[9999] min-w-[220px] animate-fade-in whitespace-nowrap"
       style={{ left: pos.x, top: pos.y }}
     >
       {items.map((item, i) =>
         item === 'separator' ? (
-          <div key={i} className="my-1 border-t border-border-subtle" />
+          <div key={i} className="tc-context-menu-separator" />
         ) : (
           <button
             key={i}
             onClick={item.action}
-            className={`w-full flex items-center gap-2 px-3 py-2 text-[13px]
-              hover:bg-bg-secondary transition-smooth text-left cursor-pointer
-              ${item.danger ? 'text-error hover:bg-error/10' : 'text-text-primary'}`}
+            className={`tc-context-menu-item ${item.danger ? 'tc-context-menu-item-danger' : ''}`}
           >
-            <span className={`flex-shrink-0 ${item.danger ? 'text-error/60' : 'text-text-tertiary'}`}>
+            <span className="tc-context-menu-icon">
               {item.icon}
             </span>
             {item.label}

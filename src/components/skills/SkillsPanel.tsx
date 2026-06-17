@@ -259,19 +259,17 @@ export function SkillsPanel() {
       {contextMenu && createPortal(
         <div
           ref={menuRef}
-          className="fixed z-[9999] min-w-[180px] py-1 rounded-xl border border-border-subtle
-            bg-bg-card shadow-lg animate-fade-in"
+          className="tc-context-menu z-[9999] min-w-[190px] animate-fade-in"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           {/* Use in Input */}
           <button
             onClick={() => handleUseInInput(contextMenu.skill)}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary
-              hover:bg-bg-secondary transition-smooth text-left"
+            className="tc-context-menu-item"
           >
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
               stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
-              className="text-text-tertiary flex-shrink-0">
+              className="tc-context-menu-icon">
               <path d="M12 9v4H4V5h4" />
               <path d="M8 8l6-6M10 2h4v4" />
             </svg>
@@ -281,12 +279,11 @@ export function SkillsPanel() {
           {/* Edit */}
           <button
             onClick={() => handleEdit(contextMenu.skill)}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary
-              hover:bg-bg-secondary transition-smooth text-left"
+            className="tc-context-menu-item"
           >
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
               stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
-              className="text-text-tertiary flex-shrink-0">
+              className="tc-context-menu-icon">
               <path d="M11.5 1.5l3 3L5 14H2v-3l9.5-9.5z" />
             </svg>
             {t('skills.edit')}
@@ -295,12 +292,11 @@ export function SkillsPanel() {
           {/* Duplicate */}
           <button
             onClick={() => handleDuplicate(contextMenu.skill)}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary
-              hover:bg-bg-secondary transition-smooth text-left"
+            className="tc-context-menu-item"
           >
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
               stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
-              className="text-text-tertiary flex-shrink-0">
+              className="tc-context-menu-icon">
               <rect x="5" y="5" width="9" height="9" rx="1.5" />
               <path d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5" />
             </svg>
@@ -310,29 +306,27 @@ export function SkillsPanel() {
           {/* Reveal in Finder */}
           <button
             onClick={() => handleRevealInFinder(contextMenu.skill)}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary
-              hover:bg-bg-secondary transition-smooth text-left"
+            className="tc-context-menu-item"
           >
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
               stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
-              className="text-text-tertiary flex-shrink-0">
+              className="tc-context-menu-icon">
               <path d="M2 4h5l2 2h5v7a1 1 0 01-1 1H3a1 1 0 01-1-1V4z" />
             </svg>
             {t('skills.revealInFinder')}
           </button>
 
-          <div className="my-1 border-t border-border-subtle" />
+          <div className="tc-context-menu-separator" />
 
           {/* Delete */}
           <button
             onClick={() => handleDelete(contextMenu.skill)}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-error
-              hover:bg-error/10 transition-smooth text-left"
+            className="tc-context-menu-item tc-context-menu-item-danger"
           >
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
               stroke="currentColor" strokeWidth="1.5"
               strokeLinecap="round" strokeLinejoin="round"
-              className="flex-shrink-0">
+              className="tc-context-menu-icon">
               <path d="M2 4h12M5.333 4V2.667a1.333 1.333 0 011.334-1.334h2.666a1.333 1.333 0 011.334 1.334V4m2 0v9.333a1.333 1.333 0 01-1.334 1.334H4.667a1.333 1.333 0 01-1.334-1.334V4h9.334z" />
             </svg>
             {t('skills.delete')}

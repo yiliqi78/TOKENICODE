@@ -17,15 +17,22 @@ const COLLAPSE_THRESHOLD = 120;
 const MIN_SIDEBAR_WIDTH = 180;
 const MAX_SIDEBAR_WIDTH = 450;
 const SIDEBAR_COLLAPSE_THRESHOLD = 100;
+const MIN_CHAT_WIDTH = 360;
+const MIN_PREVIEW_WIDTH = 420;
+const MAX_PREVIEW_WIDTH = 1040;
 
 export function AppShell({ sidebar, main, secondary }: AppShellProps) {
   const sidebarOpen = useSettingsStore((s) => s.sidebarOpen);
   const sidebarWidth = useSettingsStore((s) => s.sidebarWidth);
   const secondaryPanelOpen = useSettingsStore((s) => s.secondaryPanelOpen);
   const secondaryPanelWidth = useSettingsStore((s) => s.secondaryPanelWidth);
+  const toggleSecondaryPanel = useSettingsStore((s) => s.toggleSecondaryPanel);
+  const previewLayout = useSettingsStore((s) => s.previewLayout);
+  const previewPanelWidth = useSettingsStore((s) => s.previewPanelWidth);
 
   /* File preview state — selected files open as a floating overlay over chat */
   const selectedFile = useFileStore((s) => s.selectedFile);
+  const closePreview = useFileStore((s) => s.closePreview);
   const isFilePreviewMode = !!selectedFile;
 
   // --- Right-side panel dragging (secondary) ---
@@ -36,6 +43,25 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
   // Refs to avoid re-registering global listeners when these values change
   const secondaryPanelWidthRef = useRef(secondaryPanelWidth);
   secondaryPanelWidthRef.current = secondaryPanelWidth;
+  const previewWasOpenRef = useRef(false);
+  const previewLayoutRef = useRef(previewLayout);
+  const mainPanelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const enteredPreview = isFilePreviewMode && !previewWasOpenRef.current;
+    const switchedToKeepList = isFilePreviewMode
+      && previewLayout === 'keep-list'
+      && previewLayoutRef.current !== 'keep-list';
+
+    if ((enteredPreview || switchedToKeepList)
+      && previewLayout === 'keep-list'
+      && !secondaryPanelOpen) {
+      toggleSecondaryPanel();
+    }
+
+    previewWasOpenRef.current = isFilePreviewMode;
+    previewLayoutRef.current = previewLayout;
+  }, [isFilePreviewMode, previewLayout, secondaryPanelOpen, toggleSecondaryPanel]);
 
   const handleRightMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -140,8 +166,72 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
     };
   }, []);
 
-  const showSidebar = sidebarOpen;
-  const showSecondary = secondaryPanelOpen;
+  // --- File preview dragging ---
+  const isPreviewDragging = useRef(false);
+  const previewStartX = useRef(0);
+  const previewStartWidth = useRef(0);
+
+  const previewPanelWidthRef = useRef(previewPanelWidth);
+  previewPanelWidthRef.current = previewPanelWidth;
+
+  const getMaxPreviewWidth = useCallback(() => {
+    const mainWidth = mainPanelRef.current?.getBoundingClientRect().width ?? window.innerWidth;
+    return Math.max(MIN_PREVIEW_WIDTH, Math.min(MAX_PREVIEW_WIDTH, mainWidth - MIN_CHAT_WIDTH));
+  }, []);
+
+  const handlePreviewMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isPreviewDragging.current = true;
+    previewStartX.current = e.clientX;
+    previewStartWidth.current = previewPanelWidthRef.current;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  useEffect(() => {
+    const handleMove = (e: MouseEvent) => {
+      if (!isPreviewDragging.current) return;
+      const delta = previewStartX.current - e.clientX;
+      const maxWidth = getMaxPreviewWidth();
+      useSettingsStore.getState().setPreviewPanelWidth(
+        Math.max(MIN_PREVIEW_WIDTH, Math.min(maxWidth, previewStartWidth.current + delta))
+      );
+    };
+
+    const handleUp = () => {
+      if (!isPreviewDragging.current) return;
+      isPreviewDragging.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+      if (isPreviewDragging.current) {
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+  }, [getMaxPreviewWidth]);
+
+  const keepFileList = previewLayout === 'keep-list';
+  const showSidebar = sidebarOpen && !(isFilePreviewMode && keepFileList);
+  const showSecondary = !!secondary
+    && (isFilePreviewMode ? keepFileList && secondaryPanelOpen : secondaryPanelOpen);
+  const previewWidth = Math.max(MIN_PREVIEW_WIDTH, Math.min(MAX_PREVIEW_WIDTH, previewPanelWidth));
+
+  const handlePreviewOutsideMouseDown = useCallback((e: React.MouseEvent) => {
+    if (!isFilePreviewMode) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('.file-preview-resize-handle')) return;
+    if (target.closest('.file-preview')) return;
+    if (target.closest('button, input, textarea, select, a, [contenteditable="true"], .ProseMirror')) return;
+    closePreview();
+  }, [isFilePreviewMode, closePreview]);
 
   return (
     <div className="flex h-full w-full overflow-hidden gradient-bg">
@@ -151,7 +241,7 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
         className="fixed top-0 left-0 right-0 h-[28px] z-50"
       />
 
-      {/* Sidebar — animates to w-0 when hidden */}
+      {/* Sidebar — animates to w-0 when hidden or previewing */}
       <div
         className="flex-shrink-0 transition-all duration-300 ease-out overflow-hidden"
         style={{ width: showSidebar ? `${sidebarWidth}px` : '0px' }}
@@ -176,22 +266,39 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
       )}
 
       {/* Main Panel — full-height, separated by vertical border lines */}
-      <div className="flex-1 min-w-0 flex flex-col bg-bg-chat overflow-hidden relative">
-        {main}
+      <div
+        ref={mainPanelRef}
+        className="flex-1 min-w-0 flex bg-bg-chat overflow-hidden"
+        onMouseDownCapture={handlePreviewOutsideMouseDown}
+      >
+        <div className="flex-1 min-w-[360px] flex flex-col overflow-hidden">
+          {main}
+        </div>
         {isFilePreviewMode && (
-          <div className="absolute inset-4 z-30 pointer-events-none animate-fade-in">
+          <div
+            className="relative flex-shrink-0 min-w-[420px] p-4 pl-3 animate-fade-in"
+            style={{ width: `${previewWidth}px`, maxWidth: `calc(100% - ${MIN_CHAT_WIDTH}px)` }}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) closePreview();
+            }}
+          >
             <div
-              className="absolute top-0 right-0 bottom-0 pointer-events-auto"
-              style={{ width: 'min(960px, max(62%, min(520px, calc(100% - 32px))))' }}
+              onMouseDown={handlePreviewMouseDown}
+              className="file-preview-resize-handle absolute inset-y-4 left-3 w-0
+                cursor-col-resize z-40 group"
             >
-              <FilePreview />
+              <div className="absolute inset-y-0 -left-2 -right-2 cursor-col-resize rounded-l-lg
+                after:absolute after:inset-y-2 after:left-1/2 after:w-px
+                after:-translate-x-1/2 after:bg-transparent
+                group-hover:after:bg-accent/25 after:transition-colors" />
             </div>
+            <FilePreview />
           </div>
         )}
       </div>
 
       {/* Secondary Panel resize handle — 同上：w-px 分隔线本体 + 悬浮热区，三处分隔线统一 */}
-      {secondary && showSecondary && (
+      {showSecondary && (
         <div
           onMouseDown={handleRightMouseDown}
           className="w-px h-full flex-shrink-0 relative cursor-col-resize z-10
