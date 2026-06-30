@@ -13,6 +13,8 @@ export interface McpServerConfig {
 export interface McpServer {
   name: string;
   config: McpServerConfig;
+  /** Where this server config was loaded from */
+  source: 'global' | 'claude-global' | 'project';
 }
 
 interface McpState {
@@ -64,7 +66,10 @@ function normalizeMcpServers(
   return raw;
 }
 
-function parseServers(mcpServers: Record<string, unknown> | undefined): McpServer[] {
+function parseServers(
+  mcpServers: Record<string, unknown> | undefined,
+  source: McpServer['source'] = 'global',
+): McpServer[] {
   const normalized = normalizeMcpServers(mcpServers);
   if (!normalized || typeof normalized !== 'object') return [];
   return Object.entries(normalized).map(([name, raw]) => {
@@ -77,8 +82,19 @@ function parseServers(mcpServers: Record<string, unknown> | undefined): McpServe
         env: (cfg.env as Record<string, string>) || {},
         type: (cfg.type as string) || 'stdio',
       },
+      source,
     };
   });
+}
+
+/** Read and parse a JSON file, returning null on any error */
+async function readJsonFile(filePath: string): Promise<Record<string, unknown> | null> {
+  try {
+    const content = await bridge.readFileContent(filePath);
+    return JSON.parse(content);
+  } catch {
+    return null;
+  }
 }
 
 // --- Store ---
@@ -92,6 +108,10 @@ export const useMcpStore = create<McpState>()((set) => ({
   fetchServers: async () => {
     set({ isLoading: true });
     try {
+      const home = await bridge.getHomeDir();
+      const allServers: McpServer[] = [];
+
+      // 1. ~/.claude.json (global, editable)
       const json = await readClaudeJson();
       const rawMcp = json.mcpServers as Record<string, unknown> | undefined;
       // Auto-fix double-nested mcpServers.mcpServers on disk
@@ -104,8 +124,34 @@ export const useMcpStore = create<McpState>()((set) => ({
         json.mcpServers = rawMcp.mcpServers;
         await writeClaudeJson(json);
       }
-      const servers = parseServers(json.mcpServers as Record<string, unknown> | undefined);
-      set({ servers, isLoading: false });
+      allServers.push(...parseServers(json.mcpServers as Record<string, unknown> | undefined, 'global'));
+
+      // 2. ~/.claude/.mcp.json (Claude global config, read-only)
+      const claudeGlobal = await readJsonFile(`${home}/.claude/.mcp.json`);
+      if (claudeGlobal) {
+        allServers.push(...parseServers(claudeGlobal.mcpServers as Record<string, unknown> | undefined || claudeGlobal, 'claude-global'));
+      }
+
+      // 3. Project-level .mcp.json (read-only)
+      // Try to get working directory from settingsStore (lazy import to avoid circular dep)
+      try {
+        const { useSettingsStore } = await import('./settingsStore');
+        const cwd = useSettingsStore.getState().workingDirectory;
+        if (cwd) {
+          const projMcp = await readJsonFile(`${cwd}/.mcp.json`);
+          if (projMcp) {
+            allServers.push(...parseServers(projMcp.mcpServers as Record<string, unknown> | undefined || projMcp, 'project'));
+          }
+        }
+      } catch { /* settingsStore not available yet */ }
+
+      // Deduplicate: later sources override earlier ones (project > claude-global > global)
+      const seen = new Map<string, McpServer>();
+      for (const s of allServers) {
+        seen.set(s.name, s);
+      }
+
+      set({ servers: Array.from(seen.values()), isLoading: false });
     } catch {
       set({ isLoading: false });
     }
@@ -122,7 +168,7 @@ export const useMcpStore = create<McpState>()((set) => ({
     };
     json.mcpServers = mcpServers;
     await writeClaudeJson(json);
-    const servers = parseServers(mcpServers);
+    const servers = parseServers(mcpServers, 'global');
     set({ servers, isAdding: false });
   },
 
@@ -140,7 +186,7 @@ export const useMcpStore = create<McpState>()((set) => ({
     };
     json.mcpServers = mcpServers;
     await writeClaudeJson(json);
-    const servers = parseServers(mcpServers);
+    const servers = parseServers(mcpServers, 'global');
     set({ servers, editingServer: null });
   },
 
@@ -150,7 +196,7 @@ export const useMcpStore = create<McpState>()((set) => ({
     delete mcpServers[name];
     json.mcpServers = mcpServers;
     await writeClaudeJson(json);
-    const servers = parseServers(mcpServers);
+    const servers = parseServers(mcpServers, 'global');
     set({ servers });
   },
 

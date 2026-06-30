@@ -560,13 +560,14 @@ export function InputBar() {
       case 'usage': {
         const meta = getActiveTabState().sessionMeta;
         const isOfficialProvider = useProviderStore.getState().activeProviderId === null;
+        const totalCacheRead = meta.totalCacheReadTokens ?? 0;
+        const totalCacheCreation = meta.totalCacheCreationTokens ?? 0;
+        const totalInput = meta.totalInputTokens ?? 0;
+        const cacheHitRate = totalInput > 0 ? Math.round((totalCacheRead / totalInput) * 100) : 0;
 
         if (isOfficialProvider) {
-          // Official Anthropic account: quota data is only available in the CLI REPL TUI.
-          // Show local session data + a hint to use the terminal.
           const hasData = meta.cost != null || meta.turns != null
             || meta.inputTokens != null || meta.outputTokens != null;
-          const totalInput = meta.totalInputTokens ?? 0;
           const totalOutput = meta.totalOutputTokens ?? 0;
           feedback('info', hasData ? t('cmd.usageTitle') : t('cmd.noSessionData'), {
             command: '/usage',
@@ -577,18 +578,23 @@ export function InputBar() {
               { label: t('cmd.usageTotalSession'), value: totalInput || totalOutput
                 ? `${totalInput.toLocaleString()} in / ${totalOutput.toLocaleString()} out`
                 : '—' },
+              ...(totalCacheRead > 0 || totalCacheCreation > 0 ? [
+                { label: t('cmd.usageCacheHit'), value: `${cacheHitRate}%` },
+                { label: t('cmd.usageCacheRead'), value: totalCacheRead.toLocaleString() },
+                { label: t('cmd.usageCacheCreated'), value: totalCacheCreation.toLocaleString() },
+              ] : []),
             ],
             hasData,
             hint: t('cmd.usageOfficialHint'),
           });
         } else {
-          // Third-party API provider: show detailed token breakdown.
           const hasData = meta.inputTokens != null || meta.outputTokens != null
             || meta.totalInputTokens != null || meta.totalOutputTokens != null;
           const turnInput = meta.inputTokens ?? 0;
           const turnOutput = meta.outputTokens ?? 0;
-          const totalInput = meta.totalInputTokens ?? 0;
           const totalOutput = meta.totalOutputTokens ?? 0;
+          const turnCacheRead = meta.cacheReadTokens ?? 0;
+          const turnCacheCreation = meta.cacheCreationTokens ?? 0;
           feedback('info', hasData ? t('cmd.usageTitle') : t('cmd.noSessionData'), {
             command: '/usage',
             title: t('cmd.usageTitle'),
@@ -596,8 +602,17 @@ export function InputBar() {
               { label: t('cmd.costModel'), value: modelLabel(meta.model || useSettingsStore.getState().selectedModel) },
               { label: `${t('cmd.usageCurrentTurn')} — ${t('cmd.usageInput')}`, value: turnInput.toLocaleString() },
               { label: `${t('cmd.usageCurrentTurn')} — ${t('cmd.usageOutput')}`, value: turnOutput.toLocaleString() },
+              ...(turnCacheRead > 0 || turnCacheCreation > 0 ? [
+                { label: `${t('cmd.usageCurrentTurn')} — ${t('cmd.usageCacheRead')}`, value: turnCacheRead.toLocaleString() },
+                { label: `${t('cmd.usageCurrentTurn')} — ${t('cmd.usageCacheCreated')}`, value: turnCacheCreation.toLocaleString() },
+              ] : []),
               { label: `${t('cmd.usageTotalSession')} — ${t('cmd.usageInput')}`, value: totalInput.toLocaleString() },
               { label: `${t('cmd.usageTotalSession')} — ${t('cmd.usageOutput')}`, value: totalOutput.toLocaleString() },
+              ...(totalCacheRead > 0 || totalCacheCreation > 0 ? [
+                { label: t('cmd.usageCacheHit'), value: `${cacheHitRate}%` },
+                { label: `${t('cmd.usageTotalSession')} — ${t('cmd.usageCacheRead')}`, value: totalCacheRead.toLocaleString() },
+                { label: `${t('cmd.usageTotalSession')} — ${t('cmd.usageCacheCreated')}`, value: totalCacheCreation.toLocaleString() },
+              ] : []),
               { label: t('cmd.usageTotal'), value: (totalInput + totalOutput).toLocaleString() },
               { label: t('cmd.costAmount'), value: meta.cost != null ? `$${meta.cost.toFixed(4)}` : '—' },
             ],

@@ -126,6 +126,16 @@ export interface SessionMeta {
   totalInputTokens?: number;
   /** Cumulative output tokens across ALL turns in this session/task */
   totalOutputTokens?: number;
+  /** Cache creation tokens from message_start (new cache entries written this turn) */
+  cacheCreationTokens?: number;
+  /** Cache read tokens from message_start (tokens read from existing cache this turn) */
+  cacheReadTokens?: number;
+  /** Cumulative cache creation tokens across ALL turns */
+  totalCacheCreationTokens?: number;
+  /** Cumulative cache read tokens across ALL turns */
+  totalCacheReadTokens?: number;
+  /** Context window max for the current model (auto-detected or user-configured) */
+  contextWindowMax?: number;
   /** Timestamp (Date.now()) when the current turn started — used for elapsed timer */
   turnStartTime?: number;
   /** Timestamp of last stream activity — used for stall detection instead of total elapsed */

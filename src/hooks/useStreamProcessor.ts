@@ -163,6 +163,8 @@ function markStdinReady(tabId: string, stdinId: string | undefined, model: strin
       lastProgressAt: startedAt,
       inputTokens: 0,
       outputTokens: 0,
+      cacheCreationTokens: 0,
+      cacheReadTokens: 0,
     } : {}),
     ...(pendingReady?.stdinId === stdinId ? { pendingReadyMessage: undefined } : {}),
   });
@@ -901,12 +903,20 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           }
         }
         // Track tokens in background sessions (per-turn + cumulative total)
+        // Also track cache creation and cache read tokens
         if (evt.type === 'message_start' && evt.message?.usage?.input_tokens) {
           const bgTab = store.getTab(tabId);
-          const delta = evt.message.usage.input_tokens;
+          const usage = evt.message.usage;
+          const inputDelta = usage.input_tokens || 0;
+          const cacheCreationDelta = usage.cache_creation_input_tokens || 0;
+          const cacheReadDelta = usage.cache_read_input_tokens || 0;
           store.setSessionMeta(tabId, {
-            inputTokens: (bgTab?.sessionMeta.inputTokens || 0) + delta,
-            totalInputTokens: (bgTab?.sessionMeta.totalInputTokens || 0) + delta,
+            inputTokens: (bgTab?.sessionMeta.inputTokens || 0) + inputDelta,
+            totalInputTokens: (bgTab?.sessionMeta.totalInputTokens || 0) + inputDelta,
+            cacheCreationTokens: (bgTab?.sessionMeta.cacheCreationTokens || 0) + cacheCreationDelta,
+            cacheReadTokens: (bgTab?.sessionMeta.cacheReadTokens || 0) + cacheReadDelta,
+            totalCacheCreationTokens: (bgTab?.sessionMeta.totalCacheCreationTokens || 0) + cacheCreationDelta,
+            totalCacheReadTokens: (bgTab?.sessionMeta.totalCacheReadTokens || 0) + cacheReadDelta,
           });
         }
         if (evt.type === 'message_delta' && evt.usage?.output_tokens) {
@@ -1886,12 +1896,20 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         }
 
         // Track input tokens from message_start (per-turn + cumulative total)
+        // Also track cache creation and cache read tokens
         if (evt.type === 'message_start' && evt.message?.usage?.input_tokens) {
           const meta = useChatStore.getState().getTab(tabId)?.sessionMeta ?? {};
-          const delta = evt.message.usage.input_tokens;
+          const usage = evt.message.usage;
+          const inputDelta = usage.input_tokens || 0;
+          const cacheCreationDelta = usage.cache_creation_input_tokens || 0;
+          const cacheReadDelta = usage.cache_read_input_tokens || 0;
           setSessionMeta({
-            inputTokens: (meta.inputTokens || 0) + delta,
-            totalInputTokens: (meta.totalInputTokens || 0) + delta,
+            inputTokens: (meta.inputTokens || 0) + inputDelta,
+            totalInputTokens: (meta.totalInputTokens || 0) + inputDelta,
+            cacheCreationTokens: (meta.cacheCreationTokens || 0) + cacheCreationDelta,
+            cacheReadTokens: (meta.cacheReadTokens || 0) + cacheReadDelta,
+            totalCacheCreationTokens: (meta.totalCacheCreationTokens || 0) + cacheCreationDelta,
+            totalCacheReadTokens: (meta.totalCacheReadTokens || 0) + cacheReadDelta,
           });
         }
 
