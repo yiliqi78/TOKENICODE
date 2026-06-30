@@ -237,7 +237,15 @@ function formatApiRetryText(retry: ApiRetryStatus, t: (key: string) => string): 
 /** Activity indicator with elapsed time and token count */
 function ActivityIndicator({ activityStatus, sessionMeta, sessionStatus }: {
   activityStatus: { phase: string; toolName?: string };
-  sessionMeta: { turnStartTime?: number; outputTokens?: number; inputTokens?: number; lastProgressAt?: number; apiRetry?: ApiRetryStatus };
+  sessionMeta: {
+    turnStartTime?: number; outputTokens?: number; inputTokens?: number;
+    totalInputTokens?: number; totalOutputTokens?: number;
+    cacheCreationTokens?: number; cacheReadTokens?: number;
+    totalCacheCreationTokens?: number; totalCacheReadTokens?: number;
+    contextWindowMax?: number;
+    lastProgressAt?: number; apiRetry?: ApiRetryStatus;
+    model?: string; spawnedModel?: string;
+  };
   sessionStatus?: string;
 }) {
   const t = useT();
@@ -270,13 +278,20 @@ function ActivityIndicator({ activityStatus, sessionMeta, sessionStatus }: {
     : null;
 
   // Context pressure warning: threshold depends on model context window size
-  // 1M models → warn at 600K; others at 120K (60% of 200K).
+  // Uses cumulative tokens (totalInputTokens) for accurate context pressure
   const selectedModel = useSettingsStore((s) => s.selectedModel);
-  const resolvedModel = resolveModelForProvider(selectedModel);
+  const resolvedModel = resolveModelForProvider(sessionMeta.spawnedModel || selectedModel);
   const is1MContextModel = isOneMillionModel(resolvedModel);
-  const contextWindow = is1MContextModel ? 1_000_000 : 200_000;
-  const inputTokens = sessionMeta.inputTokens || 0;
-  const contextWarning = !isStopping && inputTokens > contextWindow * 0.6;
+  const contextWindow = sessionMeta.contextWindowMax || (is1MContextModel ? 1_000_000 : 200_000);
+  const totalInput = sessionMeta.totalInputTokens || 0;
+  const totalOutput = sessionMeta.totalOutputTokens || 0;
+  const contextUsed = totalInput + totalOutput;
+  const contextPercent = Math.min(100, Math.round((contextUsed / contextWindow) * 100));
+  const contextWarning = !isStopping && contextPercent > 60;
+
+  // Cache hit rate from cumulative data
+  const totalCacheRead = sessionMeta.totalCacheReadTokens || 0;
+  const cacheHitRate = totalInput > 0 ? Math.round((totalCacheRead / totalInput) * 100) : 0;
 
   // Stall detection: 120s of silence (no stream activity), not total elapsed time.
   const stallWarning = !isStopping
@@ -310,12 +325,36 @@ function ActivityIndicator({ activityStatus, sessionMeta, sessionStatus }: {
         </span>
       )}
       {contextWarning && !stallWarning && (
-        <span className="text-xs text-amber-500 ml-2 flex items-center gap-1"
-              title={t('chat.tokenWarning')}>
-          <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+        <span className="ml-2 flex items-center gap-2 text-xs"
+              title={`Input: ${totalInput.toLocaleString()} | Output: ${totalOutput.toLocaleString()} | Cache: ${totalCacheRead.toLocaleString()}`}>
+          {/* Mini progress bar */}
+          <span className="flex items-center gap-1.5">
+            <span className="w-16 h-1.5 rounded-full bg-bg-secondary overflow-hidden">
+              <span
+                className={`h-full rounded-full transition-all duration-500 ${
+                  contextPercent > 80 ? 'bg-red-500' : 'bg-amber-500'
+                }`}
+                style={{ width: `${Math.min(100, contextPercent)}%` }}
+              />
+            </span>
+            <span className={contextPercent > 80 ? 'text-red-400' : 'text-amber-500'}>
+              {contextPercent}%
+            </span>
+          </span>
+          {/* Cache hit rate */}
+          {cacheHitRate > 0 && (
+            <span className="text-text-tertiary flex items-center gap-0.5" title={t('chat.cacheHitRate')}>
+              <svg className="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <rect x="2" y="2" width="12" height="12" rx="2" />
+                <path d="M5 8h6M8 5v6" />
+              </svg>
+              {cacheHitRate}%
+            </span>
+          )}
+          {/* Warning icon */}
+          <svg className={`w-3.5 h-3.5 flex-shrink-0 ${contextPercent > 80 ? 'text-red-400' : 'text-amber-500'}`} viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.168 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
           </svg>
-          {t('chat.tokenWarning')}
         </span>
       )}
     </div>

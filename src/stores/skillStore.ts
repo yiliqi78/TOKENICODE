@@ -1,6 +1,12 @@
 import { create } from 'zustand';
 import { bridge, SkillInfo } from '../lib/tauri-bridge';
 
+export interface SkillHealthIssue {
+  name: string;
+  path: string;
+  issue: 'empty' | 'unreadable' | 'missing';
+}
+
 interface SkillState {
   skills: SkillInfo[];
   isLoading: boolean;
@@ -14,6 +20,10 @@ interface SkillState {
   editContent: string | null;
   isSaving: boolean;
 
+  // Health check
+  healthIssues: SkillHealthIssue[];
+  isCheckingHealth: boolean;
+
   // Actions
   fetchSkills: (cwd?: string) => Promise<void>;
   selectSkill: (skill: SkillInfo) => Promise<void>;
@@ -24,6 +34,8 @@ interface SkillState {
   deleteSkill: (skill: SkillInfo) => Promise<void>;
   createSkill: (name: string, scope: 'global' | 'project', cwd: string, content: string) => Promise<void>;
   toggleEnabled: (skill: SkillInfo) => Promise<void>;
+  checkHealth: () => Promise<void>;
+  clearHealthIssues: () => void;
 }
 
 export const useSkillStore = create<SkillState>()((set, get) => ({
@@ -34,6 +46,8 @@ export const useSkillStore = create<SkillState>()((set, get) => ({
   isLoadingContent: false,
   editContent: null,
   isSaving: false,
+  healthIssues: [],
+  isCheckingHealth: false,
 
   fetchSkills: async (cwd?: string) => {
     set({ isLoading: true });
@@ -130,4 +144,24 @@ export const useSkillStore = create<SkillState>()((set, get) => ({
       console.error('Failed to toggle skill:', e);
     }
   },
+
+  checkHealth: async () => {
+    const { skills } = get();
+    if (skills.length === 0) return;
+    set({ isCheckingHealth: true });
+    const issues: SkillHealthIssue[] = [];
+    for (const skill of skills) {
+      try {
+        const content = await bridge.readSkill(skill.path);
+        if (!content || content.trim().length === 0) {
+          issues.push({ name: skill.name, path: skill.path, issue: 'empty' });
+        }
+      } catch {
+        issues.push({ name: skill.name, path: skill.path, issue: 'unreadable' });
+      }
+    }
+    set({ healthIssues: issues, isCheckingHealth: false });
+  },
+
+  clearHealthIssues: () => set({ healthIssues: [] }),
 }));

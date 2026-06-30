@@ -2,6 +2,7 @@ import { useCallback, useRef, useEffect, useState } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useFileStore } from '../../stores/fileStore';
 import { FilePreview } from '../files/FilePreview';
+import { StatusBar } from './StatusBar';
 
 interface AppShellProps {
   sidebar: React.ReactNode;
@@ -238,7 +239,10 @@ export function AppShell({ sidebar, main, secondary }: AppShellProps) {
 
       {/* Main Panel — full-height, separated by vertical border lines */}
       <div className="flex-1 min-w-0 flex flex-col bg-bg-chat overflow-hidden">
-        {main}
+        <div className="flex-1 min-h-0 overflow-hidden">
+          {main}
+        </div>
+        <StatusBar />
       </div>
 
       {/* File Preview resize handle — w-px 分隔线本体 + 悬浮热区，与侧栏手柄一致，避免 7px 透明缝隙露出背景 */}
