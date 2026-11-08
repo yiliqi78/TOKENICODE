@@ -18,6 +18,7 @@ import { APP_NAME, IS_ALPHA } from './lib/edition';
 import { useAgentStore } from './stores/agentStore';
 import { bridge, onFileChange } from './lib/tauri-bridge';
 import { parseSessionMessages } from './lib/session-loader';
+import { setHomeDir } from './stores/fileReveal';
 import { hasRecoverableFrontendSession } from './lib/sessionLifecycle';
 import { useAutoUpdateCheck } from './hooks/useAutoUpdateCheck';
 import { useT } from './lib/i18n';
@@ -104,6 +105,11 @@ function App() {
 
   // Auto-check for app updates on startup
   useAutoUpdateCheck();
+
+  // 家目录用于把聊天里的 `~/xxx` 展开成绝对路径，供文件定位使用
+  useEffect(() => {
+    bridge.getHomeDir().then(setHomeDir).catch(() => {});
+  }, []);
 
   // CLI update detection: check on startup + poll every 30 minutes
   useEffect(() => {

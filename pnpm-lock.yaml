@@ -50,6 +50,9 @@ importers:
       '@codemirror/legacy-modes':
         specifier: ^6.5.2
         version: 6.5.2
+      '@codemirror/state':
+        specifier: ^6.5.4
+        version: 6.5.4
       '@codemirror/view':
         specifier: ^6.39.14
         version: 6.39.14

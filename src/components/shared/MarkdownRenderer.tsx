@@ -7,7 +7,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { useLightboxStore } from './ImageLightbox';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useFileStore } from '../../stores/fileStore';
-import { classifyPathToken, resolvePathToken, KNOWN_FILE_EXTENSIONS } from '../../stores/fileReveal';
+import { classifyPathToken, resolvePathToken, splitPathAndLine, KNOWN_FILE_EXTENSIONS } from '../../stores/fileReveal';
 import { bridge } from '../../lib/tauri-bridge';
 import { useT } from '../../lib/i18n';
 
@@ -512,16 +512,22 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
       // Fenced code blocks (language-xxx) — don't intercept, let <pre> handle them
       if (className) return <code className={className}>{children}</code>;
 
-      const text = extractText(children).trim();
+      const raw = extractText(children).trim();
+      const { path: text, line } = splitPathAndLine(raw);
       const kind = classifyPathToken(text);
       if (kind) {
         const resolved = resolvePathToken(text, resolveBase);
         return (
           <button
             onClick={() => {
-              // 纯定位：右侧文件区展开到该路径并高亮（不读内容、不预览）
               useSettingsStore.getState().setSecondaryTab('files');
-              useFileStore.getState().revealPath(resolved);
+              if (kind === 'folder') {
+                // 文件夹只展开定位
+                useFileStore.getState().revealPath(resolved);
+                return;
+              }
+              // 文件：只在右侧文件树里展开定位高亮，预览等用户点右侧栏那一行
+              useFileStore.getState().revealOrOpen(resolved, line);
             }}
             className="inline-flex items-center gap-1 px-2 py-0.5 mx-0.5
               bg-bg-secondary border border-accent/50 rounded-full

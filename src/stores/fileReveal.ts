@@ -12,9 +12,18 @@ export const KNOWN_FILE_EXTENSIONS = new Set([
   'gif', 'svg', 'webp', 'ico', 'wasm', 'map', 'pdf', 'doc', 'docx',
 ]);
 
-/** 明确的路径前缀：绝对/相对/盘符/隐藏目录（.claude/ .github/）/常见项目目录。
+/** 家目录缓存。由 App 启动时从 Rust 侧取一次，供 `~/` 路径展开使用。 */
+let _homeDir = '';
+export function setHomeDir(home: string): void {
+  _homeDir = home.replace(/\\/g, '/').replace(/\/+$/, '');
+}
+export function getHomeDir(): string {
+  return _homeDir;
+}
+
+/** 明确的路径前缀：绝对/相对/家目录/盘符/隐藏目录（.claude/ .github/）/常见项目目录。
  *  命中前缀即视为路径，扩展名可选（来自 #110 的前缀检测）。 */
-const PATH_PREFIX_RE = /^(?:\/|\.\/|\.\.\/|[a-zA-Z]:[/\\]|\.[a-zA-Z][\w.-]*\/|src\/|lib\/|components\/|stores\/|hooks\/|utils\/|tests\/|__tests__\/)/;
+const PATH_PREFIX_RE = /^(?:\/|~\/|\.\/|\.\.\/|[a-zA-Z]:[/\\]|\.[a-zA-Z][\w.-]*\/|src\/|lib\/|components\/|stores\/|hooks\/|utils\/|tests\/|__tests__\/)/;
 
 /**
  * 判断一段反引号内的文本是不是路径，是文件还是文件夹。
@@ -41,15 +50,64 @@ export function classifyPathToken(text: string): 'file' | 'folder' | null {
 
 /** 把路径文本解析成绝对路径（相对路径拼到 base 下），并去掉末尾斜杠，便于和文件树节点匹配。 */
 export function resolvePathToken(text: string, base: string): string {
-  const cleaned = text.trim().replace(/\/+$/, '');
+  const cleaned = text.trim().replace(/\\/g, '/').replace(/\/+$/, '');
+  // `~/xxx` 展开到家目录；家目录还没加载时原样返回，交给调用方处理
+  if (cleaned === '~' || cleaned.startsWith('~/')) {
+    const home = getHomeDir();
+    if (!home) return cleaned;
+    const rest = cleaned.slice(1).replace(/^\/+/, '');
+    return rest ? `${home}/${rest}` : home;
+  }
   if (cleaned.startsWith('/') || /^[a-zA-Z]:[/\\]/.test(cleaned)) return cleaned;
-  return base ? `${base.replace(/\/$/, '')}/${cleaned}` : cleaned;
+  return base ? `${normalizePath(base)}/${cleaned}` : cleaned;
 }
 
-/** 去掉路径末尾的斜杠（一个或多个）；根 '/' 本身保留。 */
+/**
+ * 拆出 `路径:行号` 或 `路径:起行-止行` 里的行号。
+ *
+ * 只认紧贴路径末尾的 `:数字`，避免误伤 `http://x:8080` 这类带冒号的普通文本
+ * （它们本来也过不了 classifyPathToken，这里只做尾部摘除）。
+ */
+export function splitPathAndLine(text: string): { path: string; line: number | null } {
+  const m = text.trim().match(/^(.*?):(\d+)(?:-(\d+))?$/);
+  if (!m) return { path: text.trim(), line: null };
+  const line = Number(m[2]);
+  if (!Number.isFinite(line) || line <= 0) return { path: text.trim(), line: null };
+  return { path: m[1], line };
+}
+
+/**
+ * 路径归一：反斜杠统一成正斜杠，折叠重复斜杠，再去掉末尾斜杠（一个或多个）。
+ *
+ * Rust 侧 `path.to_string_lossy()` 在 Windows 上给的是 `D:\a\b`，前端
+ * `resolvePathToken` 拼的是 `D:/a/b`。两边直接比字符串永远不等，于是
+ * 工作区内的文件也会被判成「树里没有」。所有比较前都先过这一道。
+ *
+ * 中间的重复斜杠也要折叠：工作目录若带尾反斜杠（`D:\proj\`），拼出来的
+ * 是 `D:\proj\/src/a.ts`，转完正斜杠会剩 `//`，严格比对同样失败。
+ * UNC 路径开头的 `//server` 双斜杠保留。
+ * 单独的根 `/` 和盘符根 `D:/` 保留末尾斜杠。
+ */
 export function normalizePath(p: string): string {
-  if (p === '/') return p;
-  return p.replace(/\/+$/, '');
+  const slashed = p.replace(/\\/g, '/');
+  const isUnc = slashed.startsWith('//');
+  const body = (isUnc ? slashed.slice(2) : slashed).replace(/\/{2,}/g, '/');
+  const folded = isUnc ? `//${body}` : body;
+  if (folded === '/' || /^[A-Za-z]:\/$/.test(folded)) return folded;
+  return folded.replace(/\/+$/, '');
+}
+
+/**
+ * 递归把文件树节点的 path 归一成正斜杠。
+ * 结构没变时返回原对象，避免无谓的引用变化触发重渲染。
+ */
+export function normalizeTreePaths(nodes: FileNode[]): FileNode[] {
+  return nodes.map((node) => {
+    const path = normalizePath(node.path);
+    const children = node.children ? normalizeTreePaths(node.children) : node.children;
+    if (path === node.path && children === node.children) return node;
+    return { ...node, path, children };
+  });
 }
 
 /**
