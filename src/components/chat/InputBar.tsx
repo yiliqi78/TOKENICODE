@@ -3,6 +3,7 @@ import { useChatStore, useActiveTab, getActiveTabState, generateMessageId, isSes
 import { useSettingsStore, MODEL_OPTIONS, mapSessionModeToPermissionMode, setSessionModeLocal, type ThinkingLevel } from '../../stores/settingsStore';
 import { bridge, type UnifiedCommand } from '../../lib/tauri-bridge';
 import { ModelSelector } from './ModelSelector';
+import { contextUsagePercent, contextWindowFor, formatTokenCount } from '../../lib/context-usage';
 // import { ModeSelector } from './ModeSelector';
 import { FileUploadChips } from './FileUploadChips';
 import { RewindPanel } from './RewindPanel';
@@ -25,6 +26,9 @@ import { QuestionCard } from './QuestionCard';
 import { TiptapEditor, type TiptapEditorHandle } from './TiptapEditor';
 import { spawnSession, teardownSession, cleanupStdinRoute, waitForStdinCleared } from '../../lib/sessionLifecycle';
 import type { FileAttachment } from '../../hooks/useFileAttachments';
+
+/** API 支持内联的图片类型（与 Rust 侧 is_inline_image_media_type 一致）；svg / bmp / ico 只给路径 */
+const INLINE_IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 // drag-state import removed — tree drag handled by ChatPanel
 
 /** Thinking effort level configuration data */
@@ -183,6 +187,29 @@ function PlanToggleButton() {
 /* PlanApprovalBar removed — PlanReviewCard (triggered by ExitPlanMode detection)
    is the proper plan approval UI. The fallback bar was too broad: it appeared on
    every completed session in plan/bypass mode, even without a real plan. */
+
+/** 输入框右下角的上下文占用（#102）：最近一次请求的 prompt 大小 / 模型窗口 */
+function ContextUsageBadge() {
+  const t = useT();
+  const contextTokens = useActiveTab((tab) => tab.sessionMeta.contextTokens || 0);
+  const selectedModel = useSettingsStore((s) => s.selectedModel);
+  if (contextTokens <= 0) return null;
+  const window = contextWindowFor(selectedModel);
+  const pct = contextUsagePercent(contextTokens, window);
+  const tone = pct >= 85 ? 'text-red-400' : pct >= 60 ? 'text-amber-500' : 'text-text-muted';
+  const title = t('chat.contextUsage')
+    .replace('{used}', formatTokenCount(contextTokens))
+    .replace('{window}', formatTokenCount(window))
+    .replace('{pct}', String(pct));
+  return (
+    <span
+      className={`text-[10px] tabular-nums px-1.5 py-0.5 rounded-md select-none ${tone}`}
+      title={title}
+    >
+      {t('chat.contextUsageShort').replace('{pct}', String(pct))}
+    </span>
+  );
+}
 
 export function InputBar() {
   const t = useT();
@@ -826,6 +853,12 @@ export function InputBar() {
       const filePaths = files.map((f) => f.path).join('\n');
       text = `${text}\n\n${t('input.attachedFiles')}\n${filePaths}`;
     }
+    // 图片附件同时作为 base64 image block 随消息发送（#105）：第三方 API / 协议转换层下
+    // CLI 的 Read 工具返不回图片块，模型只能看到路径。正文里仍保留路径给 CLI 的工具用。
+    const imageAttachments = files
+      .filter((f) => f.isImage && INLINE_IMAGE_MIMES.has(f.type))
+      .map((f) => ({ path: f.path, media_type: f.type }));
+    const inlineImages = imageAttachments.length > 0 ? imageAttachments : undefined;
 
     // Gate: queue follow-up messages while AI is actively processing (#142).
     // IMPORTANT: when queueing, do NOT addMessage to messages[] — ChatPanel
@@ -1077,14 +1110,14 @@ export function InputBar() {
               // ===== Send via stdin to existing persistent process (pre-warmed or follow-up) =====
               if (!stdinReady) {
                 setSessionMeta(tabId, {
-                  pendingReadyMessage: { stdinId, text },
+                  pendingReadyMessage: { stdinId, text, images: inlineImages },
                 });
                 console.log('[TOKENICODE] pre-warm process not ready yet — holding first message until system:init');
                 return;
               }
               try {
                 markTurnThinking();
-                await bridge.sendStdin(stdinId, text);
+                await bridge.sendStdin(stdinId, text, inlineImages);
                 sentViaStdin = true;
                 // Defensive: ensure spawnedModel is always recorded after first successful stdin send
                 if (!getActiveTabState().sessionMeta.spawnedModel) {
@@ -1182,6 +1215,7 @@ export function InputBar() {
             provider_id: useProviderStore.getState().activeProviderId || undefined,
             permission_mode: mapSessionModeToPermissionMode(liveSessionMode),
             model_switch: didSwitchModel ? true : undefined,
+            images: inlineImages,
           },
           onStream: handleStreamMessage,
           onStderr: (line: string) => handleStderrLine(line, preGeneratedId),
@@ -1686,6 +1720,9 @@ export function InputBar() {
 
           {/* Spacer */}
           <div className="flex-1" />
+
+          {/* Context usage (#102) */}
+          <ContextUsageBadge />
 
           {/* Plan view button */}
           <PlanToggleButton />

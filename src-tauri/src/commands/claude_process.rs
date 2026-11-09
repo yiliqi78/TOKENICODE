@@ -187,6 +187,15 @@ impl BypassModeMap {
     }
 }
 
+/// 随用户消息一起发给 CLI 的图片附件（#105）。
+/// 前端把图片以 base64 image block 塞进 prompt，模型直接看到图片，
+/// 不再依赖 CLI 的 Read 工具——第三方 API / 协议转换层下 Read 往往返不回图片块。
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ImageAttachment {
+    pub path: String,
+    pub media_type: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct StartSessionParams {
     pub prompt: String,
@@ -213,4 +222,6 @@ pub struct StartSessionParams {
     /// before resuming. This prevents "invalid thinking signature" 400 errors when switching
     /// to a different model that can't verify the old model's cryptographic signatures.
     pub model_switch: Option<bool>,
+    /// 图片附件：有则 content 变成 text + image(base64) 的 block 数组（见 build_user_content）。
+    pub images: Option<Vec<ImageAttachment>>,
 }

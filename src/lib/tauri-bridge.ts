@@ -27,6 +27,14 @@ export interface StartSessionParams {
    *  before resuming. This prevents "invalid thinking signature" 400 errors when switching
    *  to a different model that can't verify the old model's cryptographic signatures. */
   model_switch?: boolean;
+  /** 图片附件（#105）：Rust 侧读成 base64 image block 随首条消息一起发，模型直接看到图片 */
+  images?: ImageAttachment[];
+}
+
+/** 随用户消息内联发送的图片（path 为本地文件，media_type 为 image/png 等） */
+export interface ImageAttachment {
+  path: string;
+  media_type: string;
 }
 
 export interface SessionInfo {
@@ -203,8 +211,8 @@ export const bridge = {
   sendMessage: (sessionId: string, message: string) =>
     invoke<void>('send_message', { sessionId, message }),
 
-  sendStdin: (sessionId: string, message: string) =>
-    invoke<void>('send_stdin', { sessionId, message }),
+  sendStdin: (sessionId: string, message: string, images?: ImageAttachment[]) =>
+    invoke<void>('send_stdin', { sessionId, message, images }),
 
   sendRawStdin: (sessionId: string, message: string) =>
     invoke<void>('send_raw_stdin', { sessionId, message }),

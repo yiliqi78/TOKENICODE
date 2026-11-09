@@ -14,7 +14,8 @@ import { AgentPanel } from '../agents/AgentPanel';
 // bridge import removed — spawn goes through sessionLifecycle module
 import { open } from '@tauri-apps/plugin-dialog';
 import { useT } from '../../lib/i18n';
-import { envFingerprint, is1MModel as isOneMillionModel, resolveModelForProvider, spawnConfigHash } from '../../lib/api-provider';
+import { envFingerprint, resolveModelForProvider, spawnConfigHash } from '../../lib/api-provider';
+import { CONTEXT_WARN_RATIO, contextWindowFor } from '../../lib/context-usage';
 import { useProviderStore } from '../../stores/providerStore';
 import { spawnSession } from '../../lib/sessionLifecycle';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
@@ -234,10 +235,13 @@ function formatApiRetryText(retry: ApiRetryStatus, t: (key: string) => string): 
   return `${base.replace('{attempt}', attempt ? ` ${attempt}` : '')}${delayText}`;
 }
 
+/** 「正在启动 Agent」持续多久后换成排查提示 */
+const SLOW_START_MS = 30_000;
+
 /** Activity indicator with elapsed time and token count */
 function ActivityIndicator({ activityStatus, sessionMeta, sessionStatus }: {
   activityStatus: { phase: string; toolName?: string };
-  sessionMeta: { turnStartTime?: number; outputTokens?: number; inputTokens?: number; lastProgressAt?: number; apiRetry?: ApiRetryStatus };
+  sessionMeta: { turnStartTime?: number; outputTokens?: number; inputTokens?: number; contextTokens?: number; lastProgressAt?: number; apiRetry?: ApiRetryStatus };
   sessionStatus?: string;
 }) {
   const t = useT();
@@ -252,9 +256,14 @@ function ActivityIndicator({ activityStatus, sessionMeta, sessionStatus }: {
   const retryStatus = !isStopping ? sessionMeta.apiRetry : undefined;
   const isStarting = sessionStatus === 'running'
     && activityStatus.phase === 'idle';
+  // 启动超过 30 秒还没有任何流事件：换成带排查方向的提示，别让用户干等「正在启动」
+  const startingTooLong = isStarting
+    && !!sessionMeta.turnStartTime
+    && (now - sessionMeta.turnStartTime) > SLOW_START_MS;
   const retryText = retryStatus ? formatApiRetryText(retryStatus, t) : null;
   const phaseText = isStopping ? t('chat.stopping')
     : retryText ? retryText
+    : startingTooLong ? t('chat.startingSlow')
     : isStarting ? t('chat.startingAgent')
     : activityStatus.phase === 'thinking' ? t('chat.thinking')
     : activityStatus.phase === 'writing' ? t('chat.writing')
@@ -271,12 +280,11 @@ function ActivityIndicator({ activityStatus, sessionMeta, sessionStatus }: {
 
   // Context pressure warning: threshold depends on model context window size
   // 1M models → warn at 600K; others at 120K (60% of 200K).
+  // 口径：最近一次主代理请求的完整 prompt（contextTokens），不是只含未命中缓存的 inputTokens
   const selectedModel = useSettingsStore((s) => s.selectedModel);
-  const resolvedModel = resolveModelForProvider(selectedModel);
-  const is1MContextModel = isOneMillionModel(resolvedModel);
-  const contextWindow = is1MContextModel ? 1_000_000 : 200_000;
-  const inputTokens = sessionMeta.inputTokens || 0;
-  const contextWarning = !isStopping && inputTokens > contextWindow * 0.6;
+  const contextWindow = contextWindowFor(selectedModel);
+  const contextTokens = sessionMeta.contextTokens || 0;
+  const contextWarning = !isStopping && contextTokens > contextWindow * CONTEXT_WARN_RATIO;
 
   // Stall detection: 120s of silence (no stream activity), not total elapsed time.
   const stallWarning = !isStopping
@@ -333,6 +341,8 @@ export function ChatPanel() {
   const activityStatus = useActiveTab((t) => t.activityStatus);
   const pendingUserMessages = useActiveTab((t) => t.pendingUserMessages);
   const sidebarOpen = useSettingsStore((s) => s.sidebarOpen);
+  // 第三方 Provider 下模型 ID 是用户在映射里填的原始字符串，不做美化（#140）
+  const activeProviderId = useProviderStore((s) => s.activeProviderId);
   const toggleSidebar = useSettingsStore((s) => s.toggleSidebar);
   const toggleSecondaryPanel = useSettingsStore((s) => s.toggleSecondaryPanel);
   const agentPanelOpen = useSettingsStore((s) => s.agentPanelOpen);
@@ -489,7 +499,7 @@ export function ChatPanel() {
         <div className="flex items-center gap-3 pointer-events-none">
           {sessionMeta.model && (
             <span className="text-sm font-medium text-text-muted">
-              {getModelDisplayName(sessionMeta.model)}
+              {activeProviderId ? sessionMeta.model : getModelDisplayName(sessionMeta.model)}
             </span>
           )}
           {workingDirectory && (

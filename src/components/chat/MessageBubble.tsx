@@ -807,7 +807,7 @@ export const ToolUseMsg = memo(function ToolUseMsg({ message }: Props) {
         sections.push(
           <pre key="input" className="text-[11px] text-text-tertiary
             overflow-x-auto font-mono leading-relaxed
-            max-h-32 overflow-y-auto whitespace-pre-wrap">
+            max-h-32 overflow-y-auto whitespace-pre-wrap break-all">
             {typeof input === 'string' ? input : JSON.stringify(input, null, 2)}
           </pre>
         );
@@ -825,7 +825,7 @@ export const ToolUseMsg = memo(function ToolUseMsg({ message }: Props) {
       sections.push(
         <pre key="result" className="text-[11px] text-text-tertiary
           overflow-x-auto font-mono leading-relaxed
-          max-h-48 overflow-y-auto whitespace-pre-wrap">
+          max-h-48 overflow-y-auto whitespace-pre-wrap break-all">
           {resultContent}
         </pre>
       );
@@ -929,7 +929,7 @@ function ToolResultMsg({ message }: Props) {
       {expanded && content && (
         <pre className="ml-5 mt-0.5 text-[11px] text-text-tertiary
           overflow-x-auto font-mono leading-relaxed
-          max-h-48 overflow-y-auto whitespace-pre-wrap">
+          max-h-48 overflow-y-auto whitespace-pre-wrap break-all">
           {content}
         </pre>
       )}
@@ -955,7 +955,7 @@ function ThinkingMsg({ message }: Props) {
           {t('msg.thinking')}
         </summary>
         <pre className="ml-5 mt-0.5 text-[11px] text-text-tertiary
-          whitespace-pre-wrap max-h-48 overflow-y-auto
+          whitespace-pre-wrap break-all max-h-48 overflow-y-auto
           font-mono leading-relaxed">
           {safeContent(message.content)}
         </pre>

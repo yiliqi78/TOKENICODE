@@ -3,6 +3,8 @@ import Markdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import rehypeHighlight from 'rehype-highlight';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { useLightboxStore } from './ImageLightbox';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -311,9 +313,12 @@ async function loadRemarkPlugins(): Promise<RemarkPlugin[]> {
     remarkPluginsPromise = Promise.all([
       import('remark-gfm'),
       import('remark-cjk-friendly'),
+      import('remark-math'),
     ])
-      .then(([gfmMod, cjkMod]) => {
-        cachedRemarkPlugins = [gfmMod.default, cjkMod.default];
+      .then(([gfmMod, cjkMod, mathMod]) => {
+        // LaTeX（#107）：只认 $$...$$（块级与行内），不认单个 $，
+        // 避免 "$5 和 $10"、"$HOME 和 $PATH" 这类正文被当成公式。
+        cachedRemarkPlugins = [gfmMod.default, cjkMod.default, [mathMod.default, { singleDollarTextMath: false }]];
         return cachedRemarkPlugins;
       })
       .catch((error) => {
@@ -327,7 +332,9 @@ async function loadRemarkPlugins(): Promise<RemarkPlugin[]> {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const REHYPE_PLUGINS: any[] = [rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA], rehypeHighlight];
+// rehypeKatex 放在 sanitize 之后：KaTeX 输出的 span/style/MathML 不能被 sanitize 剥掉；
+// remark-math 产出的 code.math-inline / math-display 本身是 sanitize 默认放行的 class。
+const REHYPE_PLUGINS: any[] = [rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA], rehypeKatex, rehypeHighlight];
 
 /** Error boundary scoped to a single markdown block.
  *  A malformed message (e.g. truncated table from rate-limit) crashes only
