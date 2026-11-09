@@ -6,7 +6,9 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
-## [0.11.1] - 2026-11-09
+## [0.11.2] - 2026-11-09
+
+> 稳定版跳过 0.11.1：该 tag 已被 tokenicode-7 版（Tiny 自用版）占用，两者共用同一更新通道。
 
 ### 新增
 
