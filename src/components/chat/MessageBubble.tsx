@@ -2,7 +2,7 @@ import { memo, useState, useCallback, type ReactNode } from 'react';
 import { type ChatMessage } from '../../stores/chatStore';
 import { useFileStore } from '../../stores/fileStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { classifyPathToken, resolvePathToken } from '../../stores/fileReveal';
+import { classifyPathToken, resolvePathToken, splitPathAndLine } from '../../stores/fileReveal';
 import { useLightboxStore } from '../shared/ImageLightbox';
 import { useT } from '../../lib/i18n';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
@@ -61,18 +61,25 @@ function getFileExt(name: string): string {
 
 /** Render a single backtick-inner segment: file path → clickable chip, else → inline code */
 function renderCodeSegment(inner: string, key: number): ReactNode {
-  const kind = classifyPathToken(inner);
+  // 支持 `路径:123` / `路径:12-34`：摘掉行号后再判断是不是路径
+  const { path: pathText, line } = splitPathAndLine(inner);
+  const kind = classifyPathToken(pathText);
   if (kind) {
     const wd = useSettingsStore.getState().workingDirectory || '';
-    const resolved = resolvePathToken(inner, wd);
+    const resolved = resolvePathToken(pathText, wd);
     return (
       <button
         key={key}
         onClick={(e) => {
           e.stopPropagation();
-          // 纯定位：右侧文件区展开到该路径并高亮（不读内容、不预览）
           useSettingsStore.getState().setSecondaryTab('files');
-          useFileStore.getState().revealPath(resolved);
+          if (kind === 'folder') {
+            // 文件夹只展开定位
+            useFileStore.getState().revealPath(resolved);
+            return;
+          }
+          // 文件：只在右侧文件树里展开定位高亮，预览等用户点右侧栏那一行
+          useFileStore.getState().revealOrOpen(resolved, line);
         }}
         className="inline-flex items-center gap-1 px-2 py-0.5 mx-0.5
           bg-white/15 border border-white/40 rounded-full
@@ -583,7 +590,13 @@ export const ToolUseMsg = memo(function ToolUseMsg({ message }: Props) {
           <button
             onClick={(e) => {
               e.stopPropagation();
-              useFileStore.getState().selectFile(input.file_path);
+              useSettingsStore.getState().setSecondaryTab('files');
+              // Read 工具带 offset（0-based），定位到读取的起始行
+              const line = toolName === 'Read' && typeof input.offset === 'number'
+                ? input.offset + 1
+                : null;
+              // 工具卡也属于正文：只定位，不抢占右侧预览
+              useFileStore.getState().revealOrOpen(input.file_path, line);
             }}
             className="text-[11px] text-accent/70 hover:text-accent font-mono
               truncate max-w-[280px] hover:underline cursor-pointer transition-smooth"

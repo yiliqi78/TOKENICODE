@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { classifyPathToken, computeRevealExpansions, findNodeByPath, normalizePath, reconcilePathToRoot, resolvePathToken } from '../fileReveal';
+import {
+  classifyPathToken, computeRevealExpansions, findNodeByPath, normalizePath,
+  normalizeTreePaths, reconcilePathToRoot, resolvePathToken, setHomeDir, splitPathAndLine,
+} from '../fileReveal';
 import type { FileNode } from '../../lib/tauri-bridge';
 
 describe('normalizePath', () => {
@@ -12,6 +15,48 @@ describe('normalizePath', () => {
   });
   it('根斜杠保留', () => {
     expect(normalizePath('/')).toBe('/');
+  });
+  it('反斜杠统一成正斜杠', () => {
+    expect(normalizePath('D:\\ccSwitch\\src\\a.ts')).toBe('D:/ccSwitch/src/a.ts');
+  });
+  it('盘符根保留末尾斜杠', () => {
+    expect(normalizePath('D:\\')).toBe('D:/');
+  });
+  it('折叠中间重复斜杠', () => {
+    expect(normalizePath('D:/proj//src///a.ts')).toBe('D:/proj/src/a.ts');
+  });
+  it('尾反斜杠拼出的混合分隔符也归一到同一形态', () => {
+    expect(normalizePath('D:\\proj\\/src/a.ts')).toBe('D:/proj/src/a.ts');
+  });
+  it('UNC 路径开头的双斜杠保留', () => {
+    expect(normalizePath('\\\\server\\share\\a.ts')).toBe('//server/share/a.ts');
+  });
+});
+
+describe('normalizeTreePaths（树节点路径归一）', () => {
+  it('递归把 node.path 转成正斜杠，其余字段不动', () => {
+    const tree: FileNode[] = [
+      { name: 'src', path: 'D:\\ccSwitch\\src', is_dir: true, children: [
+        { name: 'a.ts', path: 'D:\\ccSwitch\\src\\a.ts', is_dir: false, children: null },
+      ] },
+    ];
+    expect(normalizeTreePaths(tree)).toEqual([
+      { name: 'src', path: 'D:/ccSwitch/src', is_dir: true, children: [
+        { name: 'a.ts', path: 'D:/ccSwitch/src/a.ts', is_dir: false, children: null },
+      ] },
+    ]);
+  });
+  it('归一后能被 findNodeByPath 按正斜杠绝对路径命中', () => {
+    const tree = normalizeTreePaths([
+      { name: 'src', path: 'D:\\ccSwitch\\src', is_dir: true, children: [
+        { name: 'a.ts', path: 'D:\\ccSwitch\\src\\a.ts', is_dir: false, children: null },
+      ] },
+    ]);
+    expect(findNodeByPath(tree, 'D:/ccSwitch/src/a.ts')?.name).toBe('a.ts');
+  });
+  it('路径本来就规范时返回原对象', () => {
+    const node: FileNode = { name: 'a.md', path: '/root/a.md', is_dir: false, children: null };
+    expect(normalizeTreePaths([node])[0]).toBe(node);
   });
 });
 
@@ -155,6 +200,36 @@ describe('resolvePathToken（相对路径拼成绝对路径）', () => {
   });
   it('base 带末尾斜杠也兼容', () => {
     expect(resolvePathToken('a.md', '/root/')).toBe('/root/a.md');
+  });
+  it('base 带尾反斜杠也兼容（Windows 工作目录常见）', () => {
+    expect(resolvePathToken('a.md', 'D:\\proj\\')).toBe('D:/proj/a.md');
+  });
+});
+
+describe('resolvePathToken 展开 ~', () => {
+  it('~/x 展开到家目录', () => {
+    setHomeDir('C:\\Users\\me\\');
+    expect(resolvePathToken('~/.claude.json', '/project')).toBe('C:/Users/me/.claude.json');
+  });
+  it('家目录未加载时原样返回', () => {
+    setHomeDir('');
+    expect(resolvePathToken('~/a.md', '/project')).toBe('~/a.md');
+  });
+});
+
+describe('splitPathAndLine（路径尾部的行号）', () => {
+  it('单行号', () => {
+    expect(splitPathAndLine('src/a.ts:12')).toEqual({ path: 'src/a.ts', line: 12 });
+  });
+  it('行号区间取起始行', () => {
+    expect(splitPathAndLine('lib.rs:40-52')).toEqual({ path: 'lib.rs', line: 40 });
+  });
+  it('没有行号', () => {
+    expect(splitPathAndLine('src/a.ts')).toEqual({ path: 'src/a.ts', line: null });
+  });
+  it('带端口的 URL 即使拆出数字，也不会被当成文件路径', () => {
+    const parsed = splitPathAndLine('http://x:8080');
+    expect(classifyPathToken(parsed.path)).toBe(null);
   });
 });
 

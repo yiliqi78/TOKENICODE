@@ -23,6 +23,11 @@ export const tokenicodeTheme = EditorView.theme({
   '.cm-activeLine': {
     backgroundColor: 'var(--color-accent-glow)',
   },
+  // 「聊天点路径 → 预览定位」的目标行高亮
+  '.cm-reveal-line': {
+    backgroundColor: 'color-mix(in srgb, var(--color-accent) 18%, transparent)',
+    boxShadow: 'inset 2px 0 0 var(--color-accent)',
+  },
   '.cm-cursor, .cm-dropCursor': {
     borderLeftColor: 'var(--color-accent)',
   },
