@@ -6,6 +6,18 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
+## [Unreleased]
+
+### 新增
+
+- **运行日志落盘 + 一键导出诊断包** —— 稳定性问题（内存瞬间几十 GB、读不了图、偶发重启后恢复）数量不多但风险最高，之前生产包里 Rust `eprintln!` 与前端 `console.log` 都不落盘，只能「重启试试」。现在接入 `tauri-plugin-log`：
+  - 日志写到系统日志目录（macOS `~/Library/Logs/com.tinyzhuang.tokenicode/tokenicode.log`，Windows `%LOCALAPPDATA%\com.tinyzhuang.tokenicode\logs\`），带毫秒时间戳；单文件 5 MB 轮转，保留 5 份历史。
+  - Rust 侧 CLI 进程生命周期、spawn 参数、stdin 发送失败、权限协议、文件树扫描耗时与节点数等 118 处 `eprintln!` 全部迁到 `log::info!/warn!/error!`；前端 `console.warn/error` 与 `[TOKENICODE]` 前缀日志转发到同一份文件。
+  - 所有日志行写入前脱敏（API Key、Bearer、JWT、`*_API_KEY=` / `token:` 键值、URL 密码与 `?key=` 参数）。
+  - 设置 → 反馈 新增「打开日志目录」「导出诊断包」：zip 内含最近日志、应用 / CLI 版本、系统信息、当前 Provider（仅域名）与模型、最近一个会话 ID。
+
+---
+
 ## [0.11.0] - 2026-06-10
 
 ### 新增

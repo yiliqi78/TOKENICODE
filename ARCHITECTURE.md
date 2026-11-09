@@ -179,6 +179,16 @@ Environment variables injected:
 - Provider-specific: `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, custom env vars
 - Proxy vars from login shell (macOS/Linux GUI apps don't inherit them)
 
+### Logging & Diagnostics (`diagnostics.rs`)
+
+Production builds used to log only via `eprintln!` / `console.log`, which never reach disk. Now:
+
+- **tauri-plugin-log** is registered first in `run()`. Rust code uses `log::info!/warn!/error!` (no `eprintln!` left in `lib.rs`); the webview forwards `console.warn/error` and `[TOKENICODE]`-prefixed logs via `src/lib/log-forwarder.ts` into the same file.
+- **Location**: `app_log_dir()` → macOS `~/Library/Logs/com.tinyzhuang.tokenicode/tokenicode.log`, Windows `%LOCALAPPDATA%\com.tinyzhuang.tokenicode\logs\`, Linux `~/.local/share/com.tinyzhuang.tokenicode/logs/`.
+- **Rotation**: 5 MB per file, rotated files renamed `tokenicode_<timestamp>.log`, 5 rotated files kept (`RotationStrategy::KeepSome`). Level: Info in release, Debug in dev (dev also mirrors to stderr).
+- **Redaction**: every line passes through `redact_secrets()` (sk- keys, Bearer, JWT, `*_API_KEY=` / `token:` pairs, URL userinfo and `?key=` params); env dumps already go through `redacted_env_for_log()`.
+- **Commands**: `get_log_dir`, `open_log_dir`, `export_diagnostics(dest, meta)` — the latter writes a zip with `logs/*.log` (re-redacted), `diagnostics.json` (app/CLI/OS versions, provider host-only, model, last session id) and a README. Surfaced in Settings → Feedback.
+
 ### Binary Discovery
 
 `find_claude_binary()` searches in priority order:
@@ -359,6 +369,7 @@ App.tsx
 | Auto-update | `useAutoUpdateCheck.ts`, `UpdateButton.tsx` |
 | CLI installation | `lib.rs` → `install_claude_cli()`, `install_cli_via_npm()`, `install_node_env_inner()` |
 | Windows git-bash | `lib.rs` → `find_git_bash()`, `install_git_bash_inner()` |
+| Logs / diagnostics bundle | `diagnostics.rs`, `lib/log-forwarder.ts`, `FeedbackTab.tsx`; log file at `~/Library/Logs/com.tinyzhuang.tokenicode/` (macOS) |
 
 ### Build Commands
 

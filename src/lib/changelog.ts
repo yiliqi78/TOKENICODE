@@ -19,6 +19,36 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    // 未发布：发版时把 version / date 改成实际值
+    version: '0.11.1',
+    date: '2026-11-09',
+    highlights: {
+      zh: [
+        '运行日志自动落盘，设置 → 反馈 可一键打开日志目录、导出诊断包',
+        '日志已脱敏：不含 API Key、Token、代理密码',
+      ],
+      en: [
+        'Runtime logs are now written to disk; Settings → Feedback can open the log folder and export a diagnostics bundle',
+        'Logs are redacted: no API keys, tokens or proxy passwords',
+      ],
+    },
+    categories: [
+      {
+        label: { zh: '新增', en: 'New' },
+        items: {
+          zh: [
+            '日志落盘 — Rust 与前端日志写入同一份带时间戳的文件（macOS 在 ~/Library/Logs/com.tinyzhuang.tokenicode/），单文件 5 MB 轮转、保留 5 份，排查内存暴涨 / 无响应 / 崩溃重启不再只能「重启试试」',
+            '导出诊断包 — 一个 zip 装齐最近日志、应用与 CLI 版本、系统信息、当前 Provider（仅域名）与模型、最近会话 ID，随反馈一起发给我们',
+          ],
+          en: [
+            'Logs on disk — Rust and webview logs share one timestamped file (macOS: ~/Library/Logs/com.tinyzhuang.tokenicode/), rotated at 5 MB with 5 files kept, so memory spikes / hangs / crash-restarts are no longer "try restarting" only',
+            'Export diagnostics — one zip with recent logs, app and CLI versions, OS info, current provider (host only) and model, and the latest session id, ready to attach to feedback',
+          ],
+        },
+      },
+    ],
+  },
+  {
     version: '0.11.0',
     date: '2026-06-10',
     highlights: {

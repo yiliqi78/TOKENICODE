@@ -66,13 +66,27 @@ impl StdinManager {
             stdin
                 .write_all(payload.as_bytes())
                 .await
-                .map_err(|e| format!("Failed to write to stdin: {}", e))?;
-            stdin
-                .flush()
-                .await
-                .map_err(|e| format!("Failed to flush stdin: {}", e))?;
+                .map_err(|e| {
+                    // stdin 写失败意味着 CLI 进程已死或管道已断，是「发了没反应」的直接证据
+                    log::error!(
+                        "[stdin] write failed for {}: {} ({} bytes)",
+                        id,
+                        e,
+                        payload.len()
+                    );
+                    format!("Failed to write to stdin: {}", e)
+                })?;
+            stdin.flush().await.map_err(|e| {
+                log::error!("[stdin] flush failed for {}: {}", id, e);
+                format!("Failed to flush stdin: {}", e)
+            })?;
             Ok(())
         } else {
+            log::warn!(
+                "[stdin] no handle for session {} ({} bytes dropped)",
+                id,
+                message.len()
+            );
             Err(format!("No stdin handle for session: {}", id))
         }
     }

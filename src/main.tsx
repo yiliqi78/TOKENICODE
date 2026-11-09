@@ -1,6 +1,17 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { installConsoleForwarder, isTauriRuntime } from "./lib/log-forwarder";
+
+// 尽早接管 console：warn/error 与 [TOKENICODE] 前缀日志落到 Rust 侧的轮转日志文件。
+// 纯浏览器（pnpm dev）下跳过，转发失败也不能影响启动。
+if (isTauriRuntime()) {
+  try {
+    installConsoleForwarder();
+  } catch {
+    // ignore
+  }
+}
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },

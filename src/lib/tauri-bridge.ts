@@ -496,7 +496,40 @@ export const bridge = {
 
   /** Check whether FEISHU_* env vars were baked in at build time. */
   feedbackIsConfigured: () => invoke<boolean>('feedback_is_configured'),
+
+  // --- Diagnostics (日志落盘 + 诊断包，见 src-tauri/src/diagnostics.rs) ---
+
+  /** 应用日志目录（macOS: ~/Library/Logs/com.tinyzhuang.tokenicode）。 */
+  getLogDir: () => invoke<string>('get_log_dir'),
+
+  /** 用系统文件管理器打开日志目录，返回目录路径。 */
+  openLogDir: () => invoke<string>('open_log_dir'),
+
+  /** 把最近日志 + 诊断元数据打成 zip 写到 destPath（由保存对话框选定）。 */
+  exportDiagnostics: (destPath: string, meta: DiagnosticsMeta) =>
+    invoke<DiagnosticsExportResult>('export_diagnostics', { destPath, meta }),
 };
+
+/** 诊断包元数据。Provider 地址在 Rust 侧裁成 scheme + host，这里传原值即可。 */
+export interface DiagnosticsMeta {
+  app_name: string;
+  app_version: string;
+  locale?: string;
+  provider_name?: string;
+  provider_preset?: string;
+  provider_api_format?: string;
+  provider_base_url?: string;
+  model?: string;
+  session_id?: string;
+  cli_version?: string;
+  cli_path?: string;
+}
+
+export interface DiagnosticsExportResult {
+  path: string;
+  bytes: number;
+  log_files: Array<{ name: string; bytes: number }>;
+}
 
 /** Metadata collected alongside user feedback for server-side diagnostics.
  *  OS / arch are filled in by the Rust side from std::env::consts. */
