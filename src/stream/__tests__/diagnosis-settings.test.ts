@@ -162,6 +162,47 @@ describe('Root Cause 2: AskUserQuestion dual-path race', () => {
     // This fallback SHOULD work... unless there are multiple unresolved questions
   });
 
+  it('answers dict must be keyed by question text, not index (CLI protocol)', () => {
+    // Regression: answers keyed by index ({"0": "红色"}) makes the CLI return
+    // "The user did not answer the questions." — the CLI matches answers by
+    // the exact question string. Verified end-to-end against Claude Code 2.1.233.
+    const questions = [
+      { question: '你最喜欢什么颜色？', header: '颜色', options: [{ label: '红色' }, { label: '蓝色' }], multiSelect: false },
+      { question: '你的经验水平？', options: [{ label: '初级' }, { label: '高级' }], multiSelect: false },
+    ];
+    const selectedMap: Record<number, Set<number>> = { 0: new Set([0]), 1: new Set([1]) };
+    const useOther: Record<number, boolean> = {};
+    const otherText: Record<number, string> = {};
+
+    function buildAnswers() {
+      const answers: Record<string, string> = {};
+      questions.forEach((q, qIdx) => {
+        if (!q.question) return;
+        if (useOther[qIdx] && otherText[qIdx]?.trim()) {
+          answers[q.question] = otherText[qIdx].trim();
+        } else {
+          const selected = selectedMap[qIdx] || new Set<number>();
+          const labels = Array.from(selected)
+            .map((i) => q.options[i]?.label)
+            .filter(Boolean);
+          if (labels.length > 0) {
+            answers[q.question] = labels.join(', ');
+          }
+        }
+      });
+      return answers;
+    }
+
+    const answers = buildAnswers();
+    expect(answers).toEqual({
+      '你最喜欢什么颜色？': '红色',
+      '你的经验水平？': '高级',
+    });
+    // 关键断言：不能以索引为 key
+    expect(answers['0']).toBeUndefined();
+    expect(answers['1']).toBeUndefined();
+  });
+
   it('awaitingSdkPatch blocks interaction when permissionData is missing', () => {
     // Simulate QuestionCard.tsx:92
     function isBlocked(resolved: boolean, permissionData: { requestId?: string } | undefined): boolean {

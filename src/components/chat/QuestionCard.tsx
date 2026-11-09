@@ -133,15 +133,19 @@ export function QuestionCard({ message, floating }: Props) {
       const { setInteractionState, setSessionStatus, setActivityStatus } = useChatStore.getState();
       const answers: Record<string, string> = {};
       questions.forEach((q, qIdx) => {
+        // CLI 协议要求 answers 的 key 是问题文本（question），不是索引。
+        // 用索引作为 key 时 CLI 无法匹配问题，会把结果当作
+        // "The user did not answer the questions." 处理。
+        if (!q.question) return;
         if (useOther[qIdx] && otherText[qIdx]?.trim()) {
-          answers[String(qIdx)] = otherText[qIdx].trim();
+          answers[q.question] = otherText[qIdx].trim();
         } else {
           const selected = selectedMap[qIdx] || new Set<number>();
           const labels = Array.from(selected)
             .map((i) => q.options[i]?.label)
             .filter(Boolean);
           if (labels.length > 0) {
-            answers[String(qIdx)] = labels.join(', ');
+            answers[q.question] = labels.join(', ');
           }
         }
       });
