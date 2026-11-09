@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { contextUsagePercent, formatTokenCount, promptSizeFromUsage } from '../context-usage';
+import { contextUsagePercent, effectiveContextTokens, formatTokenCount, promptSizeFromUsage } from '../context-usage';
 
 describe('context usage (#102)', () => {
   it('sums uncached input with cache creation and cache read tokens', () => {
@@ -13,6 +13,13 @@ describe('context usage (#102)', () => {
     expect(contextUsagePercent(0, 200_000)).toBe(0);
     expect(contextUsagePercent(250_000, 200_000)).toBe(100);
     expect(contextUsagePercent(1000, 0)).toBe(0);
+  });
+
+  it('prefers contextTokens from message_start and falls back to result input_tokens', () => {
+    expect(effectiveContextTokens(85_500, { input_tokens: 1200 })).toBe(85_500);
+    expect(effectiveContextTokens(0, { input_tokens: 1200 })).toBe(1200);
+    expect(effectiveContextTokens(undefined, { input_tokens: 1200 })).toBe(1200);
+    expect(effectiveContextTokens(undefined, undefined)).toBe(0);
   });
 
   it('formats token counts compactly', () => {

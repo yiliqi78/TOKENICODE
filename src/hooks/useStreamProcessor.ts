@@ -1,4 +1,4 @@
-import { promptSizeFromUsage } from '../lib/context-usage';
+import { effectiveContextTokens, promptSizeFromUsage } from '../lib/context-usage';
 import { useCallback, useRef, type MutableRefObject } from 'react';
 import { useChatStore, generateMessageId, type ChatMessage } from '../stores/chatStore';
 import { useSettingsStore, mapSessionModeToPermissionMode, getEffectiveMode, getEffectiveThinking } from '../stores/settingsStore';
@@ -902,13 +902,15 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           }
         }
         // Track tokens in background sessions (per-turn + cumulative total)
-        if (evt.type === 'message_start' && evt.message?.usage?.input_tokens) {
+        if (evt.type === 'message_start' && evt.message?.usage) {
           const bgTab = store.getTab(tabId);
-          const delta = evt.message.usage.input_tokens;
+          const delta = evt.message.usage.input_tokens || 0;
+          const promptSize = promptSizeFromUsage(evt.message.usage);
           store.setSessionMeta(tabId, {
             inputTokens: (bgTab?.sessionMeta.inputTokens || 0) + delta,
             totalInputTokens: (bgTab?.sessionMeta.totalInputTokens || 0) + delta,
-            contextTokens: promptSizeFromUsage(evt.message.usage),
+            // 只记主代理的请求：子代理（parent_tool_use_id）有自己的上下文，不能覆盖主会话的占用
+            ...(msg.parent_tool_use_id || promptSize <= 0 ? {} : { contextTokens: promptSize }),
           });
         }
         if (evt.type === 'message_delta' && evt.usage?.output_tokens) {
@@ -1305,12 +1307,14 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         // S13 fix: Auto-compact for background tabs (same as foreground)
         {
           const bgCompactTab = store.getTab(tabId);
-          const bgResultInputTokens = msg.usage?.input_tokens || 0;
+          // 口径：最近一次主代理请求的完整 prompt（含 cache_read / cache_creation），
+          // result 的 input_tokens 不含缓存且是整轮累加，不能直接比窗口
+          const bgResultInputTokens = effectiveContextTokens(bgCompactTab?.sessionMeta.contextTokens, msg.usage);
           const bgCompactStdinId = bgCompactTab?.sessionMeta.stdinId;
           const bgCompactThreshold = getAutoCompactThreshold(bgCompactTab?.sessionMeta.spawnedModel);
           if (bgResultInputTokens > bgCompactThreshold && !hasAutoCompactFired(tabId) && bgCompactStdinId && msg.subtype === 'success') {
             markAutoCompactFired(tabId);
-            console.log('[TOKENICODE] Background tab auto-compact triggered:', tabId, 'inputTokens =', bgResultInputTokens);
+            console.log('[TOKENICODE] Background tab auto-compact triggered:', tabId, 'contextTokens =', bgResultInputTokens);
             const bgCompactMsgId = generateMessageId();
             const bgCompactStartedAt = Date.now();
             store.addMessage(tabId, {
@@ -1888,13 +1892,15 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
         }
 
         // Track input tokens from message_start (per-turn + cumulative total)
-        if (evt.type === 'message_start' && evt.message?.usage?.input_tokens) {
+        if (evt.type === 'message_start' && evt.message?.usage) {
           const meta = useChatStore.getState().getTab(tabId)?.sessionMeta ?? {};
-          const delta = evt.message.usage.input_tokens;
+          const delta = evt.message.usage.input_tokens || 0;
+          const promptSize = promptSizeFromUsage(evt.message.usage);
           setSessionMeta({
             inputTokens: (meta.inputTokens || 0) + delta,
             totalInputTokens: (meta.totalInputTokens || 0) + delta,
-            contextTokens: promptSizeFromUsage(evt.message.usage),
+            // 只记主代理的请求：子代理（parent_tool_use_id）有自己的上下文，不能覆盖主会话的占用
+            ...(msg.parent_tool_use_id || promptSize <= 0 ? {} : { contextTokens: promptSize }),
           });
         }
 
@@ -2746,16 +2752,21 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           }
         }
 
-        // --- Auto-compact: when input tokens exceed 80% of context window,
+        // --- Auto-compact: when the context exceeds 80% of the window,
         // automatically send /compact to prevent context overflow on the next turn.
         // Fires at most once per session to avoid infinite loops.
         // Threshold is model-aware: 160K for 200K models, 800K for 1M models.
-        const resultInputTokens = msg.usage?.input_tokens || 0;
+        // 口径：最近一次主代理请求的完整 prompt（含 cache_read / cache_creation），
+        // result 的 input_tokens 不含缓存且是整轮累加，不能直接比窗口
+        const resultInputTokens = effectiveContextTokens(
+          useChatStore.getState().getTab(tabId)?.sessionMeta.contextTokens,
+          msg.usage,
+        );
         const compactStdinId = useChatStore.getState().getTab(tabId)?.sessionMeta.stdinId;
         const fgCompactThreshold = getAutoCompactThreshold(useChatStore.getState().getTab(tabId)?.sessionMeta.spawnedModel);
         if (resultInputTokens > fgCompactThreshold && !hasAutoCompactFired(tabId) && compactStdinId && msg.subtype === 'success') {
           markAutoCompactFired(tabId);
-          console.log('[TOKENICODE] Auto-compact triggered: inputTokens =', resultInputTokens);
+          console.log('[TOKENICODE] Auto-compact triggered: contextTokens =', resultInputTokens);
           const compactMsgId = generateMessageId();
           addMessage({
             id: compactMsgId,

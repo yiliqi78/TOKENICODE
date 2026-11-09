@@ -14,7 +14,8 @@ import { AgentPanel } from '../agents/AgentPanel';
 // bridge import removed — spawn goes through sessionLifecycle module
 import { open } from '@tauri-apps/plugin-dialog';
 import { useT } from '../../lib/i18n';
-import { envFingerprint, is1MModel as isOneMillionModel, resolveModelForProvider, spawnConfigHash } from '../../lib/api-provider';
+import { envFingerprint, resolveModelForProvider, spawnConfigHash } from '../../lib/api-provider';
+import { CONTEXT_WARN_RATIO, contextWindowFor } from '../../lib/context-usage';
 import { useProviderStore } from '../../stores/providerStore';
 import { spawnSession } from '../../lib/sessionLifecycle';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
@@ -237,7 +238,7 @@ function formatApiRetryText(retry: ApiRetryStatus, t: (key: string) => string): 
 /** Activity indicator with elapsed time and token count */
 function ActivityIndicator({ activityStatus, sessionMeta, sessionStatus }: {
   activityStatus: { phase: string; toolName?: string };
-  sessionMeta: { turnStartTime?: number; outputTokens?: number; inputTokens?: number; lastProgressAt?: number; apiRetry?: ApiRetryStatus };
+  sessionMeta: { turnStartTime?: number; outputTokens?: number; inputTokens?: number; contextTokens?: number; lastProgressAt?: number; apiRetry?: ApiRetryStatus };
   sessionStatus?: string;
 }) {
   const t = useT();
@@ -271,12 +272,11 @@ function ActivityIndicator({ activityStatus, sessionMeta, sessionStatus }: {
 
   // Context pressure warning: threshold depends on model context window size
   // 1M models → warn at 600K; others at 120K (60% of 200K).
+  // 口径：最近一次主代理请求的完整 prompt（contextTokens），不是只含未命中缓存的 inputTokens
   const selectedModel = useSettingsStore((s) => s.selectedModel);
-  const resolvedModel = resolveModelForProvider(selectedModel);
-  const is1MContextModel = isOneMillionModel(resolvedModel);
-  const contextWindow = is1MContextModel ? 1_000_000 : 200_000;
-  const inputTokens = sessionMeta.inputTokens || 0;
-  const contextWarning = !isStopping && inputTokens > contextWindow * 0.6;
+  const contextWindow = contextWindowFor(selectedModel);
+  const contextTokens = sessionMeta.contextTokens || 0;
+  const contextWarning = !isStopping && contextTokens > contextWindow * CONTEXT_WARN_RATIO;
 
   // Stall detection: 120s of silence (no stream activity), not total elapsed time.
   const stallWarning = !isStopping
