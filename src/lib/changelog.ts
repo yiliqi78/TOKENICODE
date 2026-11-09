@@ -19,17 +19,20 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    // 未发布：发版时把 version / date 改成实际值
     version: '0.11.1',
     date: '2026-11-09',
     highlights: {
       zh: [
-        '运行日志自动落盘，设置 → 反馈 可一键打开日志目录、导出诊断包',
-        '日志已脱敏：不含 API Key、Token、代理密码',
+        '运行日志自动落盘，设置 → 反馈 可一键打开日志目录、导出诊断包（已脱敏）',
+        '修复 AskUserQuestion 选项回传丢失、Windows 下点路径定位失败、第三方 API 下图片无法识别',
+        '输入框右下角显示上下文占用；上下文预警与自动 /compact 改用正确口径',
+        '支持 $$...$$ LaTeX 公式；右键菜单不再溢出屏幕；文件树扫描加节点上限',
       ],
       en: [
-        'Runtime logs are now written to disk; Settings → Feedback can open the log folder and export a diagnostics bundle',
-        'Logs are redacted: no API keys, tokens or proxy passwords',
+        'Runtime logs are written to disk; Settings → Feedback can open the log folder and export a redacted diagnostics bundle',
+        'Fixed AskUserQuestion answers being lost, chat path reveal on Windows, and images not readable via third-party APIs',
+        'Context usage shown at the bottom-right of the composer; the context warning and auto /compact now use the right measure',
+        '$$...$$ LaTeX rendering; context menus stay on screen; file tree scan is capped',
       ],
     },
     categories: [
@@ -37,12 +40,52 @@ export const CHANGELOG: ChangelogEntry[] = [
         label: { zh: '新增', en: 'New' },
         items: {
           zh: [
-            '日志落盘 — Rust 与前端日志写入同一份带时间戳的文件（macOS 在 ~/Library/Logs/com.tinyzhuang.tokenicode/），单文件 5 MB 轮转、保留 5 份，排查内存暴涨 / 无响应 / 崩溃重启不再只能「重启试试」',
-            '导出诊断包 — 一个 zip 装齐最近日志、应用与 CLI 版本、系统信息、当前 Provider（仅域名）与模型、最近会话 ID，随反馈一起发给我们',
+            '日志落盘 — Rust 与前端日志写入同一份带时间戳的文件（macOS 在 ~/Library/Logs/com.tinyzhuang.tokenicode/），单文件 5 MB 轮转、保留 5 份；所有日志行写入前脱敏，不含 API Key、Token、代理密码',
+            '导出诊断包 — 设置 → 反馈 一个 zip 装齐最近日志、应用与 CLI 版本、系统信息、当前 Provider（仅域名）与模型、最近会话 ID',
+            '上下文占用 — 输入框右下角显示当前上下文百分比（≥60% 琥珀、≥85% 红），悬停看 token 数',
+            'LaTeX 公式 — 聊天与文件预览支持 $$...$$（块级与行内）；单个 $ 不触发',
           ],
           en: [
-            'Logs on disk — Rust and webview logs share one timestamped file (macOS: ~/Library/Logs/com.tinyzhuang.tokenicode/), rotated at 5 MB with 5 files kept, so memory spikes / hangs / crash-restarts are no longer "try restarting" only',
-            'Export diagnostics — one zip with recent logs, app and CLI versions, OS info, current provider (host only) and model, and the latest session id, ready to attach to feedback',
+            'Logs on disk — Rust and webview logs share one timestamped file (macOS: ~/Library/Logs/com.tinyzhuang.tokenicode/), rotated at 5 MB with 5 files kept; every line is redacted before writing, so no API keys, tokens or proxy passwords',
+            'Export diagnostics — Settings → Feedback bundles recent logs, app and CLI versions, OS info, current provider (host only) and model, and the latest session id into one zip',
+            'Context usage — the composer shows the current context percentage (amber at 60%, red at 85%); hover for token counts',
+            'LaTeX — $$...$$ renders in chat and file preview (block and inline); a single $ is left alone',
+          ],
+        },
+      },
+      {
+        label: { zh: '改进', en: 'Improved' },
+        items: {
+          zh: [
+            '上下文预警与自动 /compact 改用最近一次请求的完整 prompt 大小（含缓存命中），之前只算未命中缓存的部分，几乎不会触发',
+            '「正在启动 Agent」超过 30 秒后给出排查方向（CLI 冷启动、网络 / 代理、第三方 API 地址）',
+            '文件树一次最多读 2 万个节点，并跳过 .cache、Library、Pods、DerivedData 等缓存目录，选大目录不再把整棵树读进内存',
+            '启用第三方 Provider 时顶栏显示你在模型映射里填的原始模型 ID',
+          ],
+          en: [
+            'Context warning and auto /compact now use the full prompt size of the latest request (including cache hits); previously only uncached input tokens were counted, so they rarely fired',
+            '"Starting Agent" shows troubleshooting hints after 30 seconds (CLI cold start, network / proxy, unreachable third-party API)',
+            'File tree reads at most 20k nodes and skips cache dirs such as .cache, Library, Pods and DerivedData, so opening a huge folder no longer loads the whole tree into memory',
+            'With a third-party provider active, the top bar shows the raw model id from your mapping',
+          ],
+        },
+      },
+      {
+        label: { zh: '修复', en: 'Fixed' },
+        items: {
+          zh: [
+            'AskUserQuestion 选项回传丢失 — 以问题原文为 key 回传，CLI 不再把已选项当成「用户没回答」（感谢 @xzs125）',
+            'Windows 下聊天里点路径定位失败 — 路径分隔符统一归一；支持 路径:行号 跳到源码行（感谢 @Zeadeinsung）',
+            '图片附件在第三方 API 下无法识别 — jpeg / png / gif / webp 随消息以 base64 直接发送（单张 ≤5MB），不再依赖 Read 工具',
+            '右键菜单溢出屏幕 — 会话 / 项目 / 任务组菜单按实际尺寸夹进视口',
+            '工具卡片长行溢出 — 长路径在卡片内换行',
+          ],
+          en: [
+            'AskUserQuestion answers lost — answers are keyed by question text, so the CLI no longer treats a chosen option as "did not answer" (thanks @xzs125)',
+            'Chat path reveal on Windows — path separators are normalized; path:line jumps to the source line (thanks @Zeadeinsung)',
+            'Images not readable via third-party APIs — jpeg / png / gif / webp are sent inline as base64 (≤5MB each) instead of relying on the Read tool',
+            'Context menus overflowing the screen — session / project / group menus are clamped to the viewport',
+            'Long lines overflowing tool cards — long paths now wrap inside the card',
           ],
         },
       },

@@ -6,7 +6,7 @@ All notable changes to TOKENICODE will be documented in this file.
 
 ---
 
-## [Unreleased]
+## [0.11.1] - 2026-11-09
 
 ### 新增
 
@@ -15,6 +15,26 @@ All notable changes to TOKENICODE will be documented in this file.
   - Rust 侧 CLI 进程生命周期、spawn 参数、stdin 发送失败、权限协议、文件树扫描耗时与节点数等 118 处 `eprintln!` 全部迁到 `log::info!/warn!/error!`；前端 `console.warn/error` 与 `[TOKENICODE]` 前缀日志转发到同一份文件。
   - 所有日志行写入前脱敏（API Key、Bearer、JWT、`*_API_KEY=` / `token:` 键值、URL 密码与 `?key=` 参数）。
   - 设置 → 反馈 新增「打开日志目录」「导出诊断包」：zip 内含最近日志、应用 / CLI 版本、系统信息、当前 Provider（仅域名）与模型、最近一个会话 ID。
+
+### 改进
+
+- **上下文占用可见**（#102）—— 输入框右下角显示当前上下文占用百分比（≥60% 琥珀、≥85% 红），悬停看具体 token 数。口径改为最近一次请求的完整 prompt（含缓存命中部分）；上下文预警与自动 `/compact` 同步改用这个口径——之前只算未命中缓存的 input tokens，几乎不会触发。
+- **LaTeX 公式渲染**（#107）—— 聊天与文件预览支持 `$$...$$` 公式（块级与行内）；单个 `$` 不触发，避免「$5 和 $10」「$HOME」被当成公式。
+- **启动过慢提示** —— 「正在启动 Agent」超过 30 秒后换成带排查方向的提示（CLI 冷启动、网络 / 代理、第三方 API 地址不可达）。
+- **文件树扫描加节点上限** —— 一次最多读 2 万个节点，并跳过 `.cache`、`Library`、`Pods`、`DerivedData`、`.gradle` 等缓存目录；选家目录或巨型仓库不再把整棵树读进内存（用户反馈「内存瞬间几十 GB」的嫌疑点之一）。
+
+### 修复
+
+- **AskUserQuestion 回答丢失**（#147 by @xzs125，关联 #101 #116 #145）—— 回传答案时以问题原文为 key，CLI 不再把已选的选项当成「用户没回答」。
+- **Windows 下聊天里点路径定位失败**（#148 by @Zeadeinsung）—— 路径分隔符统一归一，工作区内文件能在右侧文件树展开定位；支持 `路径:行号` 跳到源码行；压缩包 / Office / 可执行文件交给系统默认程序打开。
+- **图片附件在第三方 API 下无法识别**（#105）—— jpeg / png / gif / webp 随消息以 base64 image block 直接发送（单张 ≤5MB），不再依赖 CLI 的 Read 工具。
+- **右键菜单溢出屏幕**（#141）—— 会话 / 项目 / 任务组右键菜单按实际尺寸夹进视口，靠近底部时自动上移。
+- **第三方 Provider 显示美化名**（#140）—— 启用第三方 Provider 时顶栏显示用户在模型映射里填的原始模型 ID。
+- **工具卡片长行溢出**（#137）—— 长路径等不可断行文本在卡片内换行，不再撑出卡片。
+
+### 内部
+
+- 新增 `lib/context-usage.ts`、`lib/menu-position.ts`、`lib/fileTypes.ts` 等纯函数模块及单测；Rust 侧新增文件树预算、图片 content 构造、诊断模块单测。
 
 ---
 
