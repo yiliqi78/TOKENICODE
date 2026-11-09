@@ -1,3 +1,4 @@
+import { promptSizeFromUsage } from '../lib/context-usage';
 import { useCallback, useRef, type MutableRefObject } from 'react';
 import { useChatStore, generateMessageId, type ChatMessage } from '../stores/chatStore';
 import { useSettingsStore, mapSessionModeToPermissionMode, getEffectiveMode, getEffectiveThinking } from '../stores/settingsStore';
@@ -907,6 +908,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           store.setSessionMeta(tabId, {
             inputTokens: (bgTab?.sessionMeta.inputTokens || 0) + delta,
             totalInputTokens: (bgTab?.sessionMeta.totalInputTokens || 0) + delta,
+            contextTokens: promptSizeFromUsage(evt.message.usage),
           });
         }
         if (evt.type === 'message_delta' && evt.usage?.output_tokens) {
@@ -1892,6 +1894,7 @@ export function useStreamProcessor(config: StreamProcessorConfig) {
           setSessionMeta({
             inputTokens: (meta.inputTokens || 0) + delta,
             totalInputTokens: (meta.totalInputTokens || 0) + delta,
+            contextTokens: promptSizeFromUsage(evt.message.usage),
           });
         }
 

@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
+import { clampMenuPosition } from '../../lib/menu-position';
 import { SessionListItem } from '../../lib/tauri-bridge';
 import { useT } from '../../lib/i18n';
 
@@ -31,6 +32,23 @@ interface SessionContextMenuProps {
   onClose: () => void;
 }
 
+/**
+ * 右键菜单落点：先按点击位置渲染，绘制前量出实际尺寸，放不下就往上 / 往左挪（#141）。
+ * 用 offsetWidth / offsetHeight 而不是 getBoundingClientRect，避免入场动画的 transform 干扰测量。
+ */
+function useViewportClampedPosition(x: number, y: number, ref: RefObject<HTMLDivElement | null>) {
+  const [pos, setPos] = useState({ left: x, top: y });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) {
+      setPos({ left: x, top: y });
+      return;
+    }
+    setPos(clampMenuPosition(x, y, el.offsetWidth, el.offsetHeight, window.innerWidth, window.innerHeight));
+  }, [x, y, ref]);
+  return pos;
+}
+
 const itemCls =
   'w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text-primary ' +
   'hover:bg-bg-secondary transition-smooth';
@@ -54,6 +72,7 @@ export function SessionContextMenu({
 }: SessionContextMenuProps) {
   const t = useT();
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuPos = useViewportClampedPosition(x, y, menuRef);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -81,7 +100,7 @@ export function SessionContextMenu({
       className="fixed z-[9999] min-w-[180px] py-1.5 rounded-xl
         bg-bg-card border border-border-subtle shadow-xl animate-fade-in
         max-h-[70vh] overflow-y-auto"
-      style={{ left: x, top: y }}
+      style={menuPos}
     >
       <button onClick={() => { onClose(); onRename(session); }} className={itemCls}>
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
@@ -212,6 +231,7 @@ export function ProjectContextMenu({
 }: ProjectContextMenuProps) {
   const t = useT();
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuPos = useViewportClampedPosition(x, y, menuRef);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -235,7 +255,7 @@ export function ProjectContextMenu({
       ref={menuRef}
       className="fixed z-[9999] min-w-[170px] py-1.5 rounded-xl
         bg-bg-card border border-border-subtle shadow-xl animate-fade-in"
-      style={{ left: x, top: y }}
+      style={menuPos}
     >
       <button onClick={() => { onClose(); onNewSession(project); }} className={itemCls}>
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none"
@@ -306,6 +326,7 @@ export function GroupContextMenu({
   onClose,
 }: GroupContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuPos = useViewportClampedPosition(x, y, menuRef);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -327,7 +348,7 @@ export function GroupContextMenu({
       ref={menuRef}
       className="fixed z-[9999] min-w-[150px] py-1.5 rounded-xl
         bg-bg-card border border-border-subtle shadow-xl animate-fade-in"
-      style={{ left: x, top: y }}
+      style={menuPos}
     >
       <button onClick={() => { onClose(); onRename(groupId); }} className={itemCls}>
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none"

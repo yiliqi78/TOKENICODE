@@ -333,6 +333,8 @@ export function ChatPanel() {
   const activityStatus = useActiveTab((t) => t.activityStatus);
   const pendingUserMessages = useActiveTab((t) => t.pendingUserMessages);
   const sidebarOpen = useSettingsStore((s) => s.sidebarOpen);
+  // 第三方 Provider 下模型 ID 是用户在映射里填的原始字符串，不做美化（#140）
+  const activeProviderId = useProviderStore((s) => s.activeProviderId);
   const toggleSidebar = useSettingsStore((s) => s.toggleSidebar);
   const toggleSecondaryPanel = useSettingsStore((s) => s.toggleSecondaryPanel);
   const agentPanelOpen = useSettingsStore((s) => s.agentPanelOpen);
@@ -489,7 +491,7 @@ export function ChatPanel() {
         <div className="flex items-center gap-3 pointer-events-none">
           {sessionMeta.model && (
             <span className="text-sm font-medium text-text-muted">
-              {getModelDisplayName(sessionMeta.model)}
+              {activeProviderId ? sessionMeta.model : getModelDisplayName(sessionMeta.model)}
             </span>
           )}
           {workingDirectory && (

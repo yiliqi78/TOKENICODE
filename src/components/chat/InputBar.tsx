@@ -3,6 +3,7 @@ import { useChatStore, useActiveTab, getActiveTabState, generateMessageId, isSes
 import { useSettingsStore, MODEL_OPTIONS, mapSessionModeToPermissionMode, setSessionModeLocal, type ThinkingLevel } from '../../stores/settingsStore';
 import { bridge, type UnifiedCommand } from '../../lib/tauri-bridge';
 import { ModelSelector } from './ModelSelector';
+import { contextUsagePercent, contextWindowFor, formatTokenCount } from '../../lib/context-usage';
 // import { ModeSelector } from './ModeSelector';
 import { FileUploadChips } from './FileUploadChips';
 import { RewindPanel } from './RewindPanel';
@@ -183,6 +184,29 @@ function PlanToggleButton() {
 /* PlanApprovalBar removed — PlanReviewCard (triggered by ExitPlanMode detection)
    is the proper plan approval UI. The fallback bar was too broad: it appeared on
    every completed session in plan/bypass mode, even without a real plan. */
+
+/** 输入框右下角的上下文占用（#102）：最近一次请求的 prompt 大小 / 模型窗口 */
+function ContextUsageBadge() {
+  const t = useT();
+  const contextTokens = useActiveTab((tab) => tab.sessionMeta.contextTokens || 0);
+  const selectedModel = useSettingsStore((s) => s.selectedModel);
+  if (contextTokens <= 0) return null;
+  const window = contextWindowFor(selectedModel);
+  const pct = contextUsagePercent(contextTokens, window);
+  const tone = pct >= 85 ? 'text-red-400' : pct >= 60 ? 'text-amber-500' : 'text-text-muted';
+  const title = t('chat.contextUsage')
+    .replace('{used}', formatTokenCount(contextTokens))
+    .replace('{window}', formatTokenCount(window))
+    .replace('{pct}', String(pct));
+  return (
+    <span
+      className={`text-[10px] tabular-nums px-1.5 py-0.5 rounded-md select-none ${tone}`}
+      title={title}
+    >
+      {t('chat.contextUsageShort').replace('{pct}', String(pct))}
+    </span>
+  );
+}
 
 export function InputBar() {
   const t = useT();
@@ -1686,6 +1710,9 @@ export function InputBar() {
 
           {/* Spacer */}
           <div className="flex-1" />
+
+          {/* Context usage (#102) */}
+          <ContextUsageBadge />
 
           {/* Plan view button */}
           <PlanToggleButton />
