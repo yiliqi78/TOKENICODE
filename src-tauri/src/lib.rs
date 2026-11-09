@@ -11,7 +11,8 @@ mod windows_ps;
 use crate::events::emit_to_frontend;
 use crate::path_access::{PathAccessManager, PathCapability};
 use commands::{
-    BypassModeMap, ManagedProcess, ProcessManager, SessionInfo, StartSessionParams, StdinManager,
+    BypassModeMap, ImageAttachment, ManagedProcess, ProcessManager, SessionInfo, StartSessionParams,
+    StdinManager,
 };
 // protocol module kept for ControlRequest (send_control_request) and tests
 use futures_util::StreamExt;
@@ -2520,7 +2521,7 @@ async fn start_claude_session(
             "type": "user",
             "message": {
                 "role": "user",
-                "content": params.prompt
+                "content": build_user_content(&params.prompt, params.images.as_deref())
             }
         });
         stdin_mgr.send(&sid, &first_msg.to_string()).await?;
@@ -2539,16 +2540,133 @@ async fn send_stdin(
     stdin_mgr: State<'_, StdinManager>,
     session_id: String,
     message: String,
+    images: Option<Vec<ImageAttachment>>,
 ) -> Result<(), String> {
     // Wrap user text in stream-json NDJSON format
     let json_msg = serde_json::json!({
         "type": "user",
         "message": {
             "role": "user",
-            "content": message
+            "content": build_user_content(&message, images.as_deref())
         }
     });
     stdin_mgr.send(&session_id, &json_msg.to_string()).await
+}
+
+/// 单张内联图片上限（Anthropic API 限制 5MB）。超限或读不到的图片跳过，正文里的路径仍在，
+/// 交给 CLI 自己 Read。
+const MAX_INLINE_IMAGE_BYTES: u64 = 5 * 1024 * 1024;
+
+/// API 支持内联的图片类型；svg / bmp / ico 不在列表里，仍只给路径。
+fn is_inline_image_media_type(media_type: &str) -> bool {
+    matches!(
+        media_type,
+        "image/jpeg" | "image/png" | "image/gif" | "image/webp"
+    )
+}
+
+/// 构造 stream-json user message 的 `content`（#105）。
+///
+/// 没有可内联的图片时返回纯字符串，与旧行为完全一致；有图片时返回
+/// `[{type:text}, {type:image, source:{base64}}...]`，让模型直接看到图片，
+/// 不依赖 CLI 的 Read 工具（第三方 API / 协议转换层下 Read 常常返不回图片块）。
+fn build_user_content(text: &str, images: Option<&[ImageAttachment]>) -> Value {
+    use base64::Engine as _;
+    let images = match images {
+        Some(list) if !list.is_empty() => list,
+        _ => return Value::String(text.to_string()),
+    };
+    let mut blocks: Vec<Value> = Vec::new();
+    if !text.trim().is_empty() {
+        blocks.push(serde_json::json!({ "type": "text", "text": text }));
+    }
+    let text_block_count = blocks.len();
+    for img in images {
+        if !is_inline_image_media_type(&img.media_type) {
+            continue;
+        }
+        let path = std::path::Path::new(&img.path);
+        let size = match std::fs::metadata(path) {
+            Ok(m) => m.len(),
+            Err(_) => continue,
+        };
+        if size == 0 || size > MAX_INLINE_IMAGE_BYTES {
+            eprintln!(
+                "[send_stdin] skip inline image {} ({} bytes, limit {})",
+                img.path, size, MAX_INLINE_IMAGE_BYTES
+            );
+            continue;
+        }
+        let bytes = match std::fs::read(path) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        blocks.push(serde_json::json!({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": img.media_type,
+                "data": base64::engine::general_purpose::STANDARD.encode(&bytes),
+            }
+        }));
+    }
+    if blocks.len() == text_block_count {
+        // 没有一张图片成功内联，退回纯字符串
+        return Value::String(text.to_string());
+    }
+    Value::Array(blocks)
+}
+
+#[cfg(test)]
+mod user_content_tests {
+    use super::{build_user_content, ImageAttachment};
+
+    fn tmp_file(name: &str, bytes: &[u8]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("tokenicode-user-content-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join(name);
+        std::fs::write(&p, bytes).unwrap();
+        p
+    }
+
+    #[test]
+    fn plain_string_without_images() {
+        assert_eq!(build_user_content("hi", None), serde_json::json!("hi"));
+        assert_eq!(build_user_content("hi", Some(&[])), serde_json::json!("hi"));
+    }
+
+    #[test]
+    fn inlines_png_as_base64_block() {
+        let p = tmp_file("a.png", b"\x89PNG fake");
+        let imgs = [ImageAttachment { path: p.to_string_lossy().into(), media_type: "image/png".into() }];
+        let v = build_user_content("look", Some(&imgs));
+        let arr = v.as_array().expect("array content");
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["type"], "text");
+        assert_eq!(arr[1]["type"], "image");
+        assert_eq!(arr[1]["source"]["media_type"], "image/png");
+        assert!(arr[1]["source"]["data"].as_str().unwrap().len() > 0);
+    }
+
+    #[test]
+    fn skips_unsupported_or_missing_images() {
+        let svg = tmp_file("a.svg", b"<svg/>");
+        let imgs = [
+            ImageAttachment { path: svg.to_string_lossy().into(), media_type: "image/svg+xml".into() },
+            ImageAttachment { path: "/definitely/missing.png".into(), media_type: "image/png".into() },
+        ];
+        assert_eq!(build_user_content("look", Some(&imgs)), serde_json::json!("look"));
+    }
+
+    #[test]
+    fn omits_empty_text_block() {
+        let p = tmp_file("b.jpg", b"jpegdata");
+        let imgs = [ImageAttachment { path: p.to_string_lossy().into(), media_type: "image/jpeg".into() }];
+        let v = build_user_content("   ", Some(&imgs));
+        let arr = v.as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["type"], "image");
+    }
 }
 
 #[tauri::command]
@@ -3822,6 +3940,48 @@ struct FileNode {
     children: Option<Vec<FileNode>>,
 }
 
+#[cfg(test)]
+mod file_tree_tests {
+    use super::{read_dir_recursive, FileNode};
+
+    fn count(nodes: &[FileNode]) -> usize {
+        nodes.iter().map(|n| 1 + n.children.as_ref().map_or(0, |c| count(c))).sum()
+    }
+
+    fn fixture() -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!("tokenicode-tree-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for d in 0..5 {
+            let dir = root.join(format!("d{}", d));
+            std::fs::create_dir_all(&dir).unwrap();
+            for f in 0..40 {
+                std::fs::write(dir.join(format!("f{}.txt", f)), b"x").unwrap();
+            }
+        }
+        std::fs::create_dir_all(root.join("node_modules").join("pkg")).unwrap();
+        std::fs::write(root.join("node_modules").join("pkg").join("index.js"), b"x").unwrap();
+        root
+    }
+
+    #[test]
+    fn unlimited_budget_reads_everything_except_ignored() {
+        let root = fixture();
+        let mut budget = usize::MAX;
+        let nodes = read_dir_recursive(&root, 0, 8, &mut budget);
+        assert_eq!(count(&nodes), 5 + 5 * 40);
+        assert!(nodes.iter().all(|n| n.name != "node_modules"));
+    }
+
+    #[test]
+    fn budget_caps_total_nodes() {
+        let root = fixture();
+        let mut budget = 50;
+        let nodes = read_dir_recursive(&root, 0, 8, &mut budget);
+        assert!(count(&nodes) <= 50, "got {} nodes", count(&nodes));
+        assert_eq!(budget, 0);
+    }
+}
+
 // ── Path access (Phase 3 §3.1) ───────────────────────────────────────────
 //
 // Frontend entry points for recording/clearing per-tab path grants. These
@@ -3871,11 +4031,35 @@ async fn read_file_tree(
     if !root.exists() {
         return Err("Directory does not exist".to_string());
     }
-    Ok(read_dir_recursive(root, 0, max_depth))
+    let mut budget = FILE_TREE_NODE_BUDGET;
+    Ok(read_dir_recursive(root, 0, max_depth, &mut budget))
 }
 
-fn read_dir_recursive(dir: &std::path::Path, current_depth: u32, max_depth: u32) -> Vec<FileNode> {
+/// 一次扫描的节点上限。用户把家目录或巨型仓库当项目打开时，深度 8 的递归会把几十万个
+/// 节点读进内存，再经 IPC 序列化一份、前端再建一份对象——这是「内存瞬间几十 GB」的来源之一。
+/// 超过上限后不再深入子目录（显示为未展开的空目录），已读到的部分照常返回。
+const FILE_TREE_NODE_BUDGET: usize = 20_000;
+
+/// 文件树里跳过的目录名：依赖 / 构建产物 / 各类缓存。点文件如 .claude、.github、.vscode 照常显示。
+const FILE_TREE_IGNORED_NAMES: &[&str] = &[
+    "node_modules", "target", "__pycache__", ".git", ".DS_Store", "Thumbs.db",
+    ".venv", "venv", ".env", "dist", "build", ".next", ".nuxt", ".parcel-cache",
+    "coverage", ".turbo", ".svelte-kit",
+    // 家目录 / 大仓库里常见的巨型缓存目录
+    ".cache", ".Trash", "Library", "Pods", "DerivedData", ".gradle", ".pnpm-store",
+    ".cargo", ".rustup", ".npm", ".yarn",
+];
+
+fn read_dir_recursive(
+    dir: &std::path::Path,
+    current_depth: u32,
+    max_depth: u32,
+    budget: &mut usize,
+) -> Vec<FileNode> {
     let mut nodes = vec![];
+    if *budget == 0 {
+        return nodes;
+    }
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(_) => return nodes,
@@ -3902,33 +4086,20 @@ fn read_dir_recursive(dir: &std::path::Path, current_depth: u32, max_depth: u32)
     entries_meta.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.2.cmp(&b.2)));
 
     for (entry, _, _) in entries_meta {
+        if *budget == 0 {
+            break;
+        }
         let name = entry.file_name().to_string_lossy().to_string();
         // Skip specific ignored dirs (but show dotfiles like .claude, .github, .vscode)
-        if name == "node_modules"
-            || name == "target"
-            || name == "__pycache__"
-            || name == ".git"
-            || name == ".DS_Store"
-            || name == "Thumbs.db"
-            || name == ".venv"
-            || name == "venv"
-            || name == ".env"
-            || name == "dist"
-            || name == "build"
-            || name == ".next"
-            || name == ".nuxt"
-            || name == ".parcel-cache"
-            || name == "coverage"
-            || name == ".turbo"
-            || name == ".svelte-kit"
-        {
+        if FILE_TREE_IGNORED_NAMES.contains(&name.as_str()) {
             continue;
         }
 
         let path = entry.path();
         let is_dir = path.is_dir();
-        let children = if is_dir && current_depth < max_depth {
-            Some(read_dir_recursive(&path, current_depth + 1, max_depth))
+        *budget -= 1;
+        let children = if is_dir && current_depth < max_depth && *budget > 0 {
+            Some(read_dir_recursive(&path, current_depth + 1, max_depth, budget))
         } else if is_dir {
             Some(vec![]) // Placeholder for unexpanded dirs
         } else {

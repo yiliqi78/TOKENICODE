@@ -235,6 +235,9 @@ function formatApiRetryText(retry: ApiRetryStatus, t: (key: string) => string): 
   return `${base.replace('{attempt}', attempt ? ` ${attempt}` : '')}${delayText}`;
 }
 
+/** 「正在启动 Agent」持续多久后换成排查提示 */
+const SLOW_START_MS = 30_000;
+
 /** Activity indicator with elapsed time and token count */
 function ActivityIndicator({ activityStatus, sessionMeta, sessionStatus }: {
   activityStatus: { phase: string; toolName?: string };
@@ -253,9 +256,14 @@ function ActivityIndicator({ activityStatus, sessionMeta, sessionStatus }: {
   const retryStatus = !isStopping ? sessionMeta.apiRetry : undefined;
   const isStarting = sessionStatus === 'running'
     && activityStatus.phase === 'idle';
+  // 启动超过 30 秒还没有任何流事件：换成带排查方向的提示，别让用户干等「正在启动」
+  const startingTooLong = isStarting
+    && !!sessionMeta.turnStartTime
+    && (now - sessionMeta.turnStartTime) > SLOW_START_MS;
   const retryText = retryStatus ? formatApiRetryText(retryStatus, t) : null;
   const phaseText = isStopping ? t('chat.stopping')
     : retryText ? retryText
+    : startingTooLong ? t('chat.startingSlow')
     : isStarting ? t('chat.startingAgent')
     : activityStatus.phase === 'thinking' ? t('chat.thinking')
     : activityStatus.phase === 'writing' ? t('chat.writing')

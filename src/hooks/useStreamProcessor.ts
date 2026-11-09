@@ -175,7 +175,7 @@ function markStdinReady(tabId: string, stdinId: string | undefined, model: strin
   }
 
   if (stdinId && pendingReady?.stdinId === stdinId) {
-    bridge.sendStdin(stdinId, pendingReady.text).catch((err) => {
+    bridge.sendStdin(stdinId, pendingReady.text, pendingReady.images).catch((err) => {
       console.error('[TOKENICODE] Failed to flush ready-gated message:', err);
       cleanupStdinRoute(stdinId);
       store.setSessionMeta(tabId, {

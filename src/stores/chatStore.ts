@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { useSessionStore } from './sessionStore';
 import type { ApiRetryStatus } from '../lib/api-retry';
 import type { FileAttachment } from '../hooks/useFileAttachments';
+import type { ImageAttachment } from '../lib/tauri-bridge';
 
 // --- Types ---
 
@@ -105,6 +106,8 @@ export interface SessionMeta {
   pendingReadyMessage?: {
     stdinId: string;
     text: string;
+    /** 随消息内联的图片附件（#105） */
+    images?: ImageAttachment[];
   };
   /** Snapshot of the working directory at session spawn time — used by Rewind and
    *  other features that need the original cwd rather than the current global value */
